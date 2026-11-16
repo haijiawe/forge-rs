@@ -257,7 +257,17 @@ bin/forge.exe chat --sandbox=read-only "写一个文件到 /tmp"   # 必须被�
   只读，`%TEMP%` 读写），CLI 在 `crates/cli/src/grants.rs` 里算出默认清单，`config.json` 的
   `sandboxAccess.read` / `.write` 可整份替换（显式空数组＝什么都不额外授予，这是唯一能要到
   最严格行为的方式）。本机实测：容器内能读到 `~/.gitconfig`，读同一目录下未授予的文件被拒
-  （`windows_reads_are_granted_only_where_asked`）。
+  （`windows_reads_are_granted_only_where_asked`）；用真实 `git config --global --get user.name`
+  端到端验证过，输出即配置里的名字。
+  授权的完整条件是"目标 + 祖先可穿过"：打开 `~/.gitconfig` 要逐组件 stat，缺 `FILE_TRAVERSE`
+  的 `git` 直接死在 `failed to stat '...\AppData\Local': Permission denied`，执行前就退出。
+  因此授权会连带祖先目录，跳过盘根（重写 `E:\` 的 DACL 实测 160 秒，且盘根本来就放行）。
+  写 DACL 会让 Windows 重算整棵子树的继承：本机实测 `%TEMP%` 9 秒、`AppData\Local` 11 秒、
+  `AppData` 20 秒、用户主目录 25 秒。每个目录每个身份只付一次——重复授权先用
+  `GetEffectiveRightsFromAclW` 问 ACL，已有就跳过（实测第二次 7.65 秒跑完 11 个集成测试）；
+  超过两秒会打印"正在为某目录首次授权"而不是装作没卡。也是因为这份成本，workspace 自身
+  只授权目录本身、不连带祖先：容器对 workspace 的祖先本来就可穿过（测试里子进程从 `%TEMP%`
+  下面读到自己的副本即是证据）。
 - 不做网络代理/防火墙规则（需要管理员）；`AllowNet=false` 在 Windows（无
   `internetClient` 能力，loopback 也一样不通）、macOS 与 landlock ABI≥4 上生效。
 - 不做容器/VM（那是另一个产品）。

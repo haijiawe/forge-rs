@@ -54,6 +54,10 @@ const TRUSTEE_IS_UNKNOWN: u32 = 0;
 const ACCESS_READ: u32 = 0x0012_0089 | 0x0012_00A0; // FILE_GENERIC_READ | EXECUTE
 /// Read, write, delete and create children.
 const ACCESS_WRITE: u32 = 0x0013_01FF; // +  FILE_GENERIC_WRITE | DELETE | FILE_DELETE_CHILD
+/// FILE_TRAVERSE | FILE_READ_ATTRIBUTES: enough to walk *through* a directory and
+/// stat it, not enough to list it. Granted on the ancestors of every allowed path.
+const ACCESS_TRAVERSE: u32 = 0x0000_0020 | 0x0000_0080;
+const NO_INHERITANCE: u32 = 0x0;
 
 const STARTF_USESTDHANDLES: u32 = 0x0000_0100;
 const EXTENDED_STARTUPINFO_PRESENT: u32 = 0x0008_0000;
@@ -193,6 +197,13 @@ extern "system" {
         old_acl: Acl,
         new_acl: *mut Acl,
     ) -> u32;
+    /// Answers "what does this DACL already allow *this* trustee", so a repeat grant
+    /// can be skipped. Skipping is not an optimisation: rewriting a directory's DACL
+    /// makes Windows re-evaluate inheritance across the whole subtree, which measured
+    /// 9 s for `%TEMP%`, 11 s for `AppData\Local`, 20 s for `AppData` and 32 s for the
+    /// profile root on this host. Paying that on every command would make the sandbox
+    /// unusable, and the ACE is already on disk after the first one.
+    fn GetEffectiveRightsFromAclW(acl: Acl, trustee: *const TrusteeW, rights: *mut u32) -> u32;
     fn InitializeProcThreadAttributeList(
         list: *mut c_void,
         count: u32,
@@ -438,12 +449,123 @@ fn transient_profile_error(hresult: i32) -> bool {
     code == ERROR_ACCESS_DENIED || code == ERROR_PATH_NOT_FOUND || code == ERROR_SHARING_VIOLATION
 }
 
+/// Grant `sid` access to `path` and the traverse rights it needs on every ancestor.
+///
+/// The ancestors matter as much as the target: on Windows a container opening
+/// `C:\Users\Ann\AppData\Local\Temp\scratch.txt` walks each component, and a component
+/// with no ACE for the package SID answers "permission denied" for the whole path. That
+/// is why granting `%TEMP%` alone produced `failed to stat 'C:/Users/Ann/AppData/Local':
+/// Permission denied` from a real `git`. Traverse is granted non-inherited and read-only,
+/// so it lets the child *reach* a path without letting it *enumerate* the parent.
+fn grant_path(path: &Path, sid: Sid, access: u32) -> CoreResult<()> {
+    let mut ancestor = path.parent();
+    while let Some(directory) = ancestor {
+        // Never touch a volume root. Rewriting `E:\`'s DACL measured 160 s, because
+        // Windows re-evaluates inheritance for every object on the volume; a root also
+        // already grants the read a container needs to cross it. If some volume root
+        // does deny it, the command fails loudly and the workaround is to name that
+        // directory in `sandboxAccess.read` — a slow surprise is worse than a clear
+        // refusal.
+        if directory.parent().is_none() {
+            debug_log(&format!(
+                "traverse {} skipped: volume root",
+                directory.display()
+            ));
+            ancestor = directory.parent();
+            continue;
+        }
+        // A failure here is not fatal on its own: some system directories refuse DACL
+        // edits to an unprivileged caller while still being reachable for the
+        // container, and the target grant below is what decides whether the command
+        // runs at all. Say so, then continue.
+        let started = std::time::Instant::now();
+        let step = grant_entry(directory, sid, ACCESS_TRAVERSE, false);
+        let elapsed = started.elapsed();
+        debug_log(&format!(
+            "traverse {} -> {} in {} ms",
+            directory.display(),
+            step.is_ok(),
+            elapsed.as_millis()
+        ));
+        // Rewriting a large directory's DACL makes Windows re-evaluate inheritance for
+        // its whole subtree: measured 9 s for %TEMP%, 20 s for AppData and 32 s for the
+        // profile root. That is paid once per directory per identity, so say what the
+        // pause is instead of looking hung.
+        if elapsed.as_millis() > 2000 {
+            eprintln!(
+                "forge: sandbox: granting read access to {} for the first time ({} ms)",
+                directory.display(),
+                elapsed.as_millis()
+            );
+        }
+        if let Err(error) = step {
+            if std::env::var_os("FORGE_SANDBOX_DEBUG").is_some() {
+                eprintln!(
+                    "sandbox: appcontainer: traverse on {} skipped: {}",
+                    directory.display(),
+                    error.message()
+                );
+            }
+        }
+        ancestor = directory.parent();
+    }
+    grant_entry(path, sid, access, true)
+}
+
 /// Grant `sid` access to `path` by appending one inheritable ACE to its DACL.
 ///
 /// The existing DACL is preserved: `SetEntriesInAclW` merges the new entry into a
 /// copy of it, so the owner keeps their own rights. Nothing is revoked — the
 /// container's token is what makes this a restriction, not the ACL.
 fn grant(path: &Path, sid: Sid, access: u32) -> CoreResult<()> {
+    grant_path(path, sid, access)
+}
+
+/// Whether `path`'s DACL already lets `sid` do `access`.
+///
+/// This asks the ACL, not a cache of our own: the grant is durable, so the answer
+/// has to survive a restart, and only the ACL knows that.
+fn already_granted(path: &Path, sid: Sid, access: u32) -> bool {
+    let mut object = wide(path.as_os_str());
+    let mut dacl: Acl = std::ptr::null_mut();
+    let mut descriptor: *mut c_void = std::ptr::null_mut();
+    let read = unsafe {
+        GetNamedSecurityInfoW(
+            object.as_mut_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut dacl,
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if read != 0 {
+        return false;
+    }
+    let trustee = TrusteeW {
+        multiple_trustee: std::ptr::null_mut(),
+        multiple_trustee_operation: 0,
+        trustee_form: TRUSTEE_IS_SID,
+        trustee_type: TRUSTEE_IS_UNKNOWN,
+        name: sid.cast::<u16>(),
+    };
+    let mut rights: u32 = 0;
+    let status = unsafe { GetEffectiveRightsFromAclW(dacl, &trustee, &mut rights) };
+    if !descriptor.is_null() {
+        unsafe { LocalFree(descriptor) };
+    }
+    status == 0 && (rights & access) == access
+}
+
+fn grant_entry(path: &Path, sid: Sid, access: u32, inheritable: bool) -> CoreResult<()> {
+    // Already granted by an earlier command on this machine: leave the DACL alone.
+    // The write itself is what costs seconds per directory (see
+    // `GetEffectiveRightsFromAclW`'s comment), and the ACE survives process restarts.
+    if already_granted(path, sid, access) {
+        return Ok(());
+    }
     let mut object = wide(path.as_os_str());
     let mut old_dacl: Acl = std::ptr::null_mut();
     let mut descriptor: *mut c_void = std::ptr::null_mut();
@@ -473,7 +595,11 @@ fn grant(path: &Path, sid: Sid, access: u32) -> CoreResult<()> {
     let entry = ExplicitAccessW {
         access_permissions: access,
         access_mode: GRANT_ACCESS,
-        inheritance: SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+        inheritance: if inheritable {
+            SUB_CONTAINERS_AND_OBJECTS_INHERIT
+        } else {
+            NO_INHERITANCE
+        },
         trustee: TrusteeW {
             multiple_trustee: std::ptr::null_mut(),
             multiple_trustee_operation: 0,
@@ -604,15 +730,26 @@ pub fn run_in_container(spec: &WrapperSpec, program: &OsStr, args: &[String]) ->
             ),
         ));
     }
+    debug_log(&format!("profile: workspace={}", spec.workspace));
     let sid = package_sid(&spec.workspace)?;
+    debug_log("profile: obtained");
 
     let writable = spec.mode == "workspace-write";
     let outcome = (|| -> CoreResult<()> {
-        grant(
+        debug_log("grant: workspace");
+        // Only the workspace itself: the container already walks the components above
+        // it (that is how the tests' children reach a copy of themselves in %TEMP%),
+        // and granting them would rewrite the DACL of every directory up to the drive
+        // root on every fresh workspace. Extra paths are different: a tool that stats
+        // its way to `~/.gitconfig` needs read attributes on the ancestors too, so
+        // those go through `grant_path`.
+        grant_entry(
             workspace,
             sid,
             if writable { ACCESS_WRITE } else { ACCESS_READ },
+            true,
         )?;
+        debug_log("grant: extras");
         if writable {
             for extra in &spec.extra_write {
                 let path = Path::new(extra);
@@ -641,6 +778,10 @@ pub fn run_in_container(spec: &WrapperSpec, program: &OsStr, args: &[String]) ->
         }
         Ok(())
     })();
+    debug_log(&format!(
+        "grants: {:?}",
+        outcome.as_ref().err().map(|e| e.message().to_string())
+    ));
     if let Err(error) = outcome {
         unsafe { LocalFree(sid) };
         return Err(error);
@@ -804,6 +945,7 @@ pub(crate) fn helper_code() -> Option<i32> {
         Ok(spec) => spec,
         Err(error) => {
             eprintln!("forge: sandbox wrapper: bad spec: {error}");
+            debug_log(&format!("bad spec: {error}"));
             return Some(1);
         }
     };
@@ -814,18 +956,53 @@ pub(crate) fn helper_code() -> Option<i32> {
     let mut arguments = std::env::args_os().skip(1);
     let Some(program) = arguments.next() else {
         eprintln!("forge: sandbox wrapper: no program to run");
+        debug_log("no program to run");
         return Some(1);
     };
     let args: Vec<String> = arguments
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
+    debug_log(&format!(
+        "workspace={} program={} args={args:?} mode={} read={} write={} net={}",
+        spec.workspace,
+        program.to_string_lossy(),
+        spec.mode,
+        spec.extra_read.len(),
+        spec.extra_write.len(),
+        spec.allow_net
+    ));
     match run_in_container(&spec, &program, &args) {
-        Ok(code) => Some(code as i32),
+        Ok(code) => {
+            debug_log(&format!("exit code {code}"));
+            Some(code as i32)
+        }
         Err(error) => {
             // Fail closed: the caller's contract is "either confined or refused".
             eprintln!("forge: sandbox: {}", error.message());
+            debug_log(&format!("refused: {}", error.message()));
             Some(1)
         }
+    }
+}
+
+/// Append one line to `%TEMP%/forge-sandbox-wrapper.log` when `FORGE_SANDBOX_DEBUG`
+/// is set, and do nothing otherwise.
+///
+/// The wrapper's stderr is not always a place a message survives: a test harness, a
+/// service manager or a closed pipe discards it, and all that remains is a command
+/// that never ran. A file is the one channel that works in every one of those cases.
+fn debug_log(line: &str) {
+    if std::env::var_os("FORGE_SANDBOX_DEBUG").is_none() {
+        return;
+    }
+    let path = std::env::temp_dir().join("forge-sandbox-wrapper.log");
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        use std::io::Write;
+        let _ = writeln!(file, "{line}");
     }
 }
 

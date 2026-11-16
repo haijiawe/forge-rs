@@ -192,7 +192,17 @@ no `gh`. Both were rehearsed step by step locally instead (see `docs/ci.md`).
   `sandboxAccess.read` / `sandboxAccess.write` in `config.json` replaces that list
   (an explicit empty list means "grant nothing extra"). Verified on this host by
   reading `~/.gitconfig` from inside a container and failing to read an ungranted
-  file next to it (`windows_reads_are_granted_only_where_asked`). One profile per
+  file next to it (`windows_reads_are_granted_only_where_asked`), and by running a
+  real `git config --global --get user.name` inside the container, which printed the
+  configured name only after the grants existed. A granted path outside the
+  workspace also needs `FILE_TRAVERSE` on every directory above it, or the tool dies
+  on `failed to stat '...AppData\Local': Permission denied` before it opens anything
+  — so the grant walks the ancestors, skipping volume roots (rewriting `E:\`'s DACL
+  measured 160 s) and stopping where it is refused. That write is not free: Windows
+  re-evaluates inheritance for the whole subtree, measured 9 s for `%TEMP%`, 11 s for
+  `AppData\Local`, 20 s for `AppData` and 25 s for the profile root. It is paid once
+  per directory per identity — repeat grants are skipped by asking the ACL, and a
+  pause over two seconds prints what it is doing. One profile per
   workspace path is left behind in `%LOCALAPPDATA%\Packages` (permanent, keyed by
   the path); `forge doctor --prune-profiles` deletes them — 106 were removed on this
   machine, after which the count read back as 0. That service is the one unreliable

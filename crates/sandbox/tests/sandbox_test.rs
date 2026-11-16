@@ -28,9 +28,11 @@ use forge_sandbox::{new, ErrorKind, Mode, Spec};
 // be dead code when the test binary is cross-compiled to Linux or macOS.
 #[cfg(windows)]
 fn scratch(name: &str) -> PathBuf {
-    let path = std::env::temp_dir()
-        .join(format!("forge-sandbox-it-{}", std::process::id()))
-        .join(name);
+    // No pid in the path on purpose. The package identity is derived from the
+    // workspace path, so a stable path keeps the grants (and the profile) across
+    // runs: a random one would pay the one-time ACL cost of its ancestors every
+    // single run, which measured tens of seconds per directory.
+    let path = std::env::temp_dir().join("forge-sandbox-it").join(name);
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).expect("create scratch directory");
     std::fs::canonicalize(path).expect("canonical scratch directory")
@@ -344,9 +346,21 @@ fn windows_reads_are_granted_only_where_asked() {
     // own `~/.gitconfig` unless the host grants that path. This test proves the grant
     // is what makes the difference: the same child, the same directory, one spec with
     // the grant and one without.
+    //
+    // The granted file also sits three directories down, none of them granted on its
+    // own: reaching it means walking those components, which is why the grant has to
+    // include traverse on the ancestors. A real `git` failed with
+    // `failed to stat 'C:/Users/.../AppData/Local': Permission denied` until it did.
+    //
+    // This is the one test that pays Windows' one-time price: rewriting the DACL of a
+    // big directory above %TEMP% re-evaluates inheritance across its whole subtree
+    // (9-32 s per level, measured). It is paid once per machine because the paths and
+    // therefore the identity are stable, and every later run is milliseconds.
     let workspace = scratch("reads");
     let outside = scratch("reads-outside");
-    let allowed = outside.join("allowed.txt");
+    let deep = outside.join("a").join("b").join("c");
+    std::fs::create_dir_all(&deep).expect("create deep directory");
+    let allowed = deep.join("allowed.txt");
     let withheld = outside.join("withheld.txt");
     std::fs::write(&allowed, "allowed-contents").expect("write allowed file");
     std::fs::write(&withheld, "withheld-contents").expect("write withheld file");
@@ -367,8 +381,11 @@ fn windows_reads_are_granted_only_where_asked() {
         enforcer.apply(&mut command).expect("apply");
         let mut child = command.spawn().expect("spawn");
         enforcer.after_start(child.id()).expect("adopt");
+        // Generous on purpose: the first run on a machine pays Windows' one-time
+        // inheritance re-evaluation for the directories above %TEMP% (tens of seconds
+        // each). Stable paths mean that cost is paid once, then runs are milliseconds.
         assert!(
-            wait_for(&marker, Duration::from_secs(20)),
+            wait_for(&marker, Duration::from_secs(300)),
             "the contained child never reported a read result"
         );
         let outcome = std::fs::read_to_string(&marker).expect("read marker");

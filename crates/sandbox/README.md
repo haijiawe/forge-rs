@@ -35,6 +35,13 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
   Linux 的 Landlock 策略只管写、macOS 的 profile 已经 `allow file-read*`，所以那两个
   平台上是空操作）。不存在的读路径会被跳过而不是拒绝：这份清单描述的是“这台机器
   通常有什么”，机器上没有 `~/.npmrc` 不该变成沙箱拒绝启动。
+  `extra_read`/`extra_write` 里的路径还要**祖先可穿过**：Windows 上打开
+  `~/.gitconfig` 会先逐个组件 stat，缺 `FILE_TRAVERSE` 的命令死在
+  `failed to stat '...\AppData\Local': Permission denied`，一个字节都没读到，所以
+  授权会连带祖先（跳过盘根：重写 `E:\` 的 DACL 实测 160 秒）。写 DACL 会让
+  Windows 重算整棵子树的继承，实测 `%TEMP%` 9 秒、`AppData\Local` 11 秒、
+  `AppData` 20 秒、用户主目录 25 秒；每个目录每个身份只付一次（重复授权先问
+  ACL，已有就跳过），超过两秒会打印正在做什么。
 - `Support { filesystem, network, process_tree, enforced, detail }`：`detail` 必须
   说清楚缺什么。`available()` 报告能力但从不声称 `enforced`；
   `appcontainer_available()` 用无副作用的 derive 探测回答“这台 Windows 能不能造
