@@ -18,9 +18,10 @@ pub use approval::{
     AllowAll, ApprovalRequest, Approver, Decision, DecisionRecorder, Policy, PolicyFunc,
 };
 pub use builtin::{
-    all, dangerous, Dangerous, FsEdit, FsGlob, FsGrep, FsRead, FsWrite, ShellTool, TodoWriteTool,
+    all, dangerous, names, Dangerous, FsEdit, FsGlob, FsGrep, FsRead, FsWrite, Options,
+    PresentTool, SearchConfig, ShellTool, TodoWriteTool, WebFetchTool, WebSearchTool, WorktreeTool,
     CODE_AMBIGUOUS, CODE_BINARY, SHELL_CODE_BLOCKED, SHELL_CODE_EMPTY_COMMAND,
-    SHELL_CODE_EXEC_FAILED, SHELL_CODE_SANDBOX,
+    SHELL_CODE_EXEC_FAILED, SHELL_CODE_SANDBOX, WEB_CODE_BAD_CONTENT,
 };
 pub use contract::{
     decode_args, Call, Meta, Result, Tool, CODE_CANCELLED, CODE_DENIED, CODE_IO_ERROR,
@@ -98,7 +99,7 @@ mod tests {
 
     #[test]
     fn all_builtins_have_unique_sorted_specs() {
-        let registry = Registry::new(all(DefaultLimits));
+        let registry = Registry::new(all(&Options::new(DefaultLimits)));
         let names = registry.names();
         assert_eq!(
             names,
@@ -108,9 +109,39 @@ mod tests {
                 "fs_grep",
                 "fs_read",
                 "fs_write",
+                "present",
                 "shell",
-                "todo_write"
+                "todo_write",
+                "worktree"
             ]
         );
+    }
+
+    /// The platform tools appear only when their capability is configured, so a
+    /// caller can read the tool list and know what this turn can actually do.
+    #[test]
+    fn configured_capabilities_add_tools_rather_than_enabling_them() {
+        // `present` is registered even with no data directory: it degrades to
+        // the workspace and reports that, which is better than disappearing.
+        let options = Options::new(DefaultLimits);
+        let bare = names(&options);
+        assert!(bare.contains(&"present".to_string()));
+        assert!(!bare.contains(&"web_fetch".to_string()));
+
+        let mut options = Options::new(DefaultLimits);
+        let client = std::sync::Arc::new(
+            forge_net::Client::new(forge_net::ClientOptions::default()).expect("client"),
+        );
+        options.net = Some(std::sync::Arc::clone(&client));
+        let with_fetch = names(&options);
+        assert!(with_fetch.contains(&"web_fetch".to_string()));
+        assert!(!with_fetch.contains(&"web_search".to_string()));
+
+        options.search = Some(SearchConfig {
+            endpoint: "https://example.invalid/search".to_string(),
+            key: String::new(),
+        });
+        let with_search = names(&options);
+        assert!(with_search.contains(&"web_search".to_string()));
     }
 }

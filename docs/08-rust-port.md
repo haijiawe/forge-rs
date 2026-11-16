@@ -46,7 +46,7 @@ crates, few dependencies, `lto = "thin"` in release only.
 ## 2. Crate map
 
 A crate is the only dependency edge Cargo enforces at compile time, so the layer
-map is expressed as a crate graph rather than as a convention. Ten crates, one
+map is expressed as a crate graph rather than as a convention. Sixteen crates, one
 per boundary that a reviewer would want to see violated loudly:
 
 | Crate | Layer | Holds | Must not |
@@ -59,6 +59,12 @@ per boundary that a reviewer would want to see violated loudly:
 | `forge-llm` | L2 | provider contract, OpenAI-compatible SSE client | know about sessions |
 | `forge-tool` | L2 | registry, executor, policy, approvals, builtin tools | decide policy itself |
 | `forge-protocol` | L2 | wire types shared by server and UI | depend on the server |
+| `forge-net` | L1 | blocking HTTP(S) client, HTML to text, redirects | know about tools or the model |
+| `forge-store` | L2 | SQLite index, FTS search, rebuild | own the event log |
+| `forge-import` | L2 | read-only import of old session trees | overwrite an existing session |
+| `forge-subagent` | L2 | nested agent runs on their own logs | run without a depth limit |
+| `forge-mcp` | L1 | MCP stdio/HTTP client | know about sessions or tools |
+| `forge-skill` | L1 | skill frontmatter scanner | import any forge crate |
 | `forge-server` | L3 | HTTP/1.1 + WebSocket over the log | contain agent logic |
 | `forge-cli` | L3 | the `forge` binary | hold logic that belongs in a crate |
 

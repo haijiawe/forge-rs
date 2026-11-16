@@ -292,32 +292,51 @@ the session log is opened; if that fails the command exits `1` with
 The same value is passed to the agent (recorded in `session/start`) and to the
 tool executor.
 
-Seven tools are registered unconditionally. The pipeline then adds whatever the
-M5 bridges contribute, so `tools={n}` on stderr — the count of everything in the
-registry — is at least seven and grows with configuration:
+Eight tools are registered unconditionally: the seven file/process tools
+(`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`, `shell`, `todo_write`)
+and `worktree`. The pipeline then adds whatever the M5 bridges and the
+configured platform capabilities contribute, so `tools={n}` on stderr — the
+count of everything in the registry — is at least eight and grows with
+configuration:
 
 - one tool per MCP tool, named `mcp__<server>__<tool>` with `_` escaped to `__`
   and `.` to `_dot_` (§5 of [`m5-surface`](m5-surface.md)), policy `ask` in every
   mode;
 - `skill` when `skills.roots` yields at least one usable `SKILL.md`;
-- `subagent` when `subagent.maxDepth` is greater than zero.
+- `subagent` when `subagent.maxDepth` is greater than zero;
+- `web_fetch` when a network client could be built, and `web_search` as well when
+  `search.endpoint` is set (§2.5);
+- `present` always, because every command has a data directory to log a
+  presented file in.
+
+A capability that cannot be built is an **absent** tool, not one that fails: the
+model reads the tool list and knows what this turn can do. A bad `caFile` costs
+`web_fetch` and `web_search` and writes one warning to stderr.
 
 `--json` `tools` is the sorted name list of everything advertised, bridges
 included. A misconfigured MCP server or skill root is never fatal: that bridge
 contributes nothing and writes one warning to stderr. The table below is the
-policy for the seven unconditional tools.
+policy for the eight unconditional tools.
 
 | Tool | Sandbox policy `read-only` | `workspace-write` | `full-access` |
 | --- | --- | --- | --- |
 | `fs_read`, `fs_glob`, `fs_grep` | allow | allow | allow |
 | `fs_write`, `fs_edit` | deny | allow inside the workspace | allow |
 | `todo_write` | deny | allow | allow |
-| `shell` | deny | **ask** | allow |
+| `shell`, `worktree` | deny | **ask** | allow |
+| `present` | allow | allow | allow |
+| `web_fetch`, `web_search` | **ask** | **ask** | allow |
 | anything not listed | deny | deny | allow |
 
 The mode comes from `sandbox` in `config.json` (`read-only`, `workspace-write`,
 `full-access`; default `workspace-write`), and `--sandbox` overrides it for one
 invocation. It is reported on stderr as `sandbox={mode}`.
+
+`web_fetch` and `web_search` are `ask` in both confined modes on purpose: the
+sandbox forbids the child process's network, but these two run **in** the harness
+process, which is not sandboxed, so the approval prompt is the only thing between
+a model-chosen URL and the operator's network. `full-access` skips it because the
+operator has already said the turn may do anything.
 
 The model may ask for several tools in one step; the agent executes them inside
 the turn and appends `tool/call` and `tool/result` events. A tool that failed,

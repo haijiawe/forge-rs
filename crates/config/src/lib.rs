@@ -163,6 +163,22 @@ pub struct Config {
     pub subagent: SubagentConfig,
     /// Extra paths the sandboxed child may read or write.
     pub sandbox_access: SandboxAccessConfig,
+    /// Web search endpoint. Absent means `web_search` is not registered at all.
+    pub search: SearchConfig,
+}
+
+/// The search endpoint `web_search` posts to.
+///
+/// The harness deliberately has no favourite search vendor: an empty `endpoint`
+/// means the tool does not exist for this session, which is more honest than a
+/// built-in default that would silently mail the operator's queries somewhere.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SearchConfig {
+    /// Full URL of the endpoint; the request is a JSON `POST`.
+    pub endpoint: String,
+    /// Bearer token sent with the request. Empty means no `Authorization`.
+    pub key: String,
 }
 
 impl Default for Config {
@@ -198,6 +214,7 @@ impl Config {
             },
             subagent: SubagentConfig::default(),
             sandbox_access: SandboxAccessConfig::default(),
+            search: SearchConfig::default(),
         }
     }
 
@@ -287,6 +304,9 @@ impl Config {
             if access.write.is_some() {
                 self.sandbox_access.write = access.write;
             }
+        }
+        if let Some(search) = raw.search {
+            self.search = search;
         }
     }
 
@@ -589,6 +609,7 @@ struct RawConfig {
     skills: Option<RawSkillsConfig>,
     subagent: Option<RawSubagentConfig>,
     sandbox_access: Option<RawSandboxAccessConfig>,
+    search: Option<SearchConfig>,
 }
 
 #[derive(Debug, Default, Deserialize)]

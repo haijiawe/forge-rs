@@ -34,6 +34,7 @@ right way and is written down.
 | `forge-import` | L2 | read-only import of old session trees | overwrite an existing session |
 | `forge-subagent` | L2 | nested agent runs on their own logs | run without a depth limit |
 | `forge-mcp` | L1 | MCP stdio/HTTP client | know about sessions or tools |
+| `forge-net` | L1 | blocking HTTP(S) client, HTML to text, redirects | know about tools or the model |
 | `forge-skill` | L1 | skill frontmatter scanner | import any forge crate |
 | `forge-server` | L3 | HTTP/1.1 + WebSocket over the log | contain agent logic |
 | `forge-cli` | L3 | the `forge` binary | hold logic that belongs in a crate |
@@ -106,10 +107,32 @@ Nine spellings, the same nine the Go oracle froze in `docs/contracts/cli.md`:
 | `forge "<prompt>"` | a bare prompt is shorthand for `forge chat "<prompt>"` |
 
 `chat` and `web` both build their tool set through one place (`crates/cli/src/wiring.rs`):
-the seven builtin tools, every tool a configured MCP server advertises (each one with its
+the eight builtin tools (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`, `shell`,
+`todo_write`, `worktree`), `present` and the two network tools `web_fetch` and `web_search`
+(absent when the capability cannot be built — an absent tool is discoverable, one that
+always fails is not), every tool a configured MCP server advertises (each one with its
 own `ask` rule, because it runs outside forge), a `skill` tool when at least one skill is
 found, and a `subagent` tool when `subagent.maxDepth > 0`. A broken MCP entry is reported
 and skipped rather than stopping the runtime.
+
+`web_search` needs an endpoint, because there is no search provider that works without
+one. `config.json`:
+
+```json
+{
+  "search": { "endpoint": "https://search.example/v1/search", "key": "..." }
+}
+```
+
+The request is `POST {"query": "...", "count": n}` with `Authorization: Bearer <key>` when
+a key is set; the reply may hold its hits under `results`, `data`, `items`, `hits`, `web`
+or `web.results`, and each hit may spell its fields `url|link|href`,
+`title|name|heading`, `snippet|description|content|text`. Anything else is reported as
+`bad_content` with the first 400 bytes of the reply, rather than being silently read as
+"no results".
+
+Both network tools are `ask` in `read-only` and `workspace-write`: they run inside the
+harness, not inside the sandbox, so the approval prompt is the only gate.
 
 ## Verify
 

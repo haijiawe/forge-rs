@@ -18,6 +18,7 @@ forge-llm = { path = "../llm" }
 forge-session = { path = "../session" }
 forge-agent = { path = "../agent" }
 forge-tool = { path = "../tool" }
+forge-net = { path = "../net" }
 forge-server = { path = "../server" }
 forge-protocol = { path = "../protocol" }
 forge-store = { path = "../store" }

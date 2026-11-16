@@ -31,9 +31,9 @@ use forge_llm::{Provider, ToolSpec};
 use forge_mcp::{CallResult, Client, Content, Server as McpServer, ToolDef, Transport};
 use forge_skill::{scan, Set as SkillSet, Skill};
 use forge_tool::{
-    decode_args, effective_limits, merge, resolve, truncate, Call, DefaultLimits, Executor,
-    ExecutorOptions, Limits, Meta, Policy, Registry, Result as ToolResult, Rules, Tool, ACTION_ASK,
-    CODE_IO_ERROR, CODE_NOT_FOUND, CODE_OUTSIDE_WORKSPACE, CODE_TIMEOUT, ERR_BAD_ARGS,
+    decode_args, effective_limits, merge, resolve, truncate, Call, Executor, ExecutorOptions,
+    Limits, Meta, Policy, Registry, Result as ToolResult, Rules, Tool, ACTION_ASK, CODE_IO_ERROR,
+    CODE_NOT_FOUND, CODE_OUTSIDE_WORKSPACE, CODE_TIMEOUT, ERR_BAD_ARGS,
 };
 
 use serde::Deserialize;
@@ -662,7 +662,36 @@ impl forge_agent::ToolRunner for ExecutorRunner {
 pub fn build(options: BuildOptions<'_>) -> WiredTools {
     let mut notes: Notes = Vec::new();
     let logger = NoteLogger::default();
-    let registry = Arc::new(Registry::new(forge_tool::all(DefaultLimits)));
+
+    // --- Platform tools ----------------------------------------------------
+    // The network client is built once per command, not per turn: TLS roots are
+    // expensive to assemble, and a bad CA file must be reported once rather than
+    // surfacing as a failing `web_fetch` in the middle of a conversation.
+    let mut tool_options = forge_tool::Options::new(options.limits);
+    tool_options.data_dir = options.data_dir.clone();
+    match forge_net::Client::new(forge_net::ClientOptions {
+        ca_file: options.cfg.ca_file.as_deref().map(PathBuf::from),
+        ..forge_net::ClientOptions::default()
+    }) {
+        Ok(client) => {
+            let client = Arc::new(client);
+            tool_options.net = Some(Arc::clone(&client));
+            let endpoint = options.cfg.search.endpoint.trim();
+            if !endpoint.is_empty() {
+                tool_options.search = Some(forge_tool::SearchConfig {
+                    endpoint: endpoint.to_string(),
+                    key: options.cfg.search.key.clone(),
+                });
+            }
+        }
+        Err(err) => {
+            // No client means no `web_fetch` and no `web_search`. Say so once:
+            // an absent tool is discoverable, a tool that always fails is not.
+            notes.push(format!("web tools disabled: {err}"));
+        }
+    }
+
+    let registry = Arc::new(Registry::new(forge_tool::all(&tool_options)));
     let mut clients: Vec<Arc<Mutex<Box<dyn Client>>>> = Vec::new();
     let mut ask_rules: Vec<forge_tool::Rule> = Vec::new();
 
@@ -870,6 +899,7 @@ fn mcp_spec(name: &str, server: &str, remote: &str, def: &ToolDef) -> ToolSpec {
 mod tests {
     use super::*;
     use forge_mcp::Error as McpError;
+    use forge_tool::DefaultLimits;
 
     /// A client stand-in that records the calls it received.
     struct FakeClient {

@@ -88,7 +88,7 @@ none of them put a compiler into our build:
 | attachments (file/image) | **Rust**, finish the declared surface | Either implement or delete the constant; §1.1 shows the current state | 
 | `schedule` | **Rust**, new L2 crate `forge-schedule` | rrule is parsing, not compute. Write a **subset** (FREQ/INTERVAL/BYDAY/BYHOUR/BYMINUTE/COUNT/UNTIL) — no dependency. *Lost:* pulling a full rrule crate (new dep, new edge) |
 | `goal` | **Rust**, new L2 crate `forge-goal` | A state machine plus a continuation loop; persisted as events, so restart keeps it |
-| plugin runtime | **Rust host + out-of-process plugins over stdio JSON-RPC** | The MCP client (`crates/mcp`, L1) already does exactly this. A plugin = MCP-shaped server plus lifecycle hooks. Language-agnostic *by construction*, zero new deps, and the sandbox already contains children. *Lost:* wasmtime (adds a large dependency and a second compile step), V8/deno_core (an order of magnitude larger than the whole binary), `cdylib` loading (ABI and version hell, and breaks `panic = "abort"`) |
+| plugin runtime | **Rust host + out-of-process plugins over stdio JSON-RPC** | The MCP client (`crates/mcp`, L1) already does exactly this, and §2.3 measured the round trip at 80 µs empty / 118 µs for 4 KB against a 1,203 ms model call. A plugin = MCP-shaped server plus lifecycle hooks. Language-agnostic *by construction*, zero new deps, and the sandbox already contains children. *Lost:* wasmtime (adds a large dependency and a second compile step), V8/deno_core (an order of magnitude larger than the whole binary), `cdylib` loading (ABI and version hell, and breaks `panic = "abort"`) |
 | plugin market | **Rust**, L2 `forge-market` | HTTP index + tarball + checksums; `ring` is already there for hashing |
 | experts, expert teams | **Rust loader** (`forge-experts`, L1) over **Markdown + YAML frontmatter** | Same shape as skills (`crates/skill` reads frontmatter today), so the format is already proven. Prompts are content, not code |
 | agent teams | **Rust**, extend `forge-subagent` into `forge-team` | Serial delegation already exists; teams add parallel workers, a shared task board and an inbox |
@@ -96,7 +96,35 @@ none of them put a compiler into our build:
 | ACP-style compression | **Rust**, new L2 `forge-context` | The interesting part is the addressing model (block ids, restore, search) and the cache ledger, not throughput |
 | image generation | **MCP**, nothing in-tree | Already possible today |
 
-### 2.3 Rejected outright
+### 2.3 What the round trip costs (measured)
+
+The obvious objection to a process boundary is latency, so it was measured before
+it was chosen. Two Node processes (parent client, child server), 2,000 sequential
+JSON-RPC calls, same machine, `process.hrtime.bigint()` around the loop:
+
+| Result payload | Per call |
+| --- | --- |
+| empty | **80.6 µs** |
+| 4 KB | **118.3 µs** |
+| 64 KB | **343.7 µs** |
+
+For scale: one model round trip to the endpoint this project measures against is
+**1,203 ms**. A plugin call is therefore 0.007% of one model call; a thousand of
+them cost 80 ms. Node's JSON path is also the slow end of the range this host will
+see — a Rust plugin skips an interpreter start and a parse of its own.
+
+So "which language is fastest" is the wrong question at this boundary: the host
+already pays microseconds, and the reason to let the plugin author choose is that
+the choice does not show up in the profile. The costs that do show up are
+distribution (can it be installed), authoring (can it be written), and containment
+(can it be stopped) — and a child process wins all three.
+
+**What this does not settle.** 80 µs is Node-to-Node with no tool work. A plugin
+doing real I/O costs whatever the I/O costs. If a future plugin needs to sit in a
+hot loop of small calls, the answer is to write it in Rust or batch the calls, not
+to move the host.
+
+### 2.4 Rejected outright
 
 - **Go for the scheduler.** No throughput argument, and it re-introduces the
   toolchain we just deleted. The one thing Go bought us was build speed, and a
@@ -178,13 +206,35 @@ bounded and stops on `blocked`.
 **P3 — platform layer (1–2 months).**
 `forge-plugin` (protocol doc + lifecycle + a reference plugin written in a
 *non-Rust* language, to prove the claim), `forge-market`, `forge-experts`,
-`forge-team`. *Acceptance:* a Python plugin and a Node plugin both load and
-answer; a market install verifies a checksum and refuses a tampered tarball; an
-expert team dispatches two members and writes their results to a shared board.
+`forge-team`. *Acceptance:* **one** complete reference plugin in Node (the language
+DSH's plugin authors already use, so its friction is the migration path) plus a
+**ten-line Python smoke test** that only proves a second runtime can join the
+protocol — two full reference plugins would be two maintenance surfaces bought to
+re-prove one property; a market install verifies a checksum and refuses a tampered
+tarball; an expert team dispatches two members and writes their results to a shared
+board.
 
 **P4 — context and content (optional).**
 `forge-context` (addressable compression), Office skills, pure-Rust document
 writers if a single-file install becomes a requirement.
+
+Why this is last rather than first, in three lines:
+
+1. **P1–P3 add; P4 changes.** Addressable compression needs block ids, restore and
+   search on top of the log, which moves `projection`, `fork` and the transcript's
+   rendering semantics. The earlier waves add siblings to the log, not new rules
+   for reading it.
+2. **The earlier waves change its inputs.** Compression policy is tuned against
+   "which sessions grow long", and `schedule`, `goal` and `team` all make sessions
+   longer. Optimising today's growth curve against tomorrow's load is how a
+   compression budget ends up wrong for the only sessions that need it.
+3. **Office is content, not architecture.** It is a skill plus a program probe:
+   zero kernel risk, doable at any time. It sits last because it is not urgent,
+   not because it is hard.
+
+**Revisit trigger.** If long sessions lose detail before the model's window is
+full, `forge-context` moves ahead of P2 — the loss is in the context window, not
+in rendering (10,001 events already scroll at 60 fps, measured in `docs/web-ui.md`).
 
 ## 6. What this does not buy
 

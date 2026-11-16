@@ -202,6 +202,12 @@ pub fn default_rules(mode: &str) -> Rules {
                 Rule::new("fs_read", "", ACTION_ALLOW),
                 Rule::new("fs_glob", "", ACTION_ALLOW),
                 Rule::new("fs_grep", "", ACTION_ALLOW),
+                Rule::new("present", "", ACTION_ALLOW),
+                // The network tools run inside the harness, not inside the
+                // sandbox, so a confined mode cannot contain them by itself:
+                // the approval prompt is the only gate there is.
+                Rule::new("web_fetch", "", ACTION_ASK),
+                Rule::new("web_search", "", ACTION_ASK),
             ],
             fallback: Decision::Deny,
             fallback_reason:
@@ -214,9 +220,13 @@ pub fn default_rules(mode: &str) -> Rules {
                 Rule::new("fs_glob", "", ACTION_ALLOW),
                 Rule::new("fs_grep", "", ACTION_ALLOW),
                 Rule::new("todo_write", "", ACTION_ALLOW),
+                Rule::new("present", "", ACTION_ALLOW),
                 Rule::new("fs_write", PATH_ANY, ACTION_ALLOW),
                 Rule::new("fs_edit", PATH_ANY, ACTION_ALLOW),
                 Rule::new("shell", "", ACTION_ASK),
+                Rule::new("worktree", "", ACTION_ASK),
+                Rule::new("web_fetch", "", ACTION_ASK),
+                Rule::new("web_search", "", ACTION_ASK),
             ],
             fallback: Decision::Deny,
             fallback_reason:
@@ -620,5 +630,34 @@ mod tests {
         let (decision, reason) = rules.decide(&call);
         assert_eq!(decision, Decision::Deny);
         assert!(reason.contains("outside the workspace"), "{reason}");
+    }
+
+    /// The platform tools are gated by the mode, not by the sandbox: they run
+    /// inside the harness, so a confined mode can only put a person in front of
+    /// them. This asserts the built-in table, because a tool that no rule
+    /// mentions is denied by the fallback and would silently disappear.
+    #[test]
+    fn platform_tools_are_gated_by_the_mode() {
+        let call = |tool: &str| Call::new("c", tool, serde_json::json!({}), "/ws");
+
+        let read_only = default_rules("read-only");
+        assert_eq!(read_only.decide(&call("present")).0, Decision::Allow);
+        assert_eq!(read_only.decide(&call("web_fetch")).0, Decision::Ask);
+        assert_eq!(read_only.decide(&call("web_search")).0, Decision::Ask);
+        assert_eq!(read_only.decide(&call("worktree")).0, Decision::Deny);
+        assert_eq!(read_only.decide(&call("shell")).0, Decision::Deny);
+
+        let workspace = default_rules("workspace-write");
+        assert_eq!(workspace.decide(&call("present")).0, Decision::Allow);
+        assert_eq!(workspace.decide(&call("web_fetch")).0, Decision::Ask);
+        assert_eq!(workspace.decide(&call("web_search")).0, Decision::Ask);
+        assert_eq!(workspace.decide(&call("worktree")).0, Decision::Ask);
+        assert_eq!(workspace.decide(&call("shell")).0, Decision::Ask);
+        assert_eq!(workspace.decide(&call("fs_read")).0, Decision::Allow);
+
+        let full = default_rules("full-access");
+        for tool in ["present", "web_fetch", "web_search", "worktree", "shell"] {
+            assert_eq!(full.decide(&call(tool)).0, Decision::Allow, "{tool}");
+        }
     }
 }

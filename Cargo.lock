@@ -133,6 +133,7 @@ dependencies = [
  "forge-import",
  "forge-llm",
  "forge-mcp",
+ "forge-net",
  "forge-protocol",
  "forge-sandbox",
  "forge-server",
@@ -216,6 +217,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "forge-net"
+version = "0.1.0"
+dependencies = [
+ "forge-core",
+ "rustls",
+ "rustls-pki-types",
+ "webpki-roots",
+]
+
+[[package]]
 name = "forge-protocol"
 version = "0.1.0"
 dependencies = [
@@ -288,6 +299,7 @@ dependencies = [
  "forge-core",
  "forge-exec",
  "forge-llm",
+ "forge-net",
  "regex",
  "serde",
  "serde_json",

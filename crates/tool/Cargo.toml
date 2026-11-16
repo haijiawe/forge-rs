@@ -10,6 +10,7 @@ license.workspace = true
 forge-core = { path = "../core" }
 forge-exec = { path = "../exec" }
 forge-llm = { path = "../llm" }
+forge-net = { path = "../net" }
 serde.workspace = true
 serde_json.workspace = true
 regex.workspace = true

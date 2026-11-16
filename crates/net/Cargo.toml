@@ -1,0 +1,13 @@
+[package]
+name = "forge-net"
+description = "blocking HTTP for tools: URLs, TLS connections, response framing, redirects"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+forge-core = { path = "../core" }
+rustls.workspace = true
+rustls-pki-types.workspace = true
+webpki-roots.workspace = true
