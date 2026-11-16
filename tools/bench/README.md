@@ -10,8 +10,8 @@ gate: cargo fmt -p forge-bench -- --check && cargo clippy -p forge-bench --all-t
 
 # forge-bench
 
-The Rust port of `archive/forge-go/scripts/bench`. Six metrics, one baseline document,
-one rule: **only `-strict` fails a regression**.
+The Rust port of the retired Go tree's `scripts/bench`. Six metrics, one baseline
+document, one rule: **only `-strict` fails a regression**.
 
 ## 做什么
 

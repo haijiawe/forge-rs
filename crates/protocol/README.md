@@ -12,7 +12,7 @@ gate: cargo run -q -p archcheck --offline
 
 ## 做什么
 
-The JSON shapes of the local API: session summaries, event pages, approval payloads, WebSocket frames, the error envelope. Ported in W4 from `archive/forge-go/internal/protocol`.
+The JSON shapes of the local API: session summaries, event pages, approval payloads, WebSocket frames, the error envelope. Ported in W4 from `forge-go/internal/protocol`.
 
 ## 公开面
 

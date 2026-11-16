@@ -68,7 +68,7 @@ UI's live stream fail in a real browser:
 - Scrolling was driven programmatically. A human flick, a trackpad, and a
   momentum scroll were not measured.
 - The transcript opens at `scrollTop: 0` for a large backlog, with a `↓ latest`
-  button — same code path as the Go build (`archive/forge-go/web/src/components/Transcript.tsx`),
-  so this is the product's design rather than a porting regression. It was
-  verified by loading an 81-event session and a 10,001-event session: both open at
-  the top.
+  button — same code path as the retired Go build (`forge-go/web/src/components/Transcript.tsx`,
+  deleted 2026-11-17), so this is the product's design rather than a porting
+  regression. It was verified by loading an 81-event session and a 10,001-event
+  session: both open at the top.

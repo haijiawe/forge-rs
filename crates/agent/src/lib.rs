@@ -1,6 +1,6 @@
 //! forge-agent — the one-turn agent loop and transcript summarizer.
 //!
-//! A port of archive/forge-go's `internal/agent` package. The event log is the only
+//! A port of forge-go's `internal/agent` package. The event log is the only
 //! truth: every turn re-projects it through `forge-session` (invariant I1), and
 //! this crate never keeps a second copy of conversation history. The tool hook
 //! is consumer-owned so no `forge-tool` dependency is needed; the W3 tool crate

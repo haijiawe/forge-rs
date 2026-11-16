@@ -4,7 +4,7 @@
 //! WebSocket fan-out; the runner owns a model call and its tool loop. Keeping
 //! this trait in the consumer (server) prevents the runner from needing to know
 //! HTTP, and lets the CLI and the e2e harness supply their own implementations.
-//! `archive/forge-go/internal/server/runner.go` is the Go oracle. This file is owned by
+//! `forge-go/internal/server/runner.go` is the Go oracle. This file is owned by
 //! the lead: an implementor reports a needed change instead of editing it.
 
 use std::path::PathBuf;

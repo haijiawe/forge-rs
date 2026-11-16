@@ -1,12 +1,15 @@
 # forge-rs
 
-A Rust rewrite of the Go tree in `../archive/forge-go`. The Go tree is the reference
-implementation: its tests are the oracle, and ported behaviour is expected to
-match it rather than to improve on it. It was archived there once the port passed
-W6 and the five capability crates were wired into the CLI; nothing in this tree
-reads it at build or test time, because the conformance cases, fixtures and
-goldens were copied in. It is documentation and a second opinion, not a
-dependency.
+A Rust rewrite of a Go implementation (`forge-go`) that was **deleted on
+2026-11-17**, after the port passed W6 and the five capability crates were wired
+into the CLI. That tree was the reference: its tests were the oracle, and ported
+behaviour is expected to match them rather than to improve on them. Removing it
+changed no test — the conformance cases, fixtures and goldens were copied into
+`tests/`, and nothing here read the Go tree at build or test time. Where a
+comment cites `forge-go/internal/...` it names a file of that retired tree, kept
+as provenance for the behaviour in question; the frozen contracts in
+`docs/contracts/` and the corpora under `tests/` are what `cargo test` checks
+against.
 
 The workspace is arranged as fifteen product crates, one per boundary that should be
 violated loudly, plus `tools/archcheck` and `tools/bench` gates. `architecture.yaml`

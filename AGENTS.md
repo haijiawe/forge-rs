@@ -1,8 +1,10 @@
 # AGENTS.md — read this before you touch a file
 
-This tree is a Rust rewrite of `../archive/forge-go` (Go). The Go tree is the **reference
-implementation**: it is frozen, it is what our tests compare against, and reading
-it is the fastest way to understand any behaviour here.
+This tree is a Rust rewrite of a Go implementation that was **deleted on
+2026-11-17**. Comments below that cite `forge-go/...` name files in that retired
+tree; they no longer resolve here, and that is expected. What the Go tree
+defined is now frozen in `docs/contracts/` and in the corpora under `tests/`,
+and those are what the tests compare against.
 
 ## Three laws
 

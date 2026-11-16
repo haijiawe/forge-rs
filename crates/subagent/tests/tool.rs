@@ -1,4 +1,4 @@
-//! Tool-surface tests mirrored from `archive/forge-go/internal/subagent/tool_test.go`.
+//! Tool-surface tests mirrored from `forge-go/internal/subagent/tool_test.go`.
 
 mod common;
 

@@ -1,4 +1,4 @@
-//! Dangerous-command detector, ported from `archive/forge-go/internal/tool/builtin/danger.go`.
+//! Dangerous-command detector, ported from `forge-go/internal/tool/builtin/danger.go`.
 //!
 //! This is a deny-only token matcher. It never executes anything and never turns a
 //! denied command into an ask; callers return code `blocked` with `meta["blocked"]`.

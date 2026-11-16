@@ -14,7 +14,7 @@ gate: cargo run -q -p archcheck --offline
 
 The local service: the REST routes from `docs/contracts/api.md`, the WebSocket
 event stream, and static UI hosting. Implemented in W4 by porting
-`archive/forge-go/internal/server` to the standard library — thread-per-connection,
+`forge-go/internal/server` to the standard library — thread-per-connection,
 a hand-written HTTP/1.1 reader and RFC 6455 subset, and no async runtime or
 new dependency. The only truth is the append-only session log; the HTTP layer
 writes intake records (`turn/start`, `user/message`, approval decisions) and

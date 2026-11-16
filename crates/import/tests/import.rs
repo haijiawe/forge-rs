@@ -1,4 +1,4 @@
-//! Port of archive/forge-go internal/import/{detect,mapping,write}_test.go.
+//! Port of forge-go internal/import/{detect,mapping,write}_test.go.
 //!
 //! Every fixture lives under `tests/fixtures`: no test reads the Go tree at
 //! runtime. The tests go through the public API and reparse the bytes `write`

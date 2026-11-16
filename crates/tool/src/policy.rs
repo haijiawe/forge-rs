@@ -1,4 +1,4 @@
-//! Ordered policy rules, ported from `archive/forge-go/internal/tool/policy.go`.
+//! Ordered policy rules, ported from `forge-go/internal/tool/policy.go`.
 
 use std::fmt;
 

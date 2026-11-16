@@ -1,4 +1,4 @@
-//! Five filesystem builtins, ported from `archive/forge-go/internal/tool/builtin/fs.go`.
+//! Five filesystem builtins, ported from `forge-go/internal/tool/builtin/fs.go`.
 
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read};

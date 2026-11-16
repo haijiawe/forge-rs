@@ -1,6 +1,6 @@
 //! `forge web` — serve the browser UI on loopback.
 //!
-//! Layer L3. Ported from `archive/forge-go/cmd/forge/web.go`. The server owns every log
+//! Layer L3. Ported from `forge-go/cmd/forge/web.go`. The server owns every log
 //! append; this runner owns only the model loop and answering approvals by
 //! polling the log through a DecisionWatcher. Prompt events are written by the
 //! HTTP layer, so the agent adopts the open turn (`prompt_recorded = true`).

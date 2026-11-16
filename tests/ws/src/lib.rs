@@ -2,7 +2,7 @@
 //! Language-neutral golden WebSocket transcript runner for the Rust port.
 //!
 //! The corpus is a byte-for-byte mirror of the Go oracle's
-//! `archive/forge-go/tests/conformance/cases/ws` at
+//! `forge-go/tests/conformance/cases/ws` at
 //! `forge-rs/tests/conformance/cases/ws` (SHA256-verified when mirrored).
 //! Nothing in this file rewrites a case: when the Rust server disagrees with the
 //! frozen contract the assertion fails, and the disagreement is reported to the

@@ -1,5 +1,5 @@
 //! The single choke point between a model call and a tool side effect.
-//! Ported from `archive/forge-go/internal/tool/executor.go`.
+//! Ported from `forge-go/internal/tool/executor.go`.
 
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
