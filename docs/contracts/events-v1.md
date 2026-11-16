@@ -1,0 +1,547 @@
+<!--
+Porting note (Rust tree). This document was frozen while the Go implementation
+was the reference, so its code samples are Go. The behaviour it pins — the event
+envelope, the CLI surface, the HTTP/WS API, the crate surfaces — is what the Rust
+crates implement, and the language-neutral conformance corpora under
+tests/conformance/cases/ are what proves it. Read Go signatures as history:
+the Rust signatures live in the crates' README.md files.
+-->
+# forge event format, version 1
+
+Status: **normative for the v1 on-disk format.** This document is written so that
+a reimplementation in any language (Rust, TypeScript, Go, ...) can read and write
+`forge` session logs without looking at Go source. Where this document and the Go
+code disagree, the code and `tests/conformance/` are the truth and this document
+is the bug.
+
+Machine-readable companion: `tests/conformance/cases/events/*.json`. Every rule
+in this document that can be stated as input/output has at least one case there.
+A conforming implementation is one that passes every case, plus the fixture rules
+in [§11](#11-conformance-suite).
+
+The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
+
+---
+
+## 1. What a log is
+
+A session log is a file at `<dataDir>/sessions/<sessionId>.jsonl` — one flat file
+per session, not a directory per session. If a session ever needs sidecar files
+(an index, a lock, blobs), they go in `<dataDir>/sessions/<sessionId>/` and the
+log itself stays at the flat `.jsonl` path.
+
+- Encoding: UTF-8, no BOM.
+- Format: **JSON Lines** — one JSON value per line, each line terminated by a
+  single `\n` (LF, `0x0A`). `\r\n` is not written; readers MAY accept and strip
+  a trailing `\r` before parsing.
+- Each line holds exactly one **event** (the envelope, §2, plus its payload).
+- The file is **append-only** (§5). It is the single source of truth for a
+  session: no projection, cache or index may be treated as authoritative.
+- An empty file is a valid log (a session that has not started yet). A missing
+  file is treated as an empty log by a reader that is allowed to create it.
+- Blank lines (zero bytes between newlines, or only whitespace) are ignored by
+  readers and MUST NOT be written by writers. They neither advance `seq` nor
+  produce an event.
+
+---
+
+## 2. The envelope
+
+Every event is a JSON object with exactly these members. Unknown members may
+also be present (§6).
+
+| Field | JSON type | Required | Nullable | Type / range | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `v` | number (integer) | yes | no | must be `1` | Format version of this record. |
+| `seq` | number (integer) | yes | no | `1 .. 2^64-1` | Position in the log. Dense, ascending, starts at 1. |
+| `id` | string | yes | no | non-empty | Event identity. Writers use 32 lowercase hex chars (128 random bits). Readers MUST only require non-empty and unique-per-log. |
+| `ts` | number (integer) | yes | no | `> 0` | Wall-clock time of the event, **Unix epoch milliseconds, UTC**. |
+| `session` | string | yes | no | non-empty | Session id this event belongs to. Readers MUST accept any non-empty string up to the length the filesystem allows; the two shapes writers mint today are `s_` + 26 lowercase Crockford-base32 chars (`internal/server`, 128 random bits) and `<YYYYMMDD-HHMMSS>-<6 lowercase hex>` (`cmd/forge`, e.g. `20260101-120000-a1b2c3`). |
+| `turn` | number (integer) | no | no | `1 .. 2^32-1` | Turn number within the session. Omitted (not `0`) when the event is not part of a turn. |
+| `step` | number (integer) | no | no | `1 .. 2^32-1` | Step number within the turn. Omitted when not applicable; SHOULD NOT appear without `turn` (readers do not reject it). |
+| `type` | string | yes | no | non-empty | Event type, `namespace/name` (§4). |
+| `payload` | any JSON value | no | yes | valid JSON | Type-specific body. v1 writers SHOULD use an object. Omitted when there is nothing to carry. |
+
+Notes that implementations get wrong:
+
+- `v`, `seq` and `ts` are **JSON numbers, integers, no fraction and no
+  exponent**. Write `1`, never `1.0` or `1e0`. `seq` is an unsigned 64-bit
+  integer: a JavaScript implementation must use `BigInt` for `seq` (values above
+  `2^53` lose precision as `number`).
+- `turn` and `step` are omitted when zero. `"turn": 0` and `"step": 0` are not
+  written; a reader that sees them MUST treat them as absent (Go's decoder
+  leaves the field at zero, which is exactly this rule). `error_` cases exist for
+  every other required field, not for a zero turn.
+- No envelope field is nullable. An explicit `null` in `v`, `id`, `ts`,
+  `session` or `type` is a validation error, not "absent": a null `v`
+  deserialises as 0 and therefore fails the version check; null `id`/`session`/
+  `type` are empty strings; null `ts` is 0. A reader that models these fields as
+  `Option` must reject `null` rather than coerce it. `payload: null` is the one
+  accepted null (§3.6).
+- Unknown members in the envelope are **ignored**, and MAY be dropped when the
+  event is re-encoded (§6).
+
+### Example of a complete event
+
+```json
+{"v":1,"seq":7,"id":"708192a3b4c5d6e7f801122334455667","ts":1794787203302,"session":"s_01jya7c9q3r5t7v9w1x3y5z7ab","turn":1,"step":2,"type":"assistant/message","payload":{"text":"Added a retry wrapper with exponential backoff and jitter.","stopReason":"end_turn"}}
+```
+
+---
+
+## 3. Invariants
+
+A log is **valid** when every record satisfies all of the following. A reader
+MUST reject a log that violates them and MUST NOT silently repair it
+(exception: the torn tail in §8).
+
+1. **`v == 1`.** Any other value is an unsupported version (§9).
+2. **`seq` starts at 1** and is **dense and ascending**: record *n* has
+   `seq == n`. No gaps, no repeats, no reordering. `seq` is assigned by the
+   writer at append time and never reused.
+3. **`id` is non-empty** and **unique within the log**. `id` is random, so two
+   independent logs may share ids; uniqueness is per log.
+4. **`ts > 0`.** Timestamps are epoch milliseconds. They are **not** required to
+   be monotonic: a clock step backwards is possible and must not fail a read.
+   `seq`, not `ts`, defines order.
+5. **`session` is non-empty** and **identical for every record in a log.** One
+   file holds exactly one session. The Go store derives the session from the
+   file path and does not re-check each record, so a mismatch means the file was
+   merged or hand-edited: the fixture test rejects it, and a reader SHOULD treat
+   it as corruption rather than as two interleaved sessions.
+6. **`type` is non-empty.** Writers MUST use `namespace/name` in lowercase
+   (`^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)+$`, optionally deeper, e.g.
+   `tool/call`, `future/step/heartbeat`). Readers MUST NOT reject an event for a
+   `type` that does not match that shape — only an empty one is invalid. Unknown
+   types are accepted (§6).
+7. **`payload`, if present, is valid JSON.** Its shape depends on `type` and is
+   not validated by the v1 reader (§4).
+8. **The record is a JSON object.** A top-level array, string, number or boolean
+   is not an envelope.
+
+Validation error identities that a conforming implementation must be able to
+report, and the substrings the conformance cases match on:
+
+### Rejection diagnostics
+
+| Condition | Stable diagnostic substring | Go message today |
+| --- | --- | --- |
+| Not parseable as JSON (torn line, trailing garbage) | `invalid JSON` | `invalid JSON: record is not a JSON value` |
+| Parses, but is not an object with the v1 members | `does not match the v1 envelope` | `record does not match the v1 envelope: ...` |
+| `v` present but not 1 | `unsupported event version` | `session: unsupported event version %d (want %d)` |
+| `id` empty/missing/null | `empty id` | `session: event has empty id` |
+| `session` empty/missing/null | `empty session` | `session: event has empty session` |
+| `type` empty/missing/null | `empty type` | `session: event has empty type` |
+| `ts` missing, zero or negative | `empty ts` | `session: event has empty ts` |
+| `seq` gap / wrong position | `not dense` | `record %d: event seq %d is not dense (want %d)` |
+| same `id` twice in one log | `duplicate event id` | `duplicate event id %q (first seen at record %d)` |
+
+The Go messages are informative, not normative: an implementation MUST surface
+the condition, and the substring above is what the conformance suite asserts.
+
+---
+
+## 4. Event types
+
+The v1 type catalogue is **open**. These fifteen types have producers in `forge`
+today:
+
+| `type` | Emitted when | Payload members in current producers |
+| --- | --- | --- |
+| `session/start` | a session is created | `workspace`, `model`, `profile`, `startedBy`, optional `system` (only when a system prompt is configured), `systemBytes` + `systemTruncated` when that prompt exceeded 8 KiB and was clipped; a forked session's head also carries `forkedFrom`, `forkedAtSeq`, `forkedAt` (§4.1) |
+| `session/end` | a **terminal** session finishes (a child session has one; a resumable one does not — see below) | `reason` (`completed` \| `aborted`), `turns` |
+| `turn/start` | a user turn begins | `number` (the 1-based turn number; absent in older logs, where a reader falls back to arrival order) |
+| `turn/end` | a turn finishes | `reason` (`completed` \| `cancelled` \| `error`), `steps`, optional `cancelledBy` |
+| `step/start` | one model call begins inside a turn | `index` (0-based within the turn), `model` |
+| `step/end` | one model call finished | `index`, `reason` (`end_turn` \| `tool_use` \| `cancelled` \| `max_tokens` \| `error`) |
+| `llm/call` | a request is about to be sent | `model`, `messages` (count), `tools` (names), optional `temperature`, `maxTokens` |
+| `user/message` | user input is accepted (at turn start, or mid-turn by a surface that supports steering — the surface writes this row when it takes the input in, and the loop only puts the text in front of the model at the next step boundary, never a second row) | `text`, `attachments` (array) |
+| `assistant/message` | model output for a step | `text`, `stopReason` (`end_turn` \| `tool_use` \| `cancelled` \| `max_tokens` \| `error`), optional `partial`, `usage` (`inputTokens`/`outputTokens`/`cacheReadTokens`/`cacheWriteTokens`), `durationMs` |
+| `tool/call` | a tool is about to run | `callId`, `tool`, `args` (object) |
+| `tool/result` | a tool finished | `callId`, `tool`, `ok` (bool), `output`, optional `code` (when `ok` is false), `truncated`, `meta` (free-form tool facts: `exitCode`, `bytes`, `durationMs`, …) |
+| `approval/request` | a tool needs consent | `approvalId`, `callId`, `tool`, `args`, `reason`, optional `timeoutMs` |
+| `approval/decision` | the user answered | `approvalId`, `callId`, `decision` (`allow` \| `deny`), `decidedBy`, optional `note` |
+| `compaction/summary` | history is compacted | `summary`, `replaces` (`{from,to}` seq range) |
+| `error` | the harness failed a step | `message`, optional `code`, `retryable` |
+
+**Exactly one `approval/decision` per `approvalId`, written by whoever decided.** `approval/request` is always written by the agent loop — only it knows the turn and the step the consent belongs to. The decision is written by the surface that produced the answer: the CLI approvers answer inside the loop (`--approve=always`, `--approve=prompt`), so the loop records them; the browser answers over HTTP, so the request handler appends the decision *before* it replies — the consent has to be in the log before a 200 is sent, or a restart between the click and the response would lose the answer the log exists to preserve. An approver that records its own decision declares that with `tool.DecisionRecorder`, and the loop then writes only the request. Two writers would turn one click into two records and leave an audit unable to say how many times a human was asked. A *timeout* is still recorded by the loop as a `deny` with a `note`: "nobody answered" is the loop failing to get an answer, not a decision by anyone.
+
+`decidedBy` names **who** answered, not which binary wrote the record: `user` when a human answered at the HTTP surface (the browser is the user, not the process), the approver's own `Name()` for CLI approvers (`flag:--approve=always`, `prompt`), and one of `timeout` | `cancelled` | `error` when nobody answered and the loop recorded the deny. A reader that needs provenance ("was this a human or the default?") reads this field; a reader that needs the code path reads the event's neighbours.
+
+The three "nobody answered" words are kept apart because they are different
+facts, and the loop is the only writer that can tell them apart:
+
+| value | when | what an operator should conclude |
+| --- | --- | --- |
+| `timeout` | the deadline passed — nobody was at the keyboard | the question was reasonable, the human was absent |
+| `cancelled` | the turn was cancelled while the question was open | the human *withdrew* the request; nothing was denied on the merits |
+| `error` | the approver itself failed (I/O error, closed pipe) | a bug or a broken surface, not a policy decision |
+
+A writer MUST NOT name the approver in this case: a payload saying
+`decidedBy: "web"` next to `note: "no answer: context canceled"` contradicts
+itself, and an audit that cannot tell "the human said no" from "the human walked
+away" has lost the only thing it was for.
+
+**`turn/start` has more than one producer, on purpose.** Whichever surface owns the turn intake writes it: the agent loop for a CLI turn, the HTTP layer for an API turn (which must open the turn before the runner is asked to run it, so `POST /api/sessions/{id}/messages` can answer with the prompt's `seq` synchronously). Readers must not assume which surface wrote a given `turn/start`, and must not infer CLI-versus-API from it.
+
+**`session/end` belongs to terminal sessions only.** A resumable session file is **resumable**: `forge chat --session X` appends turn 2 to the same log, and a later process may append turn 3. So "the session ended" is not a fact the harness can observe for those — the process exiting is an operator event, not a domain event. Writing `session/end` when a process detaches would be a lie the next process has to contradict. Readers must therefore treat absence of `session/end` as normal, and must not use it to decide whether a resumable session is complete.
+
+A process that dies **inside** a turn leaves a `turn/start` with no `turn/end`. That is not corruption: it is the honest record of a turn that never finished, and the reader's own projection sees a `running` turn. The next process to resume the log closes it by **appending** a `turn/end` with `reason="cancelled"` and `cancelledBy="cli:recovery"` (§5 forbids the rewrite that would otherwise be tempting), and then continues with the following turn number. Nothing is invented to fill the gap: an unanswered `step/start` stays unanswered, because "this step was abandoned" is already what an open step means.
+
+The one producer is a **child session created by the `subagent` tool**: nobody can resume it (its id is returned in a tool result, not chosen by a user), so it is terminal by construction, and it writes `session/end` once with `reason` `completed` or `aborted` and the turn count it ran. A reader that wants "is this subtree finished" can rely on that; a reader that wants "is this conversation finished" still cannot.
+
+**`turn/end.reason` and `step/end.reason` are different vocabularies, on purpose.**
+A turn and a step answer different questions, so they do not share a word list:
+
+- **`turn/end.reason` — what became of the whole turn:** `completed` \|
+  `cancelled` \| `error`. A step that ran out of tokens (`max_tokens`) or ended
+  because the model asked for tools (`tool_use`) is part of a turn that
+  **completed**: the model did what it could and the turn was not a failure. A
+  writer MUST NOT copy a step-level reason into `turn/end`.
+- **`step/end.reason` — why one model call stopped:** `end_turn` \| `tool_use` \|
+  `cancelled` \| `max_tokens` \| `error`. `assistant/message.stopReason` uses the
+  same step-level list plus `error`, because a stream that fails after emitting
+  text legitimately leaves partial output behind (see `partial`).
+
+A reader branching on `turn/end.reason == "completed"` therefore counts a turn
+whose last step ended `end_turn`, `tool_use` or `max_tokens` as successful; it
+must not look for `end_turn` in `turn/end`. Conversely, "did the model stop
+because it wants a tool?" is a `step/end` (or `stopReason`) question, never a
+`turn/end` one. This asymmetry is load-bearing: collapsing the two lists is what
+made successful turns invisible to readers that expected `completed`.
+
+`step/start`, `step/end` and `llm/call` were added in M1. Adding a type is an
+**additive** change: a v1 reader that has never heard of `step/start` must skip
+it and keep reading (see §6), so their arrival did not bump the format version.
+`llm/call` records the *shape* of the request — model, message count, tool names,
+sampling knobs — and deliberately **not** the prompt text: the prompt is already
+in the log as the `user/message` / `assistant/message` / `tool/result` records it
+was built from, so storing it twice would double the log for no gain.
+
+**Payload schemas are descriptive, not yet enforced.** No v1 reader validates a
+payload; a writer that adds a member is compatible, and a reader MUST NOT reject
+an event because its payload is unexpected. This table records what the current
+Go producers emit so a reimplementation can render them; it becomes normative
+only when a schema registry lands (`internal/codec`, M0+).
+
+Tool output and subprocess output are capped (64 KB tool result, 1 MiB exec) and
+oversized payload text is truncated before it is appended, with `truncated: true`
+recorded. A reader must not assume payloads are small.
+
+### 4.1 Forked logs
+
+A fork (`forge chat --fork`, `forge session fork`) creates a **new** session whose
+log is a copy of a prefix of another session's log. A forked log is an ordinary
+v1 log: it satisfies every invariant in §3, its `seq` runs densely from `1`, and
+every record carries the child's session id. A reader needs no fork awareness to
+project it — the child's turns are simply the copied ones, and the next turn is
+one greater than the last copied turn.
+
+The copy is **verbatim** with exactly two envelope changes per copied record:
+
+1. `session` becomes the child's id;
+2. `seq` is renumbered from `1`, in the original order.
+
+`v`, `id`, `ts`, `turn`, `step`, `type` and `payload` are copied unchanged, so a
+reader can still correlate a copied record with the one in the parent, and a
+reader that checks uniqueness within one log (§9) stays honest.
+
+The **head** record is the parent's own `session/start`, copied the same way, with
+three payload members added:
+
+| Member | Type | Meaning |
+| --- | --- | --- |
+| `forkedFrom` | string | The parent's session id (the immediate parent only: a fork of a fork names its own parent). |
+| `forkedAtSeq` | integer | The parent's highest copied `seq`, i.e. the cut. |
+| `forkedAt` | integer | When the copy was made, unix milliseconds (all cross-package times are ms). |
+
+Copying the parent's `session/start` rather than synthesising a fresh one is
+deliberate: that record already carries the workspace, model, profile, `startedBy`
+and system-prompt facts the copied turns were produced under, and a synthesised
+head would silently drop them — and every member a future producer adds. Adding
+members to a payload is a compatible change (§6), so the head stays readable by a
+v1 reader that has never heard of `forkedFrom`.
+
+If the parent has **no** `session/start` (a hand-written or legacy log), the fork
+prepends a head of its own: a `session/start` carrying `forkedFrom`, `forkedAtSeq`
+and `forkedAt`, plus `workspace`, `model` and `profile` folded from the copied
+prefix so the child does not claim to have been created in an unknown directory.
+It never invents facts the parent did not have: a member that cannot be folded is
+left out.
+
+The **cut** is the last `turn/end` in the parent by default, so a fork never
+starts mid-turn and never inherits a turn nothing will close. An explicit cut must
+name an existing parent record and must not fall inside an open turn. The parent
+log is opened read-only for the whole operation: its bytes do not change, and a
+torn tail in the parent is neither read as an event nor truncated.
+
+---
+
+## 5. Append-only, never rewrite
+
+1. Records are **only appended**, at the end, one line each. An existing record
+   is never edited, reordered, renumbered or deleted.
+2. State is derived from the log; it is never written back into it. A correction
+   is a **new event**, not an edit.
+3. Compaction appends a `compaction/summary` event that describes a range of
+   earlier `seq` values. It does not remove them.
+4. `seq` values are dense for the life of the log. If a log ever appears to have
+   a gap, that is corruption: report it, do not renumber.
+5. The **only** permitted non-append write is truncating a torn tail back to the
+   last complete record during recovery (§8). That deletes no complete record.
+
+Writers MUST `fsync` before reporting success, or document the durability window
+they accept. `forge` defaults to `fsync` on every append, with an opt-out
+(`SyncEvery`, `NoFsync`) used only by benchmarks and tests.
+
+### 5.1 Compaction (`compaction/summary`)
+
+Compaction shortens what a reader renders without touching what the log holds. It
+appends **one** event and nothing else:
+
+```json
+{"summary":"turns 1-2: the agent read a.txt and answered.","replaces":{"from":2,"to":13}}
+```
+
+- `summary` is non-empty text. It is what the old range is now said to have been.
+- `replaces.from` and `replaces.to` are inclusive `seq` values naming the range
+  the summary stands in for. It is descriptive: it **never** authorises deleting
+  or editing those records, and a full replay of the log still sees them.
+
+**What may be replaced.** A writer selecting a range must satisfy all of these:
+
+1. **Turns are atomic.** A turn runs from `turn/start` to `turn/end`; a range may
+   not end inside one. A log that begins mid-turn (the tail of a longer session)
+   is read as if the first event naming a turn opened it, and a `turn/end` with no
+   `turn/start` is a one-event turn, exactly as the projection synthesises it.
+2. **Calls and results are atomic.** A `tool/call` and its matching `tool/result`
+   are one unit. If the result lies beyond the chosen cut, the cut moves back
+   before the call: a result whose call has been summarized is unusable.
+3. **A replaced range is never replaced again.** Selection starts after the last
+   `compaction/summary` event, so summaries do not nest and no `seq` is described
+   twice.
+4. **The recent tail stays verbatim.** The most recent turns (two by default) are
+   never included, so the model always sees the live edge of the conversation in
+   full.
+5. **Nothing eligible is not an error.** A short log, or one whose tool pairs
+   glue every early turn to the kept tail, produces no event at all.
+
+**What a writer refuses.** A plan whose range overlaps one an earlier summary
+already replaced, a range naming a `seq` the log does not have, or an empty
+summary is rejected with a typed error and **no bytes appended**, so a retry after
+a corrected plan cannot double-write. A successful compaction appends exactly one
+record and the dense `seq` sequence continues unbroken (§3).
+
+**How a reader renders it.** The visible conversation is the **last**
+`compaction/summary` event plus every event appended after it; older messages are
+no longer rendered. Cumulative counters are **not** reset: `turns`, `steps`, tool
+calls and token totals still describe the whole session, because compaction hides
+messages, it does not un-happen work. A reader that needs to know precisely which
+range a summary replaced reads `replaces`; a reader that ignores compaction
+entirely still loads the log, it just renders more messages.
+
+---
+
+## 6. Forward compatibility: unknown types and unknown members
+
+An old reader must survive a log written by a newer writer. Therefore:
+
+1. **Unknown `type` values MUST be accepted** and preserved. A reader that
+   understands only part of the catalogue keeps the event as an opaque record: it
+   still counts for `seq` density, still participates in ordering, and is still
+   returned by replay. It MUST NOT be dropped or turned into an error.
+2. **Unknown members inside `payload` MUST be accepted** and MUST survive a
+   decode/encode round trip unchanged. If an implementation re-encodes an event
+   whose payload it does not fully understand, the unknown members must still be
+   present with the same values. (A payload is carried as raw JSON, not
+   re-modelled through a narrower struct.)
+3. **Unknown members inside the envelope** (siblings of `v`/`seq`/...) MUST NOT
+   cause an error, but MAY be dropped on re-encode. The v1 envelope is a closed
+   set for writers, so a future envelope member is treated as a version change
+   (§9) rather than an additive tweak.
+4. **Unknown values of a known member** (e.g. a new `stopReason`) MUST NOT be
+   rejected by the store or the reader. Interpretation is projection-level: an
+   unrecognised value is carried through and rendered generically.
+5. Nothing in v1 validates payload schemas, so "unknown fields" inside a payload
+   are indistinguishable from "fields this version does not know yet" — which is
+   the point.
+
+Two conformance cases pin this: `ok_unknown_event_type` (a `future/...` type that
+must round-trip) and `ok_unknown_payload_fields` (extra payload members that must
+survive). `ok_unknown_envelope_member` asserts only that unknown envelope
+members are not an error, because dropping them is allowed.
+
+---
+
+## 7. Versioning policy
+
+- `v` states the envelope version of a **single record**, not of the file. Mixed
+  versions are not valid: a log is v1 throughout. If a writer must change
+  something a v1 reader cannot handle, it bumps `v` and starts a new log version
+  (or migrates by writing a new file).
+- **Additive changes do not bump `v`:** new event types, new payload members,
+  new payload value enumerations, and new `reason`/`status` strings.
+- **Breaking changes bump `v`:** changing a member's type or meaning, removing or
+  renaming a member, making an optional member required, changing the meaning of
+  `seq`, changing `ts` units or the id format, or adding a new envelope member
+  (§6.3).
+- A reader that meets a record with `v != 1` MUST fail closed: refuse the record
+  with `unsupported event version`, do not guess, do not partially apply it.
+- Event **types** are versioned by their `namespace` (`tool/call` in v1 stays
+  compatible forever; a redesigned variant is `tool/call2` or lives behind a `v`
+  bump).
+- `forge` itself is pre-1.0 (`0.0.0-dev`); **the event format is not** — v1 is
+  frozen as of the M0 conformance suite, and format changes after that follow the
+  rules above.
+
+> Implementation status: **done** (M0). `internal/session.Open` refuses a log
+> whose first unsupported-version record appears anywhere in it, returning
+> `session.ErrUnsupportedVersion` (`"session: event log uses an unsupported
+> format version"`), and leaves the file byte-for-byte untouched — no truncation
+> and therefore no appending after a foreign prefix. `ReadFrom` re-checks `v` on
+> every record for the same reason. Tests: `TestRefusesUnsupportedVersion`,
+> `TestRefusesVersionUpgradeMidLog` in `internal/session/version_test.go`.
+>
+> Note that recovery uses a **cheap envelope check** (`seq`, `id`, `session`,
+> `type`, `ts`), not the full `validate()` above: validating the payload of every
+> record would rescan the whole file on open, which the 10k-event budget cannot
+> afford (measured 102 ms for 39 MB / 10k events at 300 ms budget). Payload
+> validity is therefore enforced on write and on `ReadFrom`, not during recovery.
+
+---
+
+## 8. Torn tail guarantee
+
+A crash can leave the final line incomplete: no `\n`, or JSON cut mid-value. This
+is the expected failure, not corruption, and it is recoverable.
+
+**Reader rule (recovery).** Keep the longest **prefix** of complete, valid
+records:
+
+- Walk the file record by record, splitting on `\n`.
+- A record without a terminating `\n` is incomplete: stop, it is not part of the
+  prefix. (Even if its bytes happen to be valid JSON.)
+- A record that fails to parse or fails any invariant in §3 is invalid: stop; it
+  and everything after it are not part of the prefix.
+- A blank line is ignored and does not stop the scan.
+- Everything before the stopping point stays readable, in order, with its `seq`
+  values unchanged.
+
+**Writer rule (recovery, then append).** After computing the prefix, the writer
+MAY truncate the file to exactly the byte offset where the last kept record ends,
+then append new records with `seq = lastKeptSeq + 1`. This is the one permitted
+non-append write. If it does not truncate, it MUST ignore (and never read back)
+the garbage tail, and the next append must still leave the file parseable — in
+practice, truncate.
+
+Guarantees an implementation must provide:
+
+1. A torn final record never makes earlier records unreadable.
+2. Recovery never renumbers or deletes a complete record.
+3. After recovery, the log is valid again and appending continues at
+   `lastSeq + 1`.
+4. A torn **middle** record is not recoverable by this rule (it is corruption,
+   not a crash artifact); the prefix before it is still readable, and the tail is
+   lost. A writer MUST NOT silently close the gap.
+5. Recovery is idempotent: running it twice yields the same prefix and file size.
+
+Fixture: `tests/fixtures/events/v1/torn-final-line.jsonl` — six complete records
+followed by a seventh line truncated mid-JSON with no trailing newline. Opening
+it with `session.Open` must yield six events (`seq` 1..6), truncate the file to
+the six-record prefix, and let the next append produce `seq` 7.
+
+Fixture discipline (enforced by the runner): every other fixture ends its last
+record with a newline. A fixture whose tail is dropped must be torn **mid-value**
+(invalid JSON), because a real crash does not stop neatly on a value boundary —
+a dropped-but-complete JSON tail means a missing newline, and the runner fails
+rather than silently losing that fixture's last event.
+
+---
+
+## 9. Reading a log: reference algorithm
+
+```text
+read_log(path) -> list<Event>:
+    events = []
+    offset = 0                      # byte offset of the next record
+    for each chunk split by b'\n' in file(path):
+        if chunk is not terminated by b'\n':      # torn tail
+            break
+        text = chunk without trailing '\r'
+        if text is blank: offset += len(chunk)+1; continue
+        rec = parse_json(text)                    # error -> stop (invalid JSON)
+        if rec is not object                       # error -> stop (envelope)
+            stop("does not match the v1 envelope")
+        e = decode_envelope(rec)                   # missing/mistyped members
+        validate(e)                                # v, id, ts, session, type
+        if e.seq != len(events)+1: stop("not dense")
+        if e.id in seen_ids: stop("duplicate event id")
+        events.append(e); seen_ids.add(e.id)
+        offset += len(chunk)+1
+    return events, offset
+```
+
+`v != 1` stops the read with `unsupported event version` (§7). Duplicate
+detection uses the set of ids already accepted in this log, not a global set.
+
+Appending:
+
+```text
+append(store, session_id, type, payload) -> Event:
+    e.seq  = store.last_seq + 1
+    e.v    = 1
+    e.id   = 32 random lowercase hex chars      # 128 bits, CSPRNG
+    e.ts   = now() in Unix milliseconds
+    e.session = session_id
+    validate(e)
+    write(json_dumps(e) + "\n")                # one line, LF
+    fsync()                                    # per durability policy
+    store.last_seq = e.seq
+```
+
+---
+
+## 10. What is deliberately not in v1
+
+- No signatures, checksums or encryption: the log is local state, protected by
+  filesystem permissions.
+- No per-record compression, no binary framing, no length prefixes.
+- No schema registry or payload validation (see §4).
+- No log rotation: one session, one file, for the life of the session.
+- No cross-session ordering: `seq` is per log, `ts` is the only
+  cross-session hint, and it is not monotonic across processes.
+
+These are all additive later: a checksum could be a new envelope member behind a
+`v` bump, and a payload schema registry needs no format change at all.
+
+---
+
+## 11. Conformance suite
+
+- `tests/conformance/cases/events/*.json` — one case per file. Adding a case must
+  never require touching Go code.
+- `tests/fixtures/events/v1/*.jsonl` — realistic whole logs, including the torn
+  tail.
+- `tests/conformance/conformance_test.go` — the runner (Go, but it only uses the
+  public session API; a port in another language is the intended use).
+
+Case file schema (a closed schema: unknown members are a test failure, so a typo
+fails loudly):
+
+| Member | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | yes | Must equal the file stem. |
+| `description` | string | yes | Why the case exists (≥ 10 chars). |
+| `lines` | array | yes | Input log. An **object** element is compacted to one JSONL line; a **string** element is used verbatim as a raw line (for malformed input, e.g. a truncated fragment). |
+| `expect` | `"ok"` \| `"error"` | yes | Whether the input log must be accepted. |
+| `errorContains` | string | iff `expect == "error"` | Substring the diagnostic must contain (§3 table). |
+| `canonical` | array | no | Required re-encoded form, element per accepted event. Compared as **parsed JSON**, so key order and whitespace do not matter. Omitted when the contract does not fix the re-encoding. |
+
+For every `ok` case the runner additionally asserts: each line decodes to the
+envelope, `v == 1`, `seq` dense from 1, `id` non-empty and unique, `ts > 0`,
+`session` and `type` non-empty; and that decode → encode → decode is a fixed
+point with the payload byte-equal (after JSON normalisation). For every `error`
+case it asserts the failure message contains `errorContains`.
+
+A reimplementation passes when it reproduces the accept/reject decision, the
+`canonical` bytes (as parsed JSON) and the fixture behaviour of §8 for all cases.

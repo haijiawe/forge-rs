@@ -1,0 +1,106 @@
+name: ci
+
+# Runs on every push and pull request. This is the gate the repository promises
+# in AGENTS.md and README.md: formatting, lints, the architecture contract, the
+# test suite, and a web-bundle build. `release.yml` is separate because it needs
+# a tag and produces artifacts; nothing here uploads anything.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Warnings are errors in CI only: a contributor on a new rustc must be able to
+  # build, but nothing lands with a lint the gate would have caught.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    name: test ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install Rust 1.85
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.85"
+          components: rustfmt, clippy
+
+      - name: cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --offline -- -D warnings
+
+      - name: architecture contract
+        run: cargo run --quiet -p archcheck --offline
+
+      - name: cargo test
+        run: cargo test --workspace --offline
+
+  web:
+    name: web bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: install
+        working-directory: web
+        run: npm ci
+
+      - name: typecheck
+        working-directory: web
+        run: npx tsc --noEmit
+
+      - name: unit tests
+        working-directory: web
+        run: npx vitest run
+
+      - name: build
+        working-directory: web
+        run: npm run build
+
+      - name: bundle budget
+        working-directory: web
+        # docs/02 §10.1 promises a 600 KiB gzip budget for the whole JS payload;
+        # this measures the raw bundle, where 2 MB raw is the equivalent ceiling
+        # (the shipped bundle is ~266 kB raw / ~82 kB gzip).
+        run: |
+          total=$(find dist/assets -name '*.js' -printf '%s\n' | awk '{s+=$1} END {print s+0}')
+          echo "js bytes: $total"
+          if [ "$total" -gt 2000000 ]; then
+            echo "::error::web bundle is $total bytes, over the 2,000,000 byte budget"
+            exit 1
+          fi

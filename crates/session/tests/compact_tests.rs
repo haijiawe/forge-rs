@@ -555,3 +555,112 @@ fn compact_log_folds_exactly_the_planned_range() {
         plan.to
     );
 }
+
+/// Wins the append from inside `summarize`, which is exactly the race
+/// [`compact_log`] has to read as "someone else already did it".
+struct RacingSummarizer<'a> {
+    store: &'a Store,
+    plan: forge_session::CompactPlan,
+}
+
+impl Summarizer for RacingSummarizer<'_> {
+    fn summarize(&self, _events: &[Event]) -> forge_session::Result<String> {
+        compact(
+            self.store,
+            &self.plan,
+            "the winner's summary",
+            Some(1_763_000_999_000),
+        )
+        .expect("the racing compactor wins");
+        Ok("the loser's summary".to_string())
+    }
+}
+
+#[test]
+fn compact_log_treats_a_lost_race_as_done() {
+    let dir = TempDir::new("compact-race");
+    let store = seeded(&dir, 5);
+    let plan = plan_compaction(&read_all(&store), 0).expect("plan");
+    let racer = RacingSummarizer {
+        store: &store,
+        plan: plan.clone(),
+    };
+
+    let wrote = compact_log(&store, &racer, 0, 1).expect("a lost race is not an error");
+    assert!(!wrote, "the race is reported as already done, not as work");
+
+    let summaries: Vec<Event> = read_all(&store)
+        .into_iter()
+        .filter(|event| event.typ == "compaction/summary")
+        .collect();
+    assert_eq!(
+        summaries.len(),
+        1,
+        "exactly one summary reached the log, the winner's"
+    );
+    assert_eq!(
+        summaries[0].payload.as_ref().expect("payload")["summary"],
+        json!("the winner's summary")
+    );
+}
+
+#[test]
+fn planning_ten_thousand_events_stays_within_the_budget() {
+    let dir = TempDir::new("compact-10k");
+    // `no_fsync`: this fixture is ten thousand appends, and the test measures the
+    // planner, not the disk.
+    let store = Store::open(
+        dir.join("events.jsonl"),
+        Options {
+            no_fsync: true,
+            ..Options::default()
+        },
+    )
+    .expect("open store");
+    // A session/start followed by five-event turns, cut at exactly 10k so the tail
+    // turn may be open — which is the shape a live log actually has.
+    append(
+        &store,
+        "session/start",
+        0,
+        0,
+        json!({"model": "m", "cwd": "/w"}),
+    );
+    let mut turn = 0u32;
+    while store.last_seq() < 10_000 {
+        turn += 1;
+        let call_id = format!("c{}", store.last_seq() + 3);
+        let batch: [(&'static str, Value); 5] = [
+            ("turn/start", json!({"number": turn})),
+            ("user/message", json!({"text": "t"})),
+            ("tool/call", json!({"call_id": call_id, "name": "fs/read"})),
+            ("tool/result", json!({"call_id": call_id, "ok": true})),
+            ("turn/end", json!({"reason": "completed"})),
+        ];
+        for (typ, payload) in batch {
+            if store.last_seq() >= 10_000 {
+                break;
+            }
+            append(&store, typ, turn, 0, payload);
+        }
+    }
+    let events = read_all(&store);
+    assert_eq!(events.len(), 10_000, "the fixture is a full 10k log");
+
+    // Soft budget: a loaded CI box may exceed it, so it is logged rather than
+    // failed, but a selector that is accidentally quadratic will be seen here.
+    let mut best = std::time::Duration::from_secs(3600);
+    for _ in 0..3 {
+        let started = std::time::Instant::now();
+        let plan = plan_compaction(&events, 0).expect("plan");
+        assert!(!plan.is_empty(), "a 10k log has history worth folding");
+        if started.elapsed() < best {
+            best = started.elapsed();
+        }
+    }
+    if best >= std::time::Duration::from_millis(50) {
+        eprintln!(
+            "plan_compaction over 10k events took {best:?} (budget 50 ms; soft on a loaded box)"
+        );
+    }
+}

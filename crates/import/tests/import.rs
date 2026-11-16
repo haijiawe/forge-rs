@@ -113,9 +113,16 @@ fn compile_via_write(dir: &Path, session_id: &str) -> Vec<Event> {
     let mut plan = make_plan(&src).expect("make plan");
     plan.session_id = session_id.to_owned();
     let data = Scratch::new("compile");
-    let id = write(data.path(), &src, &plan).expect("write");
-    assert_eq!(id, session_id);
-    let log = data.path().join("sessions").join(format!("{id}.jsonl"));
+    let written = write(data.path(), &src, &plan).expect("write");
+    let log = data
+        .path()
+        .join("sessions")
+        .join(format!("{session_id}.jsonl"));
+    assert_eq!(
+        written,
+        log.display().to_string(),
+        "write must answer with the path it wrote"
+    );
     parse_log(&read(&log)).expect("reparse imported log")
 }
 
@@ -156,8 +163,12 @@ fn import_fixture(name: &str) -> (Scratch, PathBuf, Vec<Event>) {
     let src = detect(&fixture(name)).expect("detect fixture");
     let plan = make_plan(&src).expect("make plan");
     let data = Scratch::new("import");
-    let id = write(data.path(), &src, &plan).expect("write fixture");
-    let log = data.path().join("sessions").join(format!("{id}.jsonl"));
+    let written = write(data.path(), &src, &plan).expect("write fixture");
+    let log = data
+        .path()
+        .join("sessions")
+        .join(format!("{}.jsonl", plan.session_id));
+    assert_eq!(written, log.display().to_string());
     let events = parse_log(&read(&log)).expect("parse imported log");
     (data, log, events)
 }
@@ -998,8 +1009,12 @@ fn write_refuses_to_overwrite() {
     let src = detect(&fixture("v4-tool")).expect("detect");
     let plan = make_plan(&src).expect("plan");
     let data = Scratch::new("overwrite");
-    let id = write(data.path(), &src, &plan).expect("first write");
-    let log = data.path().join("sessions").join(format!("{id}.jsonl"));
+    let written = write(data.path(), &src, &plan).expect("first write");
+    let log = data
+        .path()
+        .join("sessions")
+        .join(format!("{}.jsonl", plan.session_id));
+    assert_eq!(written, log.display().to_string());
     let before = read(&log);
     let err = write(data.path(), &src, &plan).expect_err("second write must fail");
     assert!(is_exists(&err), "{err:?}");

@@ -86,6 +86,18 @@ pub struct CompactPlan {
 }
 
 impl CompactPlan {
+    pub fn from(&self) -> u64 {
+        self.from
+    }
+
+    pub fn to(&self) -> u64 {
+        self.to
+    }
+
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+
     /// A zero plan means "nothing worth compacting", not failure.
     pub fn is_empty(&self) -> bool {
         self.to == 0

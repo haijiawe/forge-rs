@@ -8,22 +8,18 @@
 use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use forge_agent::{
     Agent, EventLog, Options as AgentOptions, ProviderSummarizer, ToolResult as AgentToolResult,
 };
 use forge_config::Config;
-use forge_core::{Error, ErrorKind, Event, EventType, Result};
+use forge_core::{Event, EventType, Result};
 use forge_llm::{Client as LlmClient, Options as LlmOptions, Provider, Usage};
 use forge_sandbox::{mode_from_str, Mode as SandboxMode, Spec as SandboxSpec};
 use forge_session::{Projection, Store};
-use forge_tool::builtin;
-use forge_tool::executor::{Executor, ExecutorOptions};
-use forge_tool::policy::default_rules;
-use forge_tool::registry::Registry;
+use forge_tool::executor::Executor;
 use forge_tool::truncate::DefaultLimits;
-use forge_tool::{ApprovalRequest, Approver, Call as ToolCall, Policy};
+use forge_tool::{ApprovalRequest, Approver, Call as ToolCall};
 use serde_json::{json, Value};
 
 use crate::reorder_flags;
@@ -193,44 +189,7 @@ fn valid_session_id(s: &str) -> bool {
 }
 
 fn new_session_id() -> Result<String> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs() as i64;
-    // Local time is not available in core; format UTC like Go's local stamp.
-    let stamp = format_epoch_stamp(secs);
-    let mut bytes = [0u8; 3];
-    getrandom::fill(&mut bytes).map_err(|e| Error::new(ErrorKind::Io, format!("random: {e}")))?;
-    Ok(format!(
-        "{stamp}-{:02x}{:02x}{:02x}",
-        bytes[0], bytes[1], bytes[2]
-    ))
-}
-
-fn format_epoch_stamp(secs: i64) -> String {
-    // Civil-from-days conversion (UTC), enough for a sortable session id.
-    let days = secs.div_euclid(86_400);
-    let rem = secs.rem_euclid(86_400);
-    let (y, m, d) = civil_from_days(days);
-    format!(
-        "{y:04}{m:02}{d:02}-{:02}{:02}{:02}",
-        rem / 3600,
-        (rem % 3600) / 60,
-        rem % 60
-    )
-}
-
-fn civil_from_days(z: i64) -> (i64, i64, i64) {
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = mp + if mp < 10 { 3 } else { -9 };
-    (y + if m <= 2 { 1 } else { 0 }, m, d)
+    crate::new_session_id()
 }
 
 fn resolve_model(flag: &str, cfg: &Config) -> std::result::Result<String, i32> {
@@ -763,13 +722,15 @@ fn execute_turn(
     let _enforcer = forge_sandbox::new(spec, None)
         .map_err(|e| runtime_error_str(stderr, &format!("sandbox: {}", e.message())))?;
 
-    let data_dir = PathBuf::from(cfg.data_dir.trim());
-    let log_dir = if data_dir.as_os_str().is_empty() {
+    // An empty `data_dir` means "here", and every consumer below wants an actual
+    // path: the log lives in `<data_dir>/sessions`, and a subagent session has to
+    // land in the same tree rather than in whatever the process cwd happens to be.
+    let data_dir = if cfg.data_dir.trim().is_empty() {
         PathBuf::from(".")
     } else {
-        data_dir
-    }
-    .join("sessions");
+        PathBuf::from(cfg.data_dir.trim())
+    };
+    let log_dir = data_dir.join("sessions");
     std::fs::create_dir_all(&log_dir)
         .map_err(|e| runtime_error_str(stderr, &format!("create sessions dir: {e}")))?;
     let log_path = log_dir.join(format!("{session_id}.jsonl"));
@@ -881,9 +842,6 @@ fn execute_turn(
 
     let before_seq = store.last_seq();
 
-    let registry = Registry::new(builtin::all(DefaultLimits));
-    let rules = default_rules(sandbox.as_str());
-    let policy: Arc<dyn Policy> = Arc::new(rules);
     let store_log: Arc<dyn EventLog> = store.clone();
     let approver: Option<Arc<dyn Approver>> = match approve {
         ApproveMode::Never => None,
@@ -902,24 +860,32 @@ fn execute_turn(
             false,
         ))),
     };
-    let executor = Executor::new(
-        Arc::new(registry),
-        ExecutorOptions {
-            policy: Some(policy),
-            approver,
-            workspace: workspace.to_string(),
-            ..ExecutorOptions::default()
-        },
-    );
-    let tool_names = executor
-        .specs()
-        .iter()
-        .map(|s| s.name.clone())
-        .collect::<Vec<_>>();
+
+    // The registry, the policy and the external bridges (MCP servers, skills,
+    // subagent) are assembled in one place so `forge chat` and `forge web` cannot
+    // drift about which tools exist or which of them ask first.
+    let wired = crate::wiring::build(crate::wiring::BuildOptions {
+        cfg,
+        provider: Arc::clone(&provider),
+        model: model.to_string(),
+        data_dir: data_dir.clone(),
+        workspace: workspace.to_string(),
+        sandbox: sandbox.as_str().to_string(),
+        approver,
+        limits: DefaultLimits,
+        system: opts.system.clone(),
+        parent_session: session_id.to_string(),
+    });
+    for note in &wired.notes {
+        let _ = writeln!(stderr, "forge chat: {note}");
+    }
+    let tool_names = wired.names();
     let tools: Option<Arc<dyn forge_agent::ToolRunner>> = if opts.no_tools {
         None
     } else {
-        Some(Arc::new(ToolRunnerAdapter { executor }))
+        Some(Arc::new(ToolRunnerAdapter {
+            executor: wired.executor(),
+        }))
     };
 
     let _ = writeln!(

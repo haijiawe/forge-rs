@@ -6,7 +6,7 @@
 //! HTTP layer, so the agent adopts the open turn (`prompt_recorded = true`).
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -21,12 +21,9 @@ use forge_protocol::{CreateSessionRequest, CreateSessionResponse};
 use forge_sandbox::{mode_from_str, Mode as SandboxMode, Spec as SandboxSpec};
 use forge_server::{CancelToken, Options as ServerOptions, TurnContext, TurnRunner};
 use forge_session::DecisionWatcher;
-use forge_tool::builtin;
-use forge_tool::executor::{Executor, ExecutorOptions};
-use forge_tool::policy::default_rules;
-use forge_tool::registry::Registry;
+
 use forge_tool::truncate::DefaultLimits;
-use forge_tool::{ApprovalRequest, Approver, Policy};
+use forge_tool::{ApprovalRequest, Approver};
 use serde_json::json;
 
 use crate::chat::{AlwaysApprover, RecordingApprover, ToolRunnerAdapter};
@@ -267,6 +264,16 @@ impl Approver for WebApprover {
     }
 }
 
+/// What every turn needs in order to rebuild its tool set: the config the
+/// external bridges read, the data directory a subagent session must land in,
+/// and the system prompt. Bundled so `WebRunner::new` stays readable and so the
+/// four values a turn shares cannot drift apart.
+struct TurnEnv {
+    cfg: Arc<Config>,
+    data_dir: PathBuf,
+    system: String,
+}
+
 /// One turn runner per session, supplied to the server by the factory closure.
 struct WebRunner {
     server: Arc<forge_server::Server>,
@@ -275,6 +282,7 @@ struct WebRunner {
     workspace: String,
     sandbox: SandboxMode,
     approve: WebApproveMode,
+    env: TurnEnv,
     /// The agent's cancellation flag; `cancel()` flips it without appending.
     agent_cancel: Arc<Mutex<forge_agent::Cancel>>,
     /// Bridges the server's per-turn token to the agent's flag.
@@ -289,6 +297,7 @@ impl WebRunner {
         workspace: String,
         sandbox: SandboxMode,
         approve: WebApproveMode,
+        env: TurnEnv,
     ) -> Self {
         Self {
             server,
@@ -297,6 +306,7 @@ impl WebRunner {
             workspace,
             sandbox,
             approve,
+            env,
             agent_cancel: Arc::new(Mutex::new(forge_agent::Cancel::default())),
             turn_cancel: Arc::new(Mutex::new(None)),
         }
@@ -382,8 +392,6 @@ impl TurnRunner for WebRunner {
         });
         let log_path = self.server.path(session_id);
 
-        let registry = Registry::new(builtin::all(DefaultLimits));
-        let policy: Arc<dyn Policy> = Arc::new(default_rules(self.sandbox.as_str()));
         let approver: Option<Arc<dyn Approver>> = match self.approve {
             WebApproveMode::Never => None,
             WebApproveMode::Always => Some(Arc::new(RecordingApprover::new(
@@ -404,15 +412,30 @@ impl TurnRunner for WebRunner {
                 true,
             ))),
         };
-        let executor = Executor::new(
-            Arc::new(registry),
-            ExecutorOptions {
-                policy: Some(policy),
-                approver,
-                workspace: self.workspace.clone(),
-                ..ExecutorOptions::default()
-            },
-        );
+
+        // Rebuilt per turn rather than once at startup because the approver is
+        // bound to this session's log: an approval recorded in the wrong session
+        // file is worse than re-dialing an MCP server.
+        let wired = crate::wiring::build(crate::wiring::BuildOptions {
+            cfg: self.env.cfg.as_ref(),
+            provider: Arc::clone(&self.provider),
+            model: self.model.clone(),
+            data_dir: self.env.data_dir.clone(),
+            workspace: self.workspace.clone(),
+            sandbox: self.sandbox.as_str().to_string(),
+            approver,
+            limits: DefaultLimits,
+            system: self.env.system.clone(),
+            parent_session: session_id.to_string(),
+        });
+        // Diagnostics belong to the operator, but a server must never stall a
+        // turn behind a stderr write: when stderr is a pipe whose reader is slow
+        // or gone (a test harness, `2>web.log`, a service manager), the write
+        // blocks, and the turn that blocks is the one the client is waiting for.
+        // Append next to the logs instead; `forge web` prints its banner to
+        // stderr once at startup, which is the one place a caller is reading.
+        note_diagnostics(&self.env.data_dir, &wired.notes);
+        let executor = wired.executor();
         let tools: Option<Arc<dyn forge_agent::ToolRunner>> =
             Some(Arc::new(ToolRunnerAdapter { executor }));
 
@@ -454,6 +477,33 @@ impl TurnRunner for WebRunner {
             guard.cancel();
         }
         Ok(())
+    }
+}
+
+/// Appends the tool-wiring diagnostics to `<data_dir>/web.log`.
+///
+/// A skipped MCP server, a skills root that does not exist, a child process
+/// that complained: all of it is the operator's business, and none of it may
+/// cost a turn. Writing that to stderr from the turn thread is a trap — stderr
+/// is a pipe whenever a harness, a CI job or `2>file` owns it, and a pipe whose
+/// reader has stopped reading blocks the writer, which here is the turn the
+/// client is waiting on. A file has no such back-pressure.
+fn note_diagnostics(data_dir: &Path, notes: &[String]) {
+    if notes.is_empty() {
+        return;
+    }
+    let path = data_dir.join("web.log");
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    else {
+        // Nowhere to write is not a reason to fail a turn; the notes are
+        // diagnostics, not results.
+        return;
+    };
+    for note in notes {
+        let _ = writeln!(file, "forge web: {note}");
     }
 }
 
@@ -572,12 +622,23 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
 
     // The runner factory needs the server, which does not exist until after
     // Server::new; share a slot and fill it immediately after construction.
+    // The runner factory cannot see `cfg` closures cheaply, and every turn
+    // rebuilds the tool set (the approver is bound to one session log), so hand
+    // the shared pieces over as owned values.
+    let cfg = Arc::new(cfg);
+    let data_dir = if cfg.data_dir.trim().is_empty() {
+        PathBuf::from(".")
+    } else {
+        PathBuf::from(cfg.data_dir.trim())
+    };
     let server_slot: Arc<Mutex<Option<Arc<forge_server::Server>>>> = Arc::new(Mutex::new(None));
     {
         let slot = Arc::clone(&server_slot);
         let provider = Arc::clone(&provider);
         let model = model.clone();
         let workspace_str = workspace_str.clone();
+        let cfg = Arc::clone(&cfg);
+        let data_dir = data_dir.clone();
         server_options.new_runner = Some(Arc::new(move |_session_id: &str| {
             let server = slot
                 .lock()
@@ -592,6 +653,11 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
                 workspace_str.clone(),
                 sandbox,
                 approve,
+                TurnEnv {
+                    cfg: Arc::clone(&cfg),
+                    data_dir: data_dir.clone(),
+                    system: String::new(),
+                },
             )) as Arc<dyn TurnRunner>
         }));
     }
@@ -704,6 +770,39 @@ mod tests {
 
     fn args(words: &[&str]) -> Vec<String> {
         words.iter().map(|w| (*w).to_string()).collect()
+    }
+
+    /// The regression that cost a whole evening: a turn stalled forever because
+    /// the tool-wiring note was written to stderr, which was a pipe nobody was
+    /// draining. The note must land in a file, and an empty note list must not
+    /// create one.
+    #[test]
+    fn diagnostics_go_to_a_file_and_not_to_stderr() {
+        let dir = std::env::temp_dir().join(format!("forge-web-notes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        note_diagnostics(&dir, &[]);
+        assert!(
+            !dir.join("web.log").exists(),
+            "an empty note list must not create a diagnostics file"
+        );
+
+        note_diagnostics(&dir, &["skill: root missing".to_string()]);
+        note_diagnostics(&dir, &["mcp server skipped: boom".to_string()]);
+        let text = std::fs::read_to_string(dir.join("web.log")).expect("diagnostics file");
+        assert!(text.contains("forge web: skill: root missing"), "{text}");
+        assert!(
+            text.contains("forge web: mcp server skipped: boom"),
+            "{text}"
+        );
+        assert_eq!(
+            text.lines().count(),
+            2,
+            "each note is one line and appends: {text}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -110,7 +110,11 @@ pub fn write(data_dir: &Path, src: &Source, plan: &Plan) -> Result<String> {
     }
 
     commit(&temp.0, &final_path)?;
-    Ok(plan.session_id.clone())
+    // The Go oracle answers with the path it wrote (`internal/import/write.go`
+    // returns `final`), and the CLI prints it as the second stdout line. Returning
+    // the id here would make the two implementations disagree about what `Write`
+    // answers, which is exactly the kind of drift a port must not introduce.
+    Ok(final_path.display().to_string())
 }
 
 /// Contract alias for [`write`].

@@ -20,6 +20,11 @@ forge-agent = { path = "../agent" }
 forge-tool = { path = "../tool" }
 forge-server = { path = "../server" }
 forge-protocol = { path = "../protocol" }
+forge-store = { path = "../store" }
+forge-import = { path = "../import" }
+forge-mcp = { path = "../mcp" }
+forge-skill = { path = "../skill" }
+forge-subagent = { path = "../subagent" }
 getrandom.workspace = true
 ctrlc = "3.4"
 serde.workspace = true
