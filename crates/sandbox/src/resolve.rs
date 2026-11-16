@@ -64,6 +64,7 @@ pub(crate) fn resolve_spec(spec: Spec) -> CoreResult<Spec> {
         workspace: workspace.display().to_string(),
         allow_net: spec.allow_net,
         extra_write: extra,
+        wrapper: spec.wrapper.clone(),
     })
 }
 

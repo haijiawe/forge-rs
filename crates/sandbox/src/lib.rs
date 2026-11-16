@@ -22,6 +22,8 @@ mod noop;
 mod resolve;
 
 #[cfg(target_os = "windows")]
+mod appcontainer;
+#[cfg(target_os = "windows")]
 mod job_windows;
 #[cfg(target_os = "linux")]
 mod linux;
@@ -93,6 +95,11 @@ pub struct Spec {
     pub workspace: String,
     pub allow_net: bool,
     pub extra_write: Vec<String>,
+    /// The executable that hosts the re-exec wrapper, when that is not this
+    /// process. The wrapper must call [`maybe_exec_helper`] as its first
+    /// statement; `forge` does, and so does the sandbox's own test child. A
+    /// host library that embeds this crate points it at itself.
+    pub wrapper: Option<String>,
 }
 
 impl Spec {
@@ -104,6 +111,7 @@ impl Spec {
             workspace: String::new(),
             allow_net: false,
             extra_write: Vec::new(),
+            wrapper: None,
         }
     }
 }
@@ -335,14 +343,30 @@ fn current_platform() -> &'static dyn Platform {
     &unsupported::PLATFORM
 }
 
-/// The child side of the Linux Landlock enforcer, and a no-op everywhere else.
+/// The child side of the Landlock enforcer and of the Windows AppContainer
+/// enforcer, and a no-op everywhere else.
 ///
 /// The harness's `main` must call this as its first statement. When the process
-/// was started as a Landlock wrapper, this does not return: it restricts the
-/// current thread and replaces the process image with the real command.
+/// was started as a wrapper, this does not return: on Linux it restricts the
+/// current thread and replaces the process image with the real command; on
+/// Windows it starts the real command inside an AppContainer, waits for it, and
+/// exits with its status (a primary token cannot be lowered in place, so there is
+/// no exec that could carry the container).
 pub fn maybe_exec_helper() {
     #[cfg(target_os = "linux")]
     linux::maybe_exec_helper();
+    #[cfg(target_os = "windows")]
+    if let Some(code) = appcontainer::helper_code() {
+        std::process::exit(code);
+    }
+}
+
+/// Whether this host can actually install an AppContainer. Consulted by the
+/// Windows enforcer so `support()` describes the machine, not a constant, and by
+/// `forge doctor`.
+#[cfg(target_os = "windows")]
+pub fn appcontainer_available() -> bool {
+    appcontainer::available()
 }
 
 /// Whether a path is a filesystem root. `workspace-write` at `/` (or `C:\`) is
@@ -373,12 +397,14 @@ pub(crate) fn canonical_path(path: &Path) -> std::io::Result<PathBuf> {
 }
 
 /// Rewrite a command to start `program` with `prefix` arguments followed by the
-/// original argv. Used by Unix enforcers that must insert a wrapper executable.
+/// original argv. Used by enforcers that must insert a wrapper executable — the
+/// Unix ones for Landlock and `sandbox-exec`, and Windows for AppContainer, where
+/// the container can only be handed to a child at `CreateProcessW`.
 ///
 /// The environment is replayed explicitly: the exec runner has already applied
 /// its env policy with `env_clear`, and a naive `Command::new` would inherit the
 /// harness's whole environment and silently widen the child's view.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 pub(crate) fn wrap_command(
     command: &mut std::process::Command,
     program: &Path,
@@ -400,7 +426,12 @@ pub(crate) fn wrap_command(
     if let Some(dir) = dir {
         wrapped.current_dir(dir);
     }
-    wrapped.env_clear();
+    // Inherit the environment and apply only what the original command said
+    // explicitly. This used to start with `env_clear()`, which handed the wrapper an
+    // environment that was exactly the two variables the enforcer set — and a
+    // `CreateProcessW` in that wrapper then failed with `ERROR_ENVVAR_NOT_FOUND`
+    // because `SystemRoot` was not among them. The wrapper is a re-exec of the same
+    // process, not a different context.
     for (key, value) in envs {
         match value {
             Some(value) => {
@@ -611,9 +642,26 @@ mod tests {
         assert!(error.message().contains("reports no enforcement"));
     }
 
+    /// Enforcement may be claimed only when the mechanism behind it exists on this
+    /// host. This used to be `assert!(!support.enforced)` — the honest answer while the
+    /// Windows side enforced nothing. Now that an AppContainer is the mechanism, the
+    /// invariant is the one that matters: no claim without the thing that backs it.
     #[test]
-    fn available_never_claims_enforcement() {
+    fn enforcement_is_claimed_only_when_the_mechanism_exists() {
         let support = available();
-        assert!(!support.enforced);
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            support.enforced,
+            appcontainer_available(),
+            "windows must claim enforcement exactly when an AppContainer can be built"
+        );
+        // Whatever the host, a claim of enforcement that contains nothing would be
+        // the kind of lie a fail-closed sandbox exists to avoid.
+        if support.enforced {
+            assert!(
+                support.filesystem || support.network,
+                "enforcement was claimed with nothing contained: {support:?}"
+            );
+        }
     }
 }

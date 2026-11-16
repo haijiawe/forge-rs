@@ -104,10 +104,12 @@ func Available() Support
 
 | 平台 | 文件 | 手段 | 状态 |
 | --- | --- | --- | --- |
-| Windows | `windows.go` | Job Object：`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`、`JOB_OBJECT_LIMIT_PROCESS_MEMORY`、`JOB_OBJECT_LIMIT_ACTIVE_PROCESS`、`JOB_OBJECT_LIMIT_JOB_MEMORY`；`AssignProcessToJobObject` 在 `cmd.Start` 之后由 `exec` 回调 | **本机实测** |
+| Windows | `windows.go` | 两层环：Job Object（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`、`JOB_OBJECT_LIMIT_PROCESS_MEMORY`、`JOB_OBJECT_LIMIT_ACTIVE_PROCESS`、`JOB_OBJECT_LIMIT_JOB_MEMORY`；`AssignProcessToJobObject` 在 `cmd.Start` 之后由 `exec` 回调）+ AppContainer（`CreateAppContainerProfile` 得到 package SID，给它一条继承式 ACE 授予 workspace 写权限，用 `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` 在容器里起进程；`allow_net` 才追加 `internetClient` 能力）；因为 `CreateProcessW` 的 attribute list 无法由 `std::process::Command` 表达，`Apply` 把命令改写成 `forge <program> <args…>`，wrapper 在 `main` 第一句回答 `maybe_exec_helper()` | **本机实测**（写工作区成功、写同级目录被 OS 拒绝、无能力时 loopback 连接被拒） |
 | Linux | `linux.go` | `landlock_create_ruleset` + `landlock_add_rule` + `landlock_restrict_self`（原始 syscall，`x/sys/unix` 若已提供则用包），ABI ≥ 1 限制文件系统，ABI ≥ 4 限制网络 | 只编译验证（无 Linux 主机），`Support.Detail` 必须写明 "not verified on this host" |
 | macOS | `darwin.go` | 生成 `sandbox-exec` profile：`(deny default)` + 放行工作区读写 + `(deny network*)` | 只编译验证，同上 |
 | 其它/不支持 | `unsupported.go` | `New` 在要求限制时返回错误 | — |
+
+**Windows 的成本（如实写在 `Support.Detail` 与 README 里）**：AppContainer 的 package profile 按 workspace 路径命名，一个路径一个 profile，创建后长期留在 `%LOCALAPPDATA%\Packages`；容器里的进程读不到 `%USERPROFILE%` 与启动目录，所以依赖 home 目录的工具（git、npm、pip）可能失败。`CreateAppContainerProfile` 会因 profile 服务繁忙返回 `ERROR_ACCESS_DENIED`/`ERROR_PATH_NOT_FOUND`，实现里对这两个瞬时代码做 8 次退避重试（约 8 秒）——一次瞬时失败曾经让沙箱在能用的机器上拒绝执行命令。本机实测到一个更坏的形态：攒到约九十个 `forge.sandbox.*` profile 之后，profile 服务会成段时间**拒绝创建任何新名字**（新建 workspace 全线失败，而已有 profile 照常可用，几分钟后自行恢复）。因此实现分三级：**已存在就按目录 lookup 直接 derive（从不重建）→ 新建名失败则退避重试 → 仍失败则退到全用户共享的 `forge.sandbox` 身份**。共享身份仍然把命令关在授予它的目录里，但不再保证两个 workspace 彼此隔离；这层降级必须被说出来，不能静默改用。
 
 **Linux 与 macOS 的诚实要求**：`Support.Enforced` 在这两个平台只有在真的装成功后才为 `true`；
 `Support.Detail` 必须包含 "unverified on this host" 字样（本仓库没有这两台机器，说"通过"是撒谎）。
@@ -247,7 +249,10 @@ bin/forge.exe chat --sandbox=read-only "写一个文件到 /tmp"   # 必须被�
 
 ## 8. 不做（明说，不是遗漏）
 
-- 不实现"受限令牌 + ACL 重整"（Windows 上真正的降权），因为它需要管理员权限且会让 git/npm
-  这类工具莫名失败；job object 的内存/进程限制已经覆盖"一个跑飞的命令拖垮机器"这类真实事故。
-- 不做网络代理/防火墙规则（需要管理员）；`AllowNet=false` 只在 macOS 与 landlock ABI≥4 上生效。
+- 不做"受限令牌 + ACL 重整"（Windows 上另一种降权），因为它需要管理员权限且会让 git/npm
+  这类工具莫名失败；改用 AppContainer（见上表）——它不需要管理员，代价是容器里的进程
+  读不到 `%USERPROFILE%` 与启动目录，凡是要 home 目录的工具会失败，这条写在
+  `Support.Detail` 里让操作者在批准前看得见。
+- 不做网络代理/防火墙规则（需要管理员）；`AllowNet=false` 在 Windows（无
+  `internetClient` 能力，loopback 也一样不通）、macOS 与 landlock ABI≥4 上生效。
 - 不做容器/VM（那是另一个产品）。

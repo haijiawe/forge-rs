@@ -14,6 +14,10 @@ use std::process::Command;
 use std::time::Duration;
 
 fn main() {
+    // Be the sandbox wrapper when forge asks this process to be one: the Windows
+    // enforcer re-execs itself with a spec in the environment, and whatever binary
+    // hosts that must answer here before it parses its own arguments.
+    forge_sandbox::maybe_exec_helper();
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         std::process::exit(2);
@@ -72,6 +76,20 @@ fn main() {
         "sleep" => {
             let milliseconds: u64 = args[2].parse().expect("milliseconds");
             std::thread::sleep(Duration::from_millis(milliseconds));
+        }
+        "connect" => {
+            // Network containment is only observable from inside: the test listens
+            // on loopback, and this child reports whether the connect was allowed.
+            let address = &args[2];
+            let marker = &args[3];
+            let outcome: String = match std::net::TcpStream::connect_timeout(
+                &address.parse().expect("socket address"),
+                Duration::from_secs(3),
+            ) {
+                Ok(_) => "connected".to_string(),
+                Err(error) => format!("refused: {}", error.kind()),
+            };
+            let _ = std::fs::write(marker, outcome);
         }
         other => {
             eprintln!("unknown helper mode {other:?}");

@@ -175,17 +175,29 @@ no `gh`. Both were rehearsed step by step locally instead (see `docs/ci.md`).
   Rust crates implement, and the corpora under `tests/conformance/cases/` are the
   proof. `src/` has no `unsafe` (every crate denies it).
 - Linux and macOS containment (Landlock, `sandbox-exec`) is compile-checked only;
-  only the Windows job object was measured. `forge doctor` says so in its
-  `sandbox` line rather than claiming containment it has not shown.
-- **On Windows the job object contains the process tree and memory, not the
-  filesystem or the network.** A child can still write outside the workspace and
-  open sockets; what it cannot do is escape being killed as a tree, exceed its
-  commit limit, or spawn past the process cap. `forge doctor` reports
-  `filesystem=false` as a WARN and the sandbox section of `docs/contracts/m6-surface.md`
-  states the same. Closing that gap means running children in an AppContainer
-  (or under a restricted token with an explicit SID allow-list), which changes
-  how every tool spawn happens and needs a decision on what a "workspace" means
-  to a low-integrity process — it is not a flag.
+  only the Windows path was measured. `forge doctor` says so in its `sandbox` line
+  rather than claiming containment it has not shown.
+- **On Windows containment is two rings, and the second one narrows what tools can
+  do.** A Job Object caps the process tree, per-process/job memory and process
+  count; an AppContainer decides which files and networks the child can reach
+  (write access to the workspace, plus `internetClient` only when `allow_net`).
+  Measured on this host: a command inside the container writes its workspace, a
+  write to a sibling directory is denied by the OS, and a loopback connect is
+  refused. The cost is real — a contained process may not read `%USERPROFILE%`
+  or the build directory it was started from, so tools that expect a home
+  directory (git, npm, pip) can fail where they used to work; the enforcer says so
+  in `Support.Detail` and `forge doctor` prints it; one profile per workspace path is
+  left behind in `%LOCALAPPDATA%\Packages` (permanent, keyed by the path). That
+  service is the one unreliable part of this story: on a host where enough of those
+  profiles have accumulated it starts refusing *new* names outright for minutes at a
+  time, so an existing profile is adopted by lookup and never re-created, a hiccup is
+  retried for about eight seconds, and if a new identity still cannot be minted the
+  containment falls back to one shared identity for the user — which still confines a
+  command to the directories granted to it, but no longer separates two workspaces
+  from each other. The last resort is said out loud rather than silently skipped.
+  A host that cannot create a
+  package identity (or a Windows version without AppContainers) gets
+  `filesystem=false` as a WARN and `read-only` is refused rather than downgraded.
 - The web transcript was measured in a real browser: 5,000 messages (10,001
   events, 480,130 px of scrollback) scroll at a flat **60 fps** while mounting 27
   rows, load in ~650 ms, and hold ~18 MB of heap. Numbers, method and the three
