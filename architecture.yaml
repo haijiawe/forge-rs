@@ -1,0 +1,26 @@
+# architecture.yaml — the crate-layer map for forge-rs.
+#
+# Cargo can see that a dependency exists; it cannot see that the dependency
+# points the wrong way. This file supplies the missing half: a layer per crate,
+# and the rule that an edge may point only to a lower or equal layer.
+#
+# The layer table is the single source of truth. docs/08-rust-port.md §2
+# explains why each crate sits where it does; a crate that moves layers moves
+# here first, in the same change.
+version: 1
+
+layers:
+  L0: [forge-core, forge-config]
+  L1: [forge-exec, forge-sandbox]
+  L2: [forge-session, forge-llm, forge-tool, forge-protocol]
+  L3: [forge-server, forge-cli]
+
+# Same-layer edges the layer rule cannot judge but §2 forbids outright.
+# forge-core is the vocabulary every crate shares, so it may import no other
+# forge crate; forge-llm must not know that sessions exist.
+forbidden_edges:
+  - [forge-core, forge-config]
+  - [forge-llm, forge-session]
+
+# Tooling artifacts, never crates.
+ignore_dirs: [.git, target, node_modules]

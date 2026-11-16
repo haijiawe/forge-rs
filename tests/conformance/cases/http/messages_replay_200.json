@@ -1,0 +1,23 @@
+{
+  "name": "messages_replay_200",
+  "description": "Replaying a message with the same Idempotency-Key returns the original seq with 200 and deduplicated true, even when the retry body differs.",
+  "setup": "message_sent",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions/$SESSION/messages",
+    "headers": {
+      "Idempotency-Key": "$CASE_KEY"
+    },
+    "body": {
+      "text": "a different retry body must not append a second message"
+    }
+  },
+  "expect": {
+    "status": 200,
+    "jsonContains": {
+      "seq": "$MESSAGE_SEQ",
+      "accepted": true,
+      "deduplicated": true
+    }
+  }
+}

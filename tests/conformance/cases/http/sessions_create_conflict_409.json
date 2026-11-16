@@ -1,0 +1,21 @@
+{
+  "name": "sessions_create_conflict_409",
+  "description": "Creating a second session for a workspace whose session is awaiting approval is a 409 conflict, because two live writers would fork one workspace's transcript.",
+  "setup": "pending_approval",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions",
+    "body": {
+      "workspace": "$PENDING_WORKSPACE",
+      "model": "conformance-model"
+    }
+  },
+  "expect": {
+    "status": 409,
+    "jsonContains": {
+      "error": {
+        "code": "conflict"
+      }
+    }
+  }
+}

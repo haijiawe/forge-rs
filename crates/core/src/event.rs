@@ -162,7 +162,9 @@ impl Event {
             Some(v) => {
                 return Err(Error::new(
                     ErrorKind::UnsupportedVersion,
-                    format!("unsupported event version: got v{v}, this build reads v{FORMAT_VERSION}"),
+                    format!(
+                        "unsupported event version: got v{v}, this build reads v{FORMAT_VERSION}"
+                    ),
                 ))
             }
             None => {
@@ -232,12 +234,8 @@ pub fn parse_log(text: &str) -> Result<Vec<Event>> {
         if raw.trim().is_empty() {
             continue;
         }
-        let event = Event::parse_line(raw).map_err(|e| {
-            Error::new(
-                e.kind(),
-                format!("line {}: {e}", index + 1),
-            )
-        })?;
+        let event = Event::parse_line(raw)
+            .map_err(|e| Error::new(e.kind(), format!("line {}: {e}", index + 1)))?;
         let want = events.len() as u64 + 1;
         if event.seq != want {
             return Err(Error::new(
@@ -314,10 +312,16 @@ mod tests {
     fn a_future_version_is_refused_before_its_fields_are_read() {
         let err = Event::parse_line(r#"{"v":2,"seq":1,"id":"a","ts":1,"session":"s","type":"x"}"#)
             .unwrap_err();
-        assert!(err.to_string().contains("unsupported event version"), "{err}");
-        let err = Event::parse_line(r#"{"seq":1,"id":"a","ts":1,"session":"s","type":"x"}"#)
-            .unwrap_err();
-        assert!(err.to_string().contains("unsupported event version"), "{err}");
+        assert!(
+            err.to_string().contains("unsupported event version"),
+            "{err}"
+        );
+        let err =
+            Event::parse_line(r#"{"seq":1,"id":"a","ts":1,"session":"s","type":"x"}"#).unwrap_err();
+        assert!(
+            err.to_string().contains("unsupported event version"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -352,7 +356,11 @@ mod tests {
 
         let mut dup = sample();
         dup.seq = 2;
-        let text = format!("{}\n{}\n", sample().canonical().unwrap(), dup.canonical().unwrap());
+        let text = format!(
+            "{}\n{}\n",
+            sample().canonical().unwrap(),
+            dup.canonical().unwrap()
+        );
         let err = parse_log(&text).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::DuplicateId, "{err}");
     }

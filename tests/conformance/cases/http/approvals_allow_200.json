@@ -1,0 +1,23 @@
+{
+  "name": "approvals_allow_200",
+  "description": "Deciding a real pending approval with allow returns 200 with the approval id, the decision and the seq of the approval/decision event.",
+  "setup": "pending_approval",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions/$SESSION/approvals/$APPROVAL",
+    "body": {
+      "decision": "allow",
+      "note": "conformance allows this probe"
+    }
+  },
+  "expect": {
+    "status": 200,
+    "jsonContains": {
+      "approvalId": "$APPROVAL",
+      "decision": "allow"
+    },
+    "atLeast": {
+      "seq": 2
+    }
+  }
+}

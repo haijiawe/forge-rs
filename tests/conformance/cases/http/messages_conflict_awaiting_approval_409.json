@@ -1,0 +1,26 @@
+{
+  "name": "messages_conflict_awaiting_approval_409",
+  "description": "A new message is refused with 409 while the session waits for an approval, because the current turn is blocked and cannot safely absorb a second prompt.",
+  "setup": "pending_approval",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions/$SESSION/messages",
+    "headers": {
+      "Idempotency-Key": "conf-awaiting-conflict-key"
+    },
+    "body": {
+      "text": "this must not be accepted"
+    }
+  },
+  "expect": {
+    "status": 409,
+    "jsonContains": {
+      "error": {
+        "code": "conflict",
+        "details": {
+          "status": "awaiting_approval"
+        }
+      }
+    }
+  }
+}

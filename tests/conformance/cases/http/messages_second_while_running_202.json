@@ -1,0 +1,25 @@
+{
+  "name": "messages_second_while_running_202",
+  "description": "A message posted while a turn is running is accepted with 202 and queued; the contract only refuses ended and awaiting-approval sessions.",
+  "setup": "running",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions/$SESSION/messages",
+    "headers": {
+      "Idempotency-Key": "conf-second-while-running-key"
+    },
+    "body": {
+      "text": "queue this behind the running turn"
+    }
+  },
+  "expect": {
+    "status": 202,
+    "jsonContains": {
+      "accepted": true,
+      "deduplicated": false
+    },
+    "atLeast": {
+      "seq": 2
+    }
+  }
+}

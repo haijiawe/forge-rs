@@ -1,0 +1,16 @@
+{
+  "name": "events_unknown_session_404",
+  "description": "Reading events for an unknown session is 404 not_found, not an empty page that hides a typo.",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions/s_doesnotexist/events"
+  },
+  "expect": {
+    "status": 404,
+    "jsonContains": {
+      "error": {
+        "code": "not_found"
+      }
+    }
+  }
+}

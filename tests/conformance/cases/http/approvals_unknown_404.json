@@ -1,0 +1,20 @@
+{
+  "name": "approvals_unknown_404",
+  "description": "Deciding an approval id that is not pending is 404 not_found, so a stale tab cannot fabricate a decision.",
+  "setup": "session",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions/$SESSION/approvals/apr_doesnotexist",
+    "body": {
+      "decision": "allow"
+    }
+  },
+  "expect": {
+    "status": 404,
+    "jsonContains": {
+      "error": {
+        "code": "not_found"
+      }
+    }
+  }
+}

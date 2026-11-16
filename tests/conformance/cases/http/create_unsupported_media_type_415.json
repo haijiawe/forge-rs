@@ -1,0 +1,22 @@
+{
+  "name": "create_unsupported_media_type_415",
+  "description": "A create request whose body is not application/json is rejected with 415 unsupported_media_type before the body is interpreted.",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions",
+    "headers": {
+      "Content-Type": "text/plain"
+    },
+    "body": {
+      "workspace": "$WORKSPACE"
+    }
+  },
+  "expect": {
+    "status": 415,
+    "jsonContains": {
+      "error": {
+        "code": "unsupported_media_type"
+      }
+    }
+  }
+}

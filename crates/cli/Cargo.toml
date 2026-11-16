@@ -1,9 +1,24 @@
 [package]
 name = "forge-cli"
-description = "the forge binary: chat, web, doctor, import, index"
+description = "the forge binary: argument parsing, help, doctor"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "forge"
+path = "src/main.rs"
+
 [dependencies]
+forge-core = { path = "../core" }
+forge-config = { path = "../config" }
+forge-sandbox = { path = "../sandbox" }
+serde.workspace = true
+serde_json.workspace = true
+rustls.workspace = true
+rustls-pki-types.workspace = true
+webpki-roots.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true

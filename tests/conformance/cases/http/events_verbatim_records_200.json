@@ -1,0 +1,31 @@
+{
+  "name": "events_verbatim_records_200",
+  "description": "Every event returned by the API is byte-identical to its line in the append-only session log; the server must never re-shape history.",
+  "setup": "events",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions/$SESSION/events?after=1&limit=3"
+  },
+  "expect": {
+    "status": 200,
+    "verbatimLog": true,
+    "jsonContains": {
+      "from": 2,
+      "to": 4,
+      "events": [
+        {
+          "seq": 2,
+          "type": "turn/start"
+        },
+        {
+          "seq": 3,
+          "type": "user/message"
+        },
+        {
+          "seq": 4,
+          "type": "turn/end"
+        }
+      ]
+    }
+  }
+}

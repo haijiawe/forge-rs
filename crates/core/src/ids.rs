@@ -14,9 +14,8 @@ use crate::error::{Error, ErrorKind, Result};
 /// be a session id collision that two machines both believe is unique.
 pub fn new_id() -> Result<String> {
     let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).map_err(|e| {
-        Error::new(ErrorKind::Io, format!("ids: no OS entropy available: {e}"))
-    })?;
+    getrandom::fill(&mut bytes)
+        .map_err(|e| Error::new(ErrorKind::Io, format!("ids: no OS entropy available: {e}")))?;
     Ok(hex(&bytes))
 }
 
@@ -105,10 +104,14 @@ mod tests {
             let id = new_id().unwrap();
             assert_eq!(id.len(), 32, "id {id} is not 32 characters");
             assert!(
-                id.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+                id.chars()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
                 "id {id} is not lower-case hex"
             );
-            assert!(seen.insert(id), "the generator repeated an id within 1000 draws");
+            assert!(
+                seen.insert(id),
+                "the generator repeated an id within 1000 draws"
+            );
         }
     }
 
@@ -117,7 +120,15 @@ mod tests {
         for ok in ["s1", "20261116-073441-adceff", "a.b_c-d", "A1"] {
             assert!(SessionId::parse(ok).is_ok(), "{ok} should be accepted");
         }
-        for bad in ["", "-leading", ".dot", "has space", "has/slash", "has\\slash", "ünicode"] {
+        for bad in [
+            "",
+            "-leading",
+            ".dot",
+            "has space",
+            "has/slash",
+            "has\\slash",
+            "ünicode",
+        ] {
             assert!(SessionId::parse(bad).is_err(), "{bad} should be refused");
         }
         assert!(SessionId::parse("x".repeat(SessionId::MAX_LEN + 1)).is_err());

@@ -1,0 +1,18 @@
+{
+  "name": "sessions_list_cursor_200",
+  "description": "Passing the nextCursor from a one-row page returns the next row, proving the cursor is a position in updatedAt-desc order rather than an offset.",
+  "setup": "sessions3",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions?limit=1&cursor=$CURSOR"
+  },
+  "expect": {
+    "status": 200,
+    "notEmpty": [
+      "sessions.0.id"
+    ],
+    "notEqual": {
+      "sessions.0.id": "$FIRST_SESSION"
+    }
+  }
+}

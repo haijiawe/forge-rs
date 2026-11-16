@@ -1,0 +1,20 @@
+{
+  "name": "events_empty_page_200",
+  "description": "Asking for events after the last seq returns 200 with an empty array, zero from/to and nextAfter equal to the requested after, so polling at the head is cheap and unambiguous.",
+  "setup": "events",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions/$SESSION/events?after=4"
+  },
+  "expect": {
+    "status": 200,
+    "jsonContains": {
+      "sessionId": "$SESSION",
+      "from": 0,
+      "to": 0,
+      "lastSeq": 4,
+      "events": [],
+      "nextAfter": 4
+    }
+  }
+}

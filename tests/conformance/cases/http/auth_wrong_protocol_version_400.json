@@ -1,0 +1,19 @@
+{
+  "name": "auth_wrong_protocol_version_400",
+  "description": "A client stating an unsupported protocol version is rejected with 400 protocol_unsupported rather than being served a shape it cannot parse.",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions",
+    "headers": {
+      "X-Forge-Protocol": "2"
+    }
+  },
+  "expect": {
+    "status": 400,
+    "jsonContains": {
+      "error": {
+        "code": "protocol_unsupported"
+      }
+    }
+  }
+}

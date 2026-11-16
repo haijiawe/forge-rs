@@ -1,0 +1,18 @@
+{
+  "name": "events_invalid_after_400",
+  "description": "A non-numeric after parameter is a 400 bad_request rather than silently starting from zero.",
+  "setup": "events",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions/$SESSION/events?after=nope"
+  },
+  "expect": {
+    "status": 400,
+    "jsonContains": {
+      "error": {
+        "code": "bad_request",
+        "message": "after must be a non-negative integer"
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "messages_oversized_attachment_422",
+  "description": "An attachment whose data exceeds the one-megabyte ceiling is rejected with 422 unprocessable_entity naming the offending kind.",
+  "setup": "session",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions/$SESSION/messages",
+    "headers": {
+      "Idempotency-Key": "conf-oversized-attachment-key"
+    },
+    "body": {
+      "text": "with an oversized attachment",
+      "attachments": [
+        {
+          "kind": "file",
+          "data": "$OVERSIZED_DATA"
+        }
+      ]
+    }
+  },
+  "expect": {
+    "status": 422,
+    "jsonContains": {
+      "error": {
+        "code": "unprocessable_entity",
+        "details": {
+          "kind": "file"
+        }
+      }
+    }
+  }
+}

@@ -174,7 +174,18 @@ Not every Go idiom survives, and pretending otherwise would produce worse Rust:
 | `context.Context` | an explicit `Cancel` token | cancellation is a handle the server hands the runner, not an ambient value |
 | struct tags for wire names | serde attributes | same idea, same names |
 
-## 8. Risks
+## 8. Porting traps found in W1
+
+Places where a careful Rust port still got the contract wrong, kept here because
+each one is a shape of mistake that will recur in the later waves.
+
+| Trap | What happened | Rule it broke |
+| --- | --- | --- |
+| Minting ids where the contract copies them | `fork` gave every copied record a fresh `id`, with a plausible-sounding comment ("two logs must not share an id"). Events-v1 §4.1 allows exactly **two** envelope changes per copied record — `session` and `seq` — and §9 makes uniqueness a **per-log** invariant, so a shared id is not a collision but the correlation handle a reader relies on. Fixed in `crates/session/src/fork.rs`, pinned by a per-record id/ts/turn/step/payload comparison against the parent. | events-v1 §4.1, §9 |
+| Trusting "uniqueness" as global | The same confusion would make `import` reject a legacy log whose ids came from another tool, or make W5's index key on `(session, id)` instead of `(session, seq)`. | events-v1 §9 |
+| A placeholder that "looks finished" | `crates/{llm,protocol,server,tool}` contain only a doc comment naming their wave. Their READMEs say `public: []` and state what is *planned*, because a half-implementation is harder to spot than an empty one. | AGENTS.md law 3 |
+
+## 9. Risks
 
 | Risk | Mitigation |
 | --- | --- |

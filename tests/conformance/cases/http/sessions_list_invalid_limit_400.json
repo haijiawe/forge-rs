@@ -1,0 +1,17 @@
+{
+  "name": "sessions_list_invalid_limit_400",
+  "description": "A limit that is not a positive integer is rejected with 400 bad_request instead of being silently defaulted.",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions?limit=0"
+  },
+  "expect": {
+    "status": 400,
+    "jsonContains": {
+      "error": {
+        "code": "bad_request",
+        "message": "limit must be a positive integer"
+      }
+    }
+  }
+}

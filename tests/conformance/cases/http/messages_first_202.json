@@ -1,0 +1,25 @@
+{
+  "name": "messages_first_202",
+  "description": "The first delivery of a message with a fresh Idempotency-Key is accepted with 202, accepted true and deduplicated false at a seq beyond session/start.",
+  "setup": "session",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions/$SESSION/messages",
+    "headers": {
+      "Idempotency-Key": "conf-first-delivery-key"
+    },
+    "body": {
+      "text": "hello"
+    }
+  },
+  "expect": {
+    "status": 202,
+    "jsonContains": {
+      "accepted": true,
+      "deduplicated": false
+    },
+    "atLeast": {
+      "seq": 2
+    }
+  }
+}

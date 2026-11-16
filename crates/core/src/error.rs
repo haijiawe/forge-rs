@@ -67,10 +67,7 @@ impl Error {
 
     /// Attach the underlying cause. The message stays the account a human
     /// reads; the source is what a debugger walks.
-    pub fn with_source(
-        mut self,
-        source: impl std::error::Error + Send + Sync + 'static,
-    ) -> Self {
+    pub fn with_source(mut self, source: impl std::error::Error + Send + Sync + 'static) -> Self {
         self.source = Some(Box::new(source));
         self
     }

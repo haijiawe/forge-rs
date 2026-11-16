@@ -1,0 +1,32 @@
+{
+  "name": "events_next_after_semantics_200",
+  "description": "A page from the beginning reports nextAfter as the last seq in that page, which is exactly the value the client must pass as after for the following page.",
+  "setup": "events",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions/$SESSION/events?after=0&limit=3"
+  },
+  "expect": {
+    "status": 200,
+    "jsonContains": {
+      "from": 1,
+      "to": 3,
+      "lastSeq": 4,
+      "nextAfter": 3,
+      "events": [
+        {
+          "seq": 1,
+          "type": "session/start"
+        },
+        {
+          "seq": 2,
+          "type": "turn/start"
+        },
+        {
+          "seq": 3,
+          "type": "user/message"
+        }
+      ]
+    }
+  }
+}

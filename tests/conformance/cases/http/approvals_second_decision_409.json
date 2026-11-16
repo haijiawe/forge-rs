@@ -1,0 +1,20 @@
+{
+  "name": "approvals_second_decision_409",
+  "description": "Answering an approval a second time is 409 conflict; one human answer is exactly one approval/decision record.",
+  "setup": "answered_approval",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions/$SESSION/approvals/$APPROVAL",
+    "body": {
+      "decision": "allow"
+    }
+  },
+  "expect": {
+    "status": 409,
+    "jsonContains": {
+      "error": {
+        "code": "conflict"
+      }
+    }
+  }
+}

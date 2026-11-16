@@ -1,0 +1,19 @@
+{
+  "name": "auth_missing_token_401",
+  "description": "An API request without a bearer token is rejected with 401 unauthorized before any routing or state change.",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions",
+    "headers": {
+      "Authorization": ""
+    }
+  },
+  "expect": {
+    "status": 401,
+    "jsonContains": {
+      "error": {
+        "code": "unauthorized"
+      }
+    }
+  }
+}

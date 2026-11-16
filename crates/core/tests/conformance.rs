@@ -88,9 +88,16 @@ fn accepted_logs_parse_and_reproduce_their_canonical_bytes() {
     for case in cases().into_iter().filter(|c| c.expect == "ok") {
         let text = log_text(&case);
         let events = parse_log(&text).unwrap_or_else(|e| {
-            panic!("{}: expected the log to be accepted, got: {e}\n{}", case.name, case.description)
+            panic!(
+                "{}: expected the log to be accepted, got: {e}\n{}",
+                case.name, case.description
+            )
         });
-        assert!(!events.is_empty(), "{}: the log parsed to nothing", case.name);
+        assert!(
+            !events.is_empty(),
+            "{}: the log parsed to nothing",
+            case.name
+        );
         if case.canonical.is_empty() {
             // The case promises acceptance only, and says so in its own
             // description (an envelope member this build does not model is

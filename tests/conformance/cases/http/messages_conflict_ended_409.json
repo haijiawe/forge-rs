@@ -1,0 +1,26 @@
+{
+  "name": "messages_conflict_ended_409",
+  "description": "A message posted to an ended session is a 409 conflict with the derived status in details, never silently written to a closed transcript.",
+  "setup": "ended",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions/$SESSION/messages",
+    "headers": {
+      "Idempotency-Key": "conf-ended-conflict-key"
+    },
+    "body": {
+      "text": "this must not be accepted"
+    }
+  },
+  "expect": {
+    "status": 409,
+    "jsonContains": {
+      "error": {
+        "code": "conflict",
+        "details": {
+          "status": "ended"
+        }
+      }
+    }
+  }
+}

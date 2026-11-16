@@ -38,7 +38,6 @@ pub fn canonical_line(line: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn key_order_in_the_input_does_not_change_the_output() {

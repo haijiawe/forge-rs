@@ -1,0 +1,17 @@
+{
+  "name": "sessions_detail_unknown_404",
+  "description": "An unknown but well-formed session id returns 404 not_found through the shared error envelope.",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions/s_doesnotexist"
+  },
+  "expect": {
+    "status": 404,
+    "jsonContains": {
+      "error": {
+        "code": "not_found",
+        "message": "no such session"
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "sessions_unknown_profile_400",
+  "description": "A create request naming a profile the server does not implement is a 400 bad_request, never a session that claims an unknown preset.",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions",
+    "body": {
+      "workspace": "$WORKSPACE",
+      "profile": "turbo"
+    }
+  },
+  "expect": {
+    "status": 400,
+    "jsonContains": {
+      "error": {
+        "code": "bad_request",
+        "details": {
+          "profile": "turbo"
+        }
+      }
+    }
+  }
+}

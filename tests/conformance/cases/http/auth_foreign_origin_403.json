@@ -1,0 +1,22 @@
+{
+  "name": "auth_foreign_origin_403",
+  "description": "A state-changing request whose Origin is not the loopback server is rejected with 403 forbidden, so a foreign page cannot drive the API.",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions",
+    "headers": {
+      "Origin": "http://evil.example"
+    },
+    "body": {
+      "workspace": "$WORKSPACE"
+    }
+  },
+  "expect": {
+    "status": 403,
+    "jsonContains": {
+      "error": {
+        "code": "forbidden"
+      }
+    }
+  }
+}

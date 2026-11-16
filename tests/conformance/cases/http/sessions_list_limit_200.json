@@ -1,0 +1,23 @@
+{
+  "name": "sessions_list_limit_200",
+  "description": "The session list honours limit and returns a non-null nextCursor whenever more sessions exist.",
+  "setup": "sessions3",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions?limit=1"
+  },
+  "expect": {
+    "status": 200,
+    "jsonContains": {
+      "sessions": [
+        {
+          "status": "idle"
+        }
+      ]
+    },
+    "notEmpty": [
+      "sessions.0.id",
+      "nextCursor"
+    ]
+  }
+}

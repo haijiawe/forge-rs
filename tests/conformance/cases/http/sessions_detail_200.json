@@ -1,0 +1,22 @@
+{
+  "name": "sessions_detail_200",
+  "description": "A freshly created session's detail has idle status and no pendingApproval member at all, because optional members are omitted rather than sent as null.",
+  "setup": "session",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions/$SESSION"
+  },
+  "expect": {
+    "status": 200,
+    "jsonContains": {
+      "status": "idle",
+      "lastSeq": 1,
+      "turns": 0,
+      "workspace": "$WORKSPACE",
+      "model": "conformance-model"
+    },
+    "jsonAbsent": [
+      "pendingApproval"
+    ]
+  }
+}

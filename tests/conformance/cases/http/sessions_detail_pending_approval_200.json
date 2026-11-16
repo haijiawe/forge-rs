@@ -1,0 +1,24 @@
+{
+  "name": "sessions_detail_pending_approval_200",
+  "description": "While a tool call waits for a decision, session detail reports awaiting_approval and exposes the real pending approval with its id and tool name.",
+  "setup": "pending_approval",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions/$SESSION"
+  },
+  "expect": {
+    "status": 200,
+    "jsonContains": {
+      "status": "awaiting_approval",
+      "pendingApproval": {
+        "approvalId": "$APPROVAL",
+        "tool": "shell"
+      }
+    },
+    "notEmpty": [
+      "pendingApproval.approvalId",
+      "pendingApproval.callId",
+      "pendingApproval.reason"
+    ]
+  }
+}

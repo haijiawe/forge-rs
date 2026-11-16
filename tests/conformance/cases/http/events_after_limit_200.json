@@ -1,0 +1,29 @@
+{
+  "name": "events_after_limit_200",
+  "description": "The events page treats after as exclusive and limit as a cap, reporting the first and last seq in the page and nextAfter equal to the last seq returned.",
+  "setup": "events",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions/$SESSION/events?after=1&limit=2"
+  },
+  "expect": {
+    "status": 200,
+    "jsonContains": {
+      "sessionId": "$SESSION",
+      "from": 2,
+      "to": 3,
+      "lastSeq": 4,
+      "nextAfter": 3,
+      "events": [
+        {
+          "seq": 2,
+          "type": "turn/start"
+        },
+        {
+          "seq": 3,
+          "type": "user/message"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "messages_missing_idempotency_428",
+  "description": "Posting a message without Idempotency-Key is rejected with 428 precondition_required, so a retry can never duplicate the user's message.",
+  "setup": "session",
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions/$SESSION/messages",
+    "body": {
+      "text": "hello"
+    }
+  },
+  "expect": {
+    "status": 428,
+    "jsonContains": {
+      "error": {
+        "code": "precondition_required"
+      }
+    }
+  }
+}

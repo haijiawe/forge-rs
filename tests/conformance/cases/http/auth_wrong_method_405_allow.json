@@ -1,0 +1,19 @@
+{
+  "name": "auth_wrong_method_405_allow",
+  "description": "An unsupported method on a collection route returns 405 with an Allow header naming the methods the route actually supports.",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/sessions"
+  },
+  "expect": {
+    "status": 405,
+    "headers": {
+      "Allow": "GET, POST"
+    },
+    "jsonContains": {
+      "error": {
+        "code": "method_not_allowed"
+      }
+    }
+  }
+}
