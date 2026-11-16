@@ -212,6 +212,7 @@ fn client(url: &str) -> Client {
     new_client(Options {
         base_url: url.to_string(),
         api_key: TEST_KEY.to_string(),
+        ca_file: None,
     })
 }
 
@@ -914,6 +915,7 @@ fn new_defaults_precedence_and_bad_urls() {
     let client = Client::new(Options {
         base_url: format!("{}/", server2.url()),
         api_key: "option-key".to_string(),
+        ca_file: None,
     })
     .unwrap();
     assert_eq!(client.base_url(), server2.url());
@@ -936,6 +938,7 @@ fn omits_auth_header_without_key() {
     let client = new_client(Options {
         base_url: server.url(),
         api_key: String::new(),
+        ca_file: None,
     });
     let mut stream = client.stream(&request("gpt-4o")).unwrap();
     let _ = drain(&mut *stream);
@@ -980,4 +983,139 @@ fn truncated_chunked_body_is_stream_error_with_partial_text() {
     assert_eq!(provider_error(&err).code, CODE_STREAM);
     assert_eq!(provider_error(&err).status, 0);
     assert!(!provider_error(&err).retryable);
+}
+
+// ---------------------------------------------------------------------------
+// Private-CA trust store. These tests never touch a socket: they exercise the
+// root-store builder directly, so they stay deterministic and offline.
+// ---------------------------------------------------------------------------
+
+/// A fixed, public self-signed CA certificate (basicConstraints CA:TRUE,
+/// keyUsage keyCertSign). The matching private key was discarded; only the
+/// certificate is needed to grow a trust store.
+const TEST_CA_PEM: &str = "\
+-----BEGIN CERTIFICATE-----
+MIIC/zCCAeegAwIBAgIIEwKZJtVQYs4wDQYJKoZIhvcNAQELBQAwLTETMBEGA1UEChMKRm9yZ2Ug\
+VGVzdDEWMBQGA1UEAxMNZm9yZ2UtdGVzdC1jYTAeFw0yNjExMTUxMzE1NTVaFw0zNjExMTYxMzE1\
+NTVaMC0xEzARBgNVBAoTCkZvcmdlIFRlc3QxFjAUBgNVBAMTDWZvcmdlLXRlc3QtY2EwggEiMA0G\
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDmuD1WbHXnY0CWEbST+1S189WsFuqYXrnlriy57yv0\
+2QuM3bp8D6U4SgejrTPu/YPuXk3oA/6bziuvADKhanqV6jv75MwEfaZ2+Y5JQ2jUwoCRquTbURFJ\
+pketgcG4fVT4y1rTfsWOUKT9a65+FEAaellKoPbZp10MVh2yM+3xxaiQaAS5i74vCDbYd/QZyp5S\
+dIYhd6EIJDOkKG1gyGzLIgxG3lwGrPTnwp75N0+RGvwov+gTiM0RrSS+tjREmJ7op8xrlYcQ8A5j\
+Ul/NrGd5P/sCbKMauFxY0lrC7oCu25F1h3TKQyfmP/DetPyx4tOsl2lVf0ORNJEeK38S+iGlAgMB\
+AAGjIzAhMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3DQEBCwUAA4IB\
+AQA/5iDto4+ao19jvfUXj3wsl4NZBBLT//JhF6KrNZ6moYTw+xbD6Ay/gvDu30XMliu38VdeCMKY\
+zrPXIYHkbEJQ/k8ZTyTBKasn/GEtq0MSkXLdJyf78x/ZfPWF/Rr8TMjkNbOhy6HA8mX0e2Qklrdq\
+dudgfmBCdDxDWZkn86KtngcYXt3tXnyoexkme1cdmIHm/lniLxtoueYJT9uJ4xLw4trHus1XdZBz\
+VjSgpWaI+pcdiCEXVH7KMOl4SfVzD+x1jsq5q5u6sLuyTmNcjWGxb1zV3KtfE3BG5f54KLvMPqY+\
+ay0BY4Kmh4QFxaX/6qD1/L8xQ+Jh3ATMzgvQNjl8
+-----END CERTIFICATE-----
+";
+
+/// A unique scratch directory per call, so parallel tests never collide.
+fn unique_temp_dir(tag: &str) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir =
+        std::env::temp_dir().join(format!("forge-llm-ca-{}-{}-{}", std::process::id(), tag, n));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn default_tls_roots_are_only_the_webpki_bundle() {
+    let roots = openai::build_root_store(None).unwrap();
+    assert_eq!(roots.len(), webpki_roots::TLS_SERVER_ROOTS.len());
+    assert!(!roots.is_empty());
+}
+
+#[test]
+fn configured_ca_is_added_to_the_public_roots() {
+    let dir = unique_temp_dir("ca-ok");
+    let path = dir.join("ca.pem");
+    std::fs::write(&path, TEST_CA_PEM).unwrap();
+
+    let roots = openai::build_root_store(Some(&path)).unwrap();
+    // The private CA is added *on top of* the public bundle, not swapped in.
+    assert_eq!(roots.len(), webpki_roots::TLS_SERVER_ROOTS.len() + 1);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn missing_ca_file_is_a_typed_io_error() {
+    let dir = unique_temp_dir("ca-missing");
+    let path = dir.join("does-not-exist.pem");
+
+    let err = openai::build_root_store(Some(&path)).unwrap_err();
+    assert_eq!(err.kind(), forge_core::ErrorKind::Io);
+    let pe = provider_error(&err);
+    assert_eq!(pe.code, CODE_TRANSPORT);
+    assert!(!pe.retryable);
+    let text = err.to_string();
+    assert!(text.contains("CA file"), "{text}");
+    assert!(!text.contains("-----BEGIN"), "{text}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn client_new_reports_a_bad_ca_file_before_any_connection() {
+    let dir = unique_temp_dir("ca-client-new");
+    let path = dir.join("absent.pem");
+
+    let err = Client::new(Options {
+        base_url: "https://api.openai.com/v1".to_string(),
+        api_key: String::new(),
+        ca_file: Some(path),
+    })
+    .err()
+    .expect("expected a CA configuration error");
+    assert_eq!(err.kind(), forge_core::ErrorKind::Io);
+    let pe = provider_error(&err);
+    assert_eq!(pe.code, CODE_TRANSPORT);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn malformed_ca_pem_is_a_typed_invalid_error() {
+    let dir = unique_temp_dir("ca-bad");
+    let path = dir.join("bad.pem");
+    std::fs::write(
+        &path,
+        "-----BEGIN CERTIFICATE-----\nnot base64!!!\n-----END CERTIFICATE-----\n",
+    )
+    .unwrap();
+
+    let err = openai::build_root_store(Some(&path)).unwrap_err();
+    assert_eq!(err.kind(), forge_core::ErrorKind::Invalid);
+    let pe = provider_error(&err);
+    assert_eq!(pe.code, CODE_TRANSPORT);
+    // The message names the file but never echoes its bytes.
+    let text = err.to_string();
+    assert!(
+        text.contains("CA PEM") || text.contains("CA file"),
+        "{text}"
+    );
+    assert!(!text.contains("not base64"), "{text}");
+    assert!(!text.contains("-----BEGIN"), "{text}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn ca_file_without_certificates_is_a_typed_invalid_error() {
+    let dir = unique_temp_dir("ca-empty");
+    let path = dir.join("empty.pem");
+    std::fs::write(&path, "").unwrap();
+
+    let err = openai::build_root_store(Some(&path)).unwrap_err();
+    assert_eq!(err.kind(), forge_core::ErrorKind::Invalid);
+    let pe = provider_error(&err);
+    assert_eq!(pe.code, CODE_TRANSPORT);
+    assert!(!err.to_string().contains("-----BEGIN"));
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

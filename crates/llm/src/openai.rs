@@ -7,12 +7,13 @@
 use std::collections::VecDeque;
 use std::io::{self, BufReader, ErrorKind as IoErrorKind, Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use forge_core::{Error, ErrorKind, Result};
-use rustls_pki_types::ServerName;
+use rustls_pki_types::{pem::PemObject, CertificateDer, ServerName};
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -50,12 +51,92 @@ pub(crate) fn transport_for_scheme(scheme: &str) -> Transport {
     }
 }
 
+/// Build the root store used to verify TLS peers.
+///
+/// The store always starts from the pinned `webpki-roots` bundle, so public
+/// endpoints keep verifying exactly as before. When `ca_file` is set, the
+/// certificates in that PEM file are **added** to the bundle: a private CA
+/// extends the public roots, it never replaces them.
+pub(crate) fn build_root_store(ca_file: Option<&Path>) -> Result<rustls::RootCertStore> {
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let Some(path) = ca_file else {
+        return Ok(roots);
+    };
+    let bytes = std::fs::read(path).map_err(|e| {
+        ca_error(
+            ErrorKind::Io,
+            format!("llm openai: cannot read CA file {}: {e}", path.display()),
+        )
+    })?;
+    let certs = parse_ca_pem(&bytes, path)?;
+    let (valid, invalid) = roots.add_parsable_certificates(certs);
+    if valid == 0 {
+        return Err(ca_error(
+            ErrorKind::Invalid,
+            format!(
+                "llm openai: no usable certificates in CA file {} ({invalid} rejected)",
+                path.display()
+            ),
+        ));
+    }
+    Ok(roots)
+}
+
+/// Decode every `CERTIFICATE` section of a PEM blob.
+///
+/// The error names the file but never echoes its body: a CA bundle can sit
+/// next to a private key, and a message must not leak it.
+fn parse_ca_pem(bytes: &[u8], path: &Path) -> Result<Vec<CertificateDer<'static>>> {
+    let mut certs = Vec::new();
+    for item in CertificateDer::pem_slice_iter(bytes) {
+        match item {
+            Ok(cert) => certs.push(cert),
+            Err(e) => {
+                return Err(ca_error(
+                    ErrorKind::Invalid,
+                    format!("llm openai: invalid CA PEM in {}: {e}", path.display()),
+                ))
+            }
+        }
+    }
+    if certs.is_empty() {
+        return Err(ca_error(
+            ErrorKind::Invalid,
+            format!(
+                "llm openai: no certificates found in CA file {}",
+                path.display()
+            ),
+        ));
+    }
+    Ok(certs)
+}
+
+/// A typed provider failure for CA configuration, with no file contents in it.
+fn ca_error(kind: ErrorKind, message: String) -> Error {
+    provider_error_with(
+        kind,
+        pe(
+            CODE_TRANSPORT,
+            0,
+            false,
+            Duration::ZERO,
+            String::new(),
+            message,
+        ),
+    )
+}
+
 /// Provider construction options. Non-empty fields win over environment
 /// variables; keys are trimmed before use.
 #[derive(Debug, Clone, Default)]
 pub struct Options {
     pub base_url: String,
     pub api_key: String,
+    /// Optional PEM file holding extra root certificates, such as a private CA.
+    /// The certificates are added to the pinned `webpki-roots` bundle, never
+    /// substituted for it.
+    pub ca_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -71,6 +152,7 @@ pub struct Client {
     base_url: String,
     api_key: String,
     endpoint: ParsedUrl,
+    tls_roots: rustls::RootCertStore,
 }
 
 impl Client {
@@ -102,10 +184,12 @@ impl Client {
             }
         };
         let endpoint = parse_base_url(&base)?;
+        let tls_roots = build_root_store(options.ca_file.as_deref())?;
         Ok(Self {
             base_url: base.trim_end_matches('/').to_string(),
             api_key,
             endpoint,
+            tls_roots,
         })
     }
 
@@ -143,9 +227,12 @@ impl Client {
         let shutdown = stream.try_clone().ok();
         let mut stream = match transport {
             Transport::Plain => ConnectionStream::Plain(stream),
-            Transport::Tls => {
-                ConnectionStream::Tls(Box::new(TlsStream::new(stream, &host, closed.clone())?))
-            }
+            Transport::Tls => ConnectionStream::Tls(Box::new(TlsStream::new(
+                stream,
+                &host,
+                closed.clone(),
+                self.tls_roots.clone(),
+            )?)),
         };
 
         let mut request = Vec::with_capacity(payload.len() + 512);
@@ -237,11 +324,14 @@ struct TlsStream {
 }
 
 impl TlsStream {
-    fn new(tcp: TcpStream, host: &str, closed: Arc<AtomicBool>) -> Result<Self> {
+    fn new(
+        tcp: TcpStream,
+        host: &str,
+        closed: Arc<AtomicBool>,
+        roots: rustls::RootCertStore,
+    ) -> Result<Self> {
         let name = ServerName::try_from(host.to_string())
             .map_err(|_| transport_error("invalid TLS server name"))?;
-        let mut roots = rustls::RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let config = rustls::ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth();

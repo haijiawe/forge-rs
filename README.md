@@ -92,12 +92,13 @@ for them.
 
 ## What is not done yet
 
-- `forge chat --no-compact` is parsed but is a no-op: the Rust `forge-session`
-  has no compaction writer yet. The Go tree's 200-event auto-compaction is not
-  ported.
-- The Rust provider accepts `https://` through the pinned `webpki-roots` bundle;
-  a private-CA endpoint would need a workspace CA decision. No live request was
-  made to the example endpoint during the port.
+- The Rust provider accepts `https://` through the pinned `webpki-roots` bundle,
+  plus an optional `ca_file` PEM (see `crates/llm/README.md`) for a private CA.
+  No live request was made to the example endpoint during the port.
+- Compaction is wired on both surfaces (`forge chat` before each turn, `forge web`
+  at the top of a turn, both at the Go original's 200-record floor). The web
+  surface compacts through `Server::append_event` because the server owns the seq
+  counter, so its summary lands one turn later than the CLI's.
 - Cross-target release builds from this host are compile checks only; see the
   toolchain section and `docs/release.md`. CI uses native runners for the
   artifacts it claims.

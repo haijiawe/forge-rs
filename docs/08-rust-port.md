@@ -156,9 +156,9 @@ wave boundary.
 | **W1** | `forge-session` (store, recovery, projection), `forge-config`, `forge-exec`, `forge-sandbox`, `forge-cli` (version/help/doctor), `tools/archcheck` | 5 fixture logs replay to the golden projection; torn tail repaired; `--version` < 30 ms; `doctor` prints ten checks | Delivered, `1b5ef75` |
 | **W2** | `forge-llm` (SSE), agent loop with retries, cancellation, steering | fixture streams drive a whole turn; event order matches `tests/golden/agent/text-turn.json` | Delivered, `1242294` |
 | **W3** | `forge-tool` (registry, executor, policy, approvals, 7 builtin tools, danger list) | a tool call executes end to end; approval recorded before asked; denied paths produce `denied`/`denied_refused` | Delivered with W2, `1242294` |
-| **W4** | `forge-protocol`, `forge-server` (HTTP + WS), embedded UI, `forge chat`/`forge web` | API contract §4 satisfied; WS frames; the React build served from the binary | Delivered, awaiting the W4–W6 commit |
-| **W5** | index (`rusqlite`), import, MCP, skills, subagent | `forge index --rebuild` / `--search`; `forge import` reproduces an old tree; a fake MCP server's tools appear | Delivered, awaiting the W4–W6 commit |
-| **W6** | bench, release, docs | portable six-metric bench; three native release runners; this document's claims all measured | Delivered, awaiting the W4–W6 commit |
+| **W4** | `forge-protocol`, `forge-server` (HTTP + WS), embedded UI, `forge chat`/`forge web` | API contract §4 satisfied; WS frames; the React build served from the binary | Delivered, `4002c60` |
+| **W5** | index (`rusqlite`), import, MCP, skills, subagent | `forge index --rebuild` / `--search`; `forge import` reproduces an old tree; a fake MCP server's tools appear | Delivered, `4002c60` |
+| **W6** | bench, release, docs | portable six-metric bench; three native release runners; this document's claims all measured | Delivered, `4002c60` |
 
 ### W1 evidence (measured on this host, not quoted from a report)
 

@@ -2,22 +2,25 @@
 //!
 //! The log is the only truth. Everything else in this crate is a pure function
 //! of a prefix of that log: [`projection`] folds it into a snapshot, [`fork`]
-//! copies a completed prefix into a new session, and [`decision`] follows one
-//! log to answer one approval. None of them keeps state that a restart would
-//! lose, and none of them writes anywhere except the log it owns.
-//!
-//! Compaction is deliberately not implemented here yet. The projection already
-//! understands `compaction/summary` records (they hide earlier messages without
-//! rewriting counters), but the writer that produces them belongs to a later
-//! wave; inventing one now would create a second source of truth.
+//! copies a completed prefix into a new session, [`decision`] follows one log to
+//! answer one approval, and [`compact`] decides how much history one summary
+//! record may stand in for. None of them keeps state that a restart would lose,
+//! and none of them writes anywhere except the log it owns.
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+pub mod compact;
 pub mod decision;
 pub mod fork;
 pub mod projection;
 pub mod store;
 
+pub use compact::{
+    compact, compact_log, is_already_compacted, is_empty_summary, is_invalid_log, is_invalid_plan,
+    last_compacted_span, plan_compaction, CompactPlan, Summarizer, TruncatingSummarizer,
+    DEFAULT_KEEP_TURNS, DEFAULT_SUMMARY_BYTES, ERR_ALREADY_COMPACTED, ERR_EMPTY_SUMMARY,
+    ERR_INVALID_LOG, ERR_INVALID_PLAN,
+};
 pub use decision::{Decision, DecisionWatcher};
 pub use fork::{fork, ForkOptions, ForkResult};
 pub use projection::{

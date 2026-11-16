@@ -234,3 +234,27 @@ fn serialization_uses_the_go_json_names() {
     }
     assert!(!object.contains_key("data_dir"));
 }
+
+#[test]
+fn ca_file_parses_from_config_json() {
+    let dir = TempDir::new("ca-file");
+    let path = dir.file("config.json", r#"{"caFile": "/etc/forge/private-ca.pem"}"#);
+    let config = load(&path);
+    assert_eq!(config.ca_file.as_deref(), Some("/etc/forge/private-ca.pem"));
+
+    // The key round-trips under its Go/JSON name.
+    let value = serde_json::to_value(&config).expect("config serializes");
+    assert_eq!(value["caFile"], "/etc/forge/private-ca.pem");
+}
+
+#[test]
+fn ca_file_is_omitted_from_json_when_absent() {
+    let config = Config::defaults();
+    assert!(config.ca_file.is_none());
+    let value = serde_json::to_value(&config).expect("config serializes");
+    let object = value.as_object().expect("object");
+    assert!(
+        !object.contains_key("caFile"),
+        "an unset caFile must not serialize"
+    );
+}

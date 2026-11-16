@@ -10,7 +10,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use forge_agent::{Agent, EventLog, Options as AgentOptions, ToolResult as AgentToolResult};
+use forge_agent::{
+    Agent, EventLog, Options as AgentOptions, ProviderSummarizer, ToolResult as AgentToolResult,
+};
 use forge_config::Config;
 use forge_core::{Error, ErrorKind, Event, EventType, Result};
 use forge_llm::{Client as LlmClient, Options as LlmOptions, Provider, Usage};
@@ -30,6 +32,12 @@ const EXIT_OK: i32 = 0;
 const EXIT_FAILURE: i32 = 1;
 const EXIT_USAGE: i32 = 2;
 const EXIT_INTERRUPTED: i32 = 130;
+
+/// Below this many log records, compaction is not attempted: the planner keeps the
+/// recent turns verbatim, so a short session would lose a turn or two while paying
+/// for a provider call and appending a record that can never be removed. The same
+/// floor the Go original uses.
+const COMPACT_MESSAGE_EVENTS: u64 = 200;
 
 const CHAT_USAGE: &str = "usage: forge chat [flags] [prompt]\n\n\
 Run one agent turn and stream the answer to stdout. With no prompt argument the prompt is read from stdin until EOF, so `echo hi | forge chat` works.\n\n\
@@ -846,6 +854,27 @@ fn execute_turn(
                     "forge chat: recovered session {}: closed turn {}, which a dead process left open",
                     session_id, last.number
                 );
+            }
+        }
+    }
+
+    // Compaction runs before this turn opens, so the plan never treats the prompt
+    // the user is waiting on as an open turn it could cut into. A failure here is
+    // reported and the turn continues: the log is already correct either way.
+    if !opts.no_compact {
+        let summarizer = ProviderSummarizer::new(Some(Arc::clone(&provider)), model);
+        match forge_session::compact_log(&store, &summarizer, 0, COMPACT_MESSAGE_EVENTS) {
+            Ok(true) => {
+                if let Some((from, to)) = forge_session::last_compacted_span(&store) {
+                    let _ = writeln!(
+                        stderr,
+                        "forge chat: compacted seq {from}..{to} into a summary"
+                    );
+                }
+            }
+            Ok(false) => {}
+            Err(e) => {
+                let _ = writeln!(stderr, "forge chat: compaction skipped: {}", e.message());
             }
         }
     }

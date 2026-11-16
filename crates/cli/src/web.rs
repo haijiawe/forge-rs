@@ -12,9 +12,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use forge_agent::{Agent, EventLog, Options as AgentOptions};
+use forge_agent::{Agent, EventLog, Options as AgentOptions, ProviderSummarizer};
 use forge_config::Config;
-use forge_core::{event::parse_log, Event, Result};
+use forge_core::{event::parse_log, Event, EventType, Result};
 use forge_llm::{Client as LlmClient, Options as LlmOptions, Provider};
 use forge_protocol::decision;
 use forge_protocol::{CreateSessionRequest, CreateSessionResponse};
@@ -27,6 +27,7 @@ use forge_tool::policy::default_rules;
 use forge_tool::registry::Registry;
 use forge_tool::truncate::DefaultLimits;
 use forge_tool::{ApprovalRequest, Approver, Policy};
+use serde_json::json;
 
 use crate::chat::{AlwaysApprover, RecordingApprover, ToolRunnerAdapter};
 use crate::reorder_flags;
@@ -48,6 +49,10 @@ exit: 0 clean shutdown, 1 error, 2 usage error, 130 interrupted\n";
 
 const WEB_VALUE_FLAGS: &[&str] = &["addr", "model", "workspace", "sandbox", "approve"];
 const DEFAULT_ADDR: &str = "127.0.0.1:8420";
+/// Below this many log records the web surface does not attempt compaction: a
+/// short session would lose a turn or two while paying for a provider call and
+/// appending a record that can never be removed.
+const WEB_COMPACT_MESSAGE_EVENTS: u64 = 200;
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(600);
 const APPROVAL_POLL: Duration = Duration::from_millis(150);
@@ -298,8 +303,69 @@ impl WebRunner {
     }
 }
 
+impl WebRunner {
+    /// Fold the oldest complete history into one summary record, when there is
+    /// something worth folding. Returns whether a record landed.
+    ///
+    /// The read goes through a short-lived [`forge_session::Store`] because the file
+    /// is the interface, and the write goes through `Server::append_event` because
+    /// the server owns the seq counter: a second writer holding its own counter
+    /// would mint duplicate seqs.
+    ///
+    /// Compaction is best effort. A failure is reported to the caller, which ignores
+    /// it: the log is correct whether or not this ran, and the turn should not fail
+    /// because a summary could not be produced.
+    fn compact(&self, session_id: &str) -> Result<bool> {
+        let path = self.server.path(session_id);
+        let store = forge_session::Store::open(&path, forge_session::Options::default())?;
+        let mut events: Vec<Event> = Vec::new();
+        store.read_from(1, |event| {
+            events.push(event.clone());
+            Ok(())
+        })?;
+        // Release the file handle before asking the server to append: two handles on
+        // one log are two seq counters, which is the bug this split exists to avoid.
+        drop(store);
+
+        if (events.len() as u64) < WEB_COMPACT_MESSAGE_EVENTS {
+            return Ok(false);
+        }
+        let plan = forge_session::plan_compaction(&events, 0)?;
+        if plan.is_empty() {
+            return Ok(false);
+        }
+        let covered: Vec<Event> = events
+            .iter()
+            .filter(|event| event.seq >= plan.from && event.seq <= plan.to)
+            .cloned()
+            .collect();
+        let summarizer =
+            ProviderSummarizer::new(Some(Arc::clone(&self.provider)), self.model.clone());
+        // No fallback text: a summary that is not the model's words would become the
+        // permanent record of what those events said.
+        let summary = summarizer.summarize(&covered)?;
+        let payload = json!({
+            "summary": summary,
+            "replaces": {"from": plan.from, "to": plan.to},
+        });
+        let event = Event::new(
+            session_id.to_string(),
+            EventType::COMPACTION_SUMMARY,
+            Some(payload),
+        );
+        self.server.append_event(session_id, &event)?;
+        Ok(true)
+    }
+}
+
 impl TurnRunner for WebRunner {
     fn run_turn(&self, ctx: &TurnContext, session_id: &str, text: &str) -> Result<()> {
+        // Compaction happens at the top of the turn, before the loop reads the log,
+        // which means it can never cut into the prompt the user is waiting on: the
+        // HTTP layer already wrote turn/start + user/message, so those records are
+        // the open tail the planner keeps. The cost is that this turn still sends
+        // the long history once; the next one does not.
+        let _ = self.compact(session_id);
         // Bridge the server's cancellation token into the agent's flag. The
         // server calls `cancel()` before flipping ctx.cancel, so this is mostly
         // a belt-and-braces path for in-process callers.

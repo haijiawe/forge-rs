@@ -49,6 +49,38 @@ fn strip_thinking_removes_markers() {
     assert_eq!(strip_thinking(""), "");
 }
 
+/// A model that opens a scratchpad block and never closes it must not get its
+/// private reasoning into the durable record. The Go original stops scanning at
+/// the unclosed marker and keeps the text; this port truncates there instead
+/// (observed on a real log whose stored summary began with an open marker).
+#[test]
+fn strip_thinking_drops_an_unterminated_block() {
+    let summary = " thinking1. **What the user asked** - question 1 through 30.";
+    assert_eq!(strip_thinking(summary), "");
+    assert_eq!(
+        strip_thinking("<thinking>private plan"),
+        "",
+        "an unclosed XML-style marker also runs to the end"
+    );
+    assert_eq!(
+        strip_thinking("Answered the range.  thinkinghalf a plan"),
+        "Answered the range.",
+        "text before the marker survives, the unterminated block does not"
+    );
+    assert_eq!(strip_thinking("Kept. <thinking>unclosed"), "Kept.");
+    // Both spellings appear in real provider output; the short one leaked
+    // into a stored summary before it was handled.
+    assert_eq!(
+        strip_thinking("<think>private plan</think>The range covers setup."),
+        "The range covers setup."
+    );
+    assert_eq!(
+        strip_thinking("<think>never closed"),
+        "",
+        "an unclosed short marker also runs to the end"
+    );
+}
+
 #[test]
 fn clip_summary_cuts_on_rune_boundary() {
     assert_eq!(clip_summary("中文中文中文", 8), "中…");

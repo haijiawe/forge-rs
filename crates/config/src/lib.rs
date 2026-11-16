@@ -126,6 +126,10 @@ pub struct Config {
     pub profile: String,
     /// Default model id; empty means the profile decides.
     pub model: String,
+    /// Optional PEM file holding extra CA roots (for example a private CA) for
+    /// the LLM HTTPS client. Absent means the pinned public bundle only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ca_file: Option<String>,
     /// Where sessions, indexes and logs live.
     pub data_dir: String,
     /// One of the `SANDBOX_*` constants.
@@ -163,6 +167,7 @@ impl Config {
         Config {
             profile: "default".to_string(),
             model: String::new(),
+            ca_file: None,
             data_dir: home,
             sandbox: SANDBOX_WORKSPACE_WRITE.to_string(),
             debug: false,
@@ -225,6 +230,9 @@ impl Config {
         }
         if let Some(v) = raw.model {
             self.model = v;
+        }
+        if let Some(v) = raw.ca_file {
+            self.ca_file = Some(v);
         }
         if let Some(v) = raw.data_dir {
             self.data_dir = v;
@@ -543,6 +551,7 @@ fn expand_tilde(path: &str) -> String {
 struct RawConfig {
     profile: Option<String>,
     model: Option<String>,
+    ca_file: Option<String>,
     data_dir: Option<String>,
     sandbox: Option<String>,
     debug: Option<bool>,

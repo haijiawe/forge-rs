@@ -307,30 +307,43 @@ fn summary_history(events: &[Event]) -> Result<Vec<Message>> {
     Ok(to_llm_messages(&snap, ""))
 }
 
-/// Strip both the ` thinking ... response` and `<thinking>...</thinking>`
-/// markers. The byte offsets match the Go source exactly.
+/// Strip both the inline and XML-style thinking marker pairs. A matched pair is
+/// removed with the same byte offsets as the Go original.
+///
+/// One deliberate difference from Go: an **unterminated** open marker is
+/// treated as "the scratchpad runs to the end" and dropped. Go stops scanning
+/// there, which lets a model that opens a thinking block and never closes it
+/// smuggle its private reasoning into the durable record - observed on a real
+/// 211-record log whose stored summary began with a literal open marker. A
+/// summary is written to the log and rendered to the user, so leaking half a
+/// scratchpad is worse than losing a fragment of it.
 pub fn strip_thinking(s: &str) -> String {
     let mut cur = s.to_string();
-    // Inline marker pair.
+    // Inline marker pair: a space, then the word, then the same for the close.
     while let Some(start) = cur.find(" thinking") {
         let Some(rel_end) = cur[start..].find(" response") else {
+            cur.truncate(start);
             break;
         };
         let end = start + rel_end;
-        // Go uses s[:start] + s[end+len(""):] == s[end..].
         cur = format!("{}{}", &cur[..start], &cur[end..]);
     }
-    // XML-style marker pair.
-    while let Some(start) = cur.find("<thinking>") {
-        let Some(rel_end) = cur[start..].find("</thinking>") else {
-            break;
-        };
-        let end = start + rel_end + "</thinking>".len();
-        cur = format!("{}{}", &cur[..start], &cur[end..]);
+    // XML-style marker pairs. Both spellings are stripped: models emit
+    // <thinking>...</thinking> and the shorter <think>...</think>, and the
+    // shorter one was found leaking into a real stored summary.
+    for (open, close) in [("<thinking>", "</thinking>"), ("<think>", "</think>")] {
+        while let Some(start) = cur.find(open) {
+            let body = start + open.len();
+            let Some(rel_end) = cur[body..].find(close) else {
+                cur.truncate(start);
+                break;
+            };
+            let end = body + rel_end + close.len();
+            cur = format!("{}{}", &cur[..start], &cur[end..]);
+        }
     }
     cur.trim().to_string()
 }
-
 fn finish(text: &str, stop_reason: Option<&str>, budget: usize) -> Result<String> {
     let cleaned = strip_thinking(text);
     if matches!(stop_reason, Some("length") | Some("max_tokens")) {
@@ -399,5 +412,15 @@ impl SummarizerClose {
 impl Drop for SummarizerClose {
     fn drop(&mut self) {
         self.close_once();
+    }
+}
+
+/// `forge-session` owns the compaction writer and declares `Summarizer` in the
+/// consumer, exactly as Go's `session.Summarizer` interface does. This impl is
+/// the bridge: the provider-backed summary is one implementation of that trait,
+/// not a dependency of the session crate (which must not know a model exists).
+impl forge_session::Summarizer for ProviderSummarizer {
+    fn summarize(&self, events: &[Event]) -> Result<String> {
+        ProviderSummarizer::summarize(self, events)
     }
 }
