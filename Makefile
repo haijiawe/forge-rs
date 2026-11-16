@@ -2,7 +2,11 @@
 # Every recipe assumes only .cargo/config.toml: no exported CC, no PATH edits,
 # no environment variables beyond what cargo reads itself.
 
-.PHONY: build test fmt lint arch check bench release
+.PHONY: web build test fmt lint arch check bench bench-run bench-record bench-check release
+
+# npm uses POSIX ';' here; the managed shell runs this recipe through bash/Git-Bash.
+web:
+	cd web; npm ci; npm run build
 
 build:
 	cargo build --release --offline
@@ -19,10 +23,19 @@ lint:
 arch:
 	cargo run -q -p archcheck --offline --
 
-check: fmt lint arch test
+check: fmt lint arch test bench-check
 
 bench:
 	cargo bench --offline
+
+bench-run: build
+	cargo run --release -q -p forge-bench --offline --
+
+bench-record: build
+	cargo run --release -q -p forge-bench --offline -- -out scripts/bench/baseline.json -baseline ""
+
+bench-check: build
+	cargo run --release -q -p forge-bench --offline -- -strict
 
 # Cross builds are compile checks only: x86_64-unknown-linux-gnu and
 # aarch64-apple-darwin are installed, but no linker for either triple exists on

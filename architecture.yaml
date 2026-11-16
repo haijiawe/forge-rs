@@ -11,8 +11,8 @@ version: 1
 
 layers:
   L0: [forge-core, forge-config]
-  L1: [forge-exec, forge-sandbox]
-  L2: [forge-session, forge-llm, forge-tool, forge-protocol, forge-agent]
+  L1: [forge-exec, forge-sandbox, forge-mcp, forge-skill]
+  L2: [forge-session, forge-llm, forge-tool, forge-protocol, forge-agent, forge-store, forge-import, forge-subagent]
   L3: [forge-server, forge-cli]
 
 # Same-layer edges the layer rule cannot judge but §2 forbids outright.

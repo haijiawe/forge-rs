@@ -1,0 +1,9 @@
+[package]
+name = "forge-skill"
+description = "skill discovery and on-demand loading of SKILL.md instructions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]

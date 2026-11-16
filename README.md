@@ -4,8 +4,8 @@ A Rust rewrite of the Go tree in `../forge-v2`. The Go tree is the reference
 implementation: its tests are the oracle, and ported behaviour is expected to
 match it rather than to improve on it.
 
-The workspace is arranged as ten product crates, one per boundary that should be
-violated loudly, plus the `tools/archcheck` gate itself. `architecture.yaml`
+The workspace is arranged as fifteen product crates, one per boundary that should be
+violated loudly, plus `tools/archcheck` and `tools/bench` gates. `architecture.yaml`
 states the layer map, and `tools/archcheck` fails the build when a `Cargo.toml`
 dependency points to a higher layer or a crate has no boundary README. Cargo
 already enforces that the graph compiles; these gates enforce that it points the
@@ -23,6 +23,11 @@ right way and is written down.
 | `forge-llm` | L2 | provider contract, OpenAI-compatible SSE client | know about sessions |
 | `forge-tool` | L2 | registry, executor, policy, approvals, builtin tools | decide policy itself |
 | `forge-protocol` | L2 | wire types shared by server and UI | depend on the server |
+| `forge-store` | L2 | SQLite index, FTS search, rebuild | own the event log |
+| `forge-import` | L2 | read-only import of old session trees | overwrite an existing session |
+| `forge-subagent` | L2 | nested agent runs on their own logs | run without a depth limit |
+| `forge-mcp` | L1 | MCP stdio/HTTP client | know about sessions or tools |
+| `forge-skill` | L1 | skill frontmatter scanner | import any forge crate |
 | `forge-server` | L3 | HTTP/1.1 + WebSocket over the log | contain agent logic |
 | `forge-cli` | L3 | the `forge` binary | hold logic that belongs in a crate |
 
@@ -70,13 +75,14 @@ The full gate is one command:
 make check
 ```
 
-which is equivalent to running these four in order:
+which is equivalent to running these five in order:
 
 ```powershell
 cargo fmt --check
 cargo clippy -- -D warnings
 cargo run -q -p archcheck --offline
 cargo test --offline
+cargo run --release -q -p forge-bench --offline -- -strict
 ```
 
 A clean architecture run ends with `archcheck: ok (.)`; on a complete tree the
@@ -86,19 +92,21 @@ for them.
 
 ## What is not done yet
 
-- Four of the ten crates are still `Not yet ported` placeholders: `forge-llm`,
-  `forge-protocol`, `forge-server`, and `forge-tool`. The other six
-  (`forge-core`, `forge-config`, `forge-exec`, `forge-sandbox`, `forge-session`,
-  `forge-cli`) have started to land real modules; the rest of the port follows
-  the waves in `docs/08-rust-port.md`.
-- `archcheck` checks the layer direction and the README contract only. It does
-  not inspect Rust source, enforce the dependency budget, or check that a
-  crate's public API matches its README; those are review and `Cargo.toml`
-  concerns for now.
-- The crate READMEs under `crates/*/README.md` are owned by the waves that fill
-  each crate. `make arch` reports every crate that has not yet acquired one
-  instead of exempting it; while the port is incomplete, that is expected.
-- `make bench` runs the standard test harness; there are no benchmarks yet.
+- `forge chat --no-compact` is parsed but is a no-op: the Rust `forge-session`
+  has no compaction writer yet. The Go tree's 200-event auto-compaction is not
+  ported.
+- The Rust provider accepts `https://` through the pinned `webpki-roots` bundle;
+  a private-CA endpoint would need a workspace CA decision. No live request was
+  made to the example endpoint during the port.
+- Cross-target release builds from this host are compile checks only; see the
+  toolchain section and `docs/release.md`. CI uses native runners for the
+  artifacts it claims.
+- `archcheck` checks layer direction and the README contract only. It does not
+  inspect Rust source, enforce the dependency budget, or check that a crate's
+  public API matches its README; those are review and `Cargo.toml` concerns.
+- Benchmarks are ported in `tools/bench` but no baseline has been recorded on
+  this host: a number measured while other agents compiled would be noise.
+  `make bench-record` arms it from a settled tree.
 - `make check` could not be executed on the authoring host because GNU make is
-  not installed. Its four component commands were run directly and are the
-  source of the expected output above.
+  not installed. Its component commands were run directly and are the source
+  of the expected output above.

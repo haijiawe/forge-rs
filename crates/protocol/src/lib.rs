@@ -1,7 +1,11 @@
-//! the wire types shared by the server and the UI.
+//! The wire types shared by the server and the browser UI.
 //!
-//! Layer L2. Not yet ported: this crate is W4 in the plan at
-//! docs/08-rust-port.md. It exists now so the workspace member list is stable
-//! and the layer map can be checked before the code arrives.
+//! Layer L2. Frozen from `forge-v2/internal/protocol/protocol.go`; the Go
+//! oracle and `docs/contracts/api.md` win on any disagreement. `protocol.rs`
+//! holds the shapes; this file only declares the module.
 
 #![forbid(unsafe_op_in_unsafe_fn)]
+
+mod protocol;
+
+pub use protocol::*;

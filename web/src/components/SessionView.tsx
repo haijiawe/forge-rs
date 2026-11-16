@@ -1,0 +1,114 @@
+// The session screen: transcript + composer + approval + status bar.
+//
+// The store owns all state; this component subscribes with
+// useSyncExternalStore and re-renders once per published frame (the store
+// batches to requestAnimationFrame, see state/sessionStore.ts).
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import type { ForgeApi } from '../api/client';
+import type { ApprovalDecision } from '../api/types';
+import { SessionStore } from '../state/sessionStore';
+import { ApprovalDialog } from './ApprovalDialog';
+import { Composer } from './Composer';
+import { StatusBar } from './StatusBar';
+import { Transcript } from './Transcript';
+
+export interface SessionViewProps {
+  api: ForgeApi;
+  sessionId: string;
+  token: string;
+  baseUrl?: string;
+  onBack: () => void;
+}
+
+export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionViewProps) {
+  const store = useMemo(() => {
+    const options = {
+      api,
+      sessionId,
+      token,
+      ...(baseUrl === undefined ? {} : { baseUrl }),
+    };
+    return new SessionStore(options);
+  }, [api, sessionId, token, baseUrl]);
+
+  useEffect(() => {
+    store.start();
+    return () => {
+      store.stop();
+    };
+  }, [store]);
+
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+
+  const send = useCallback((text: string) => store.sendMessage(text), [store]);
+  const steer = useCallback((text: string) => store.steerTurn(text), [store]);
+  const stop = useCallback(() => store.cancelTurn(), [store]);
+  const decide = useCallback(
+    async (decision: ApprovalDecision, note?: string): Promise<void> => {
+      await store.decide(decision, note);
+    },
+    [store],
+  );
+  const dismiss = useCallback(() => store.clearActionError(), [store]);
+
+  const running = state.status === 'running';
+  // The turn is open while it waits for an approval too, so stopping stays
+  // available there; only input closes, because the dialog owns the decision.
+  const turnActive = running || state.status === 'awaiting_approval';
+
+  return (
+    <main className="screen screen-session">
+      <header className="session-head">
+        <button type="button" className="button button-ghost" onClick={onBack}>
+          ← sessions
+        </button>
+        <div className="session-title">
+          <span className="mono">{state.session?.id ?? sessionId}</span>
+          {state.session !== null && (
+            <span className="mono muted" title={state.session.workspace}>
+              {state.session.workspace}
+            </span>
+          )}
+        </div>
+      </header>
+
+      {state.actionError !== null && (
+        <p className="banner banner-error" role="alert">
+          {state.actionError}
+          <button type="button" className="link-button" onClick={dismiss}>
+            dismiss
+          </button>
+        </p>
+      )}
+
+      {state.needsResync && (
+        <p className="banner banner-warn">resyncing transcript from the event log…</p>
+      )}
+
+      <Transcript rows={state.rows} rowKeys={state.rowKeys} emptyHint="waiting for the first event…" />
+
+      {state.pendingApproval !== null && (
+        <ApprovalDialog pending={state.pendingApproval} onDecide={decide} />
+      )}
+
+      <Composer
+        disabled={state.status === 'awaiting_approval'}
+        disabledReason="waiting for an approval…"
+        onSend={send}
+        running={turnActive}
+        onSteer={steer}
+        onStop={stop}
+      />
+
+      <StatusBar
+        session={state.session}
+        status={state.status}
+        sessionId={state.session?.id ?? sessionId}
+        lastSeq={state.lastSeq}
+        connecting={state.connecting}
+        needsResync={state.needsResync}
+        streamError={state.streamError}
+      />
+    </main>
+  );
+}

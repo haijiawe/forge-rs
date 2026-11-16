@@ -1,0 +1,3 @@
+- [ ] the change does what the message says
+- [ ] error paths are covered
+- [ ] no new dependency without a docs/deps.md row

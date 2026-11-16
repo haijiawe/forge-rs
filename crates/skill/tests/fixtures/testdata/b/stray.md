@@ -1,0 +1,1 @@
+A plain file in a skills root is not a skill candidate and produces no diagnostic.

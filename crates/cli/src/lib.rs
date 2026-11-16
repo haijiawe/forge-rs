@@ -18,7 +18,9 @@
 
 use std::io::Write;
 
+pub mod chat;
 pub mod doctor;
+pub mod web;
 
 /// Build identity, injected at build time by the Go build (and kept here so
 /// the version line stays stable across the port).
@@ -105,7 +107,15 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
             0
         }
         "doctor" => doctor::run(&args[1..], stdout, stderr),
+        "chat" => chat::run(&args[1..], stdout, stderr),
+        "web" => web::run(&args[1..], stdout, stderr),
         other => {
+            // Bare `forge "问题"` is shorthand for `forge chat`. A lone ASCII
+            // word stays an unknown command so a typo fails fast instead of
+            // spending a model call (contract §2.5, main.go isPromptInvocation).
+            if chat::is_prompt_invocation(args) {
+                return chat::run(args, stdout, stderr);
+            }
             // `%q` in the Go build: a quoted, escaped command name.
             let _ = writeln!(stderr, "forge: unknown command {other:?}\n");
             let _ = stderr.write_all(USAGE.as_bytes());

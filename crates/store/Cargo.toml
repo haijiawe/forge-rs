@@ -1,0 +1,18 @@
+[package]
+name = "forge-store"
+description = "Rebuildable SQLite index: session list, FTS5 search and stats"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# L2 -> L0/L2: the event envelope/error vocabulary, the projection rules and
+# the status words. These are internal crates, not new external dependencies.
+forge-core = { path = "../core" }
+forge-session = { path = "../session" }
+forge-protocol = { path = "../protocol" }
+# Already in the workspace dependency budget: bundled SQLite 3.54 with FTS5.
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true

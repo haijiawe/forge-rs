@@ -152,11 +152,11 @@ wave boundary.
 | --- | --- | --- | --- |
 | **W0** | workspace, `.cargo/config.toml`, `forge-core` (event, ids, canonical JSON, errors), conformance runner, this document | 21/21 cases; canonical bytes identical; `cargo test` green | Delivered, `04ebb4f` |
 | **W1** | `forge-session` (store, recovery, projection), `forge-config`, `forge-exec`, `forge-sandbox`, `forge-cli` (version/help/doctor), `tools/archcheck` | 5 fixture logs replay to the golden projection; torn tail repaired; `--version` < 30 ms; `doctor` prints ten checks | Delivered, `1b5ef75` |
-| **W2** | `forge-llm` (SSE), agent loop with retries, cancellation, steering | fixture streams drive a whole turn; event order matches `tests/golden/agent/text-turn.json` | Delivered, awaiting the W2 commit |
-| **W3** | `forge-tool` (registry, executor, policy, approvals, 7 builtin tools, danger list) | a tool call executes end to end; approval recorded before asked; denied paths produce `denied`/`denied_refused` | Delivered with W2 (same gate) |
-| **W4** | `forge-protocol`, `forge-server` (HTTP + WS), embedded UI | API contract §4 satisfied; WS frames; the React build served from the binary | Pending; 34 HTTP conformance cases already ported |
-| **W5** | index (`rusqlite`), import, MCP, skills, subagent | `forge index --rebuild` / `--search`; `forge import` reproduces an old tree; a fake MCP server's tools appear | Pending |
-| **W6** | bench, release, docs | six cross-built artefacts; `bench -strict`; this document's claims all measured | Pending |
+| **W2** | `forge-llm` (SSE), agent loop with retries, cancellation, steering | fixture streams drive a whole turn; event order matches `tests/golden/agent/text-turn.json` | Delivered, `1242294` |
+| **W3** | `forge-tool` (registry, executor, policy, approvals, 7 builtin tools, danger list) | a tool call executes end to end; approval recorded before asked; denied paths produce `denied`/`denied_refused` | Delivered with W2, `1242294` |
+| **W4** | `forge-protocol`, `forge-server` (HTTP + WS), embedded UI, `forge chat`/`forge web` | API contract §4 satisfied; WS frames; the React build served from the binary | Delivered, awaiting the W4–W6 commit |
+| **W5** | index (`rusqlite`), import, MCP, skills, subagent | `forge index --rebuild` / `--search`; `forge import` reproduces an old tree; a fake MCP server's tools appear | Delivered, awaiting the W4–W6 commit |
+| **W6** | bench, release, docs | portable six-metric bench; three native release runners; this document's claims all measured | Delivered, awaiting the W4–W6 commit |
 
 ### W1 evidence (measured on this host, not quoted from a report)
 
@@ -213,6 +213,49 @@ across unchanged, which is also the cheapest proof that the wire contract held.
 - Deliberate limits: cancellation is a cooperative `Cancel` token checked
   between stream deltas, not a goroutine interrupting a blocking `Recv`; a
   private-CA TLS endpoint is not covered (trust is pinned `webpki-roots`).
+
+### W4–W6 evidence (measured on this host)
+
+- `cargo build --release --offline`: exit 0, native binary **4,368,896 B**. The
+  Go release binary was 13.1 MB; the difference is mostly Go's runtime and the
+  two HTTP/TLS stacks, not missing functionality.
+- `forge --version` returns in **5 ms** in the bench harness; the Go tree's
+  recorded figure was 7.21 ms. `forge doctor` prints ten checks in warm
+  single-digit milliseconds; the sandbox check is a WARN that names exactly
+  what this host does and does not confine.
+- Web assets from the unchanged React tree build cleanly
+  (`index-3Y85-UxI.js` 265.72 kB / gzip 81.64 kB) and `crates/server/build.rs`
+  embeds `web/dist` on the next server rebuild. The 34 HTTP conformance cases
+  run against the real Rust loopback server; a further six server tests cover
+  WebSocket frames, policy-before-upgrade, static cache headers, embedded UI,
+  cookie auth, and cancel/steer.
+- `forge-store` rebuilds 1,000 sessions / 100,000 events in **335 ms** best of
+  repeated runs (budget 10 s). `forge-import` ports all six fixture families
+  verbatim and re-parses every output with `forge_core::parse_log`; 37 tests.
+  `forge-mcp` has 43 tests over stdio and HTTP/SSE, `forge-skill` 21 over
+  fixtures and a golden scan, `forge-subagent` 22 including nested delegation.
+- `forge chat`/`forge web` are wired into `crates/cli` with the Go flags,
+  exit codes, golden event order, `RecordingApprover`, and per-turn adapters.
+  Browser answers are written by the HTTP layer with `decidedBy:"user"`;
+  cancelled/timed-out asks are written by the adapter with
+  `decidedBy:"cancelled"|"timeout"|"error"`, matching the frozen contract.
+- `tools/bench` records **windows/amd64, rustc 1.96.0** in
+  `scripts/bench/baseline.json` from a settled tree: version startup 5.14 ms,
+  append fsync 4,501/s, append batch 76,942/s, replay 10k 159,766/s,
+  projection 10k 92,313/s, event roundtrip 2,843 ns/op. A subsequent `-strict`
+  run passed all six metrics (the fsync figure swung 18%, inside its deliberate
+  35% storage tolerance). Debug-harness numbers were discarded: they measured
+  the harness, not the release build.
+- `.github/workflows/release.yml` uses three **native** runners (Windows,
+  Ubuntu, macOS arm64) because no cross linker exists here; docs/release.md
+  states which artifacts are not produced and that the workflow has never run
+  on this host. The Go tree's six cross-check artifacts remain the only
+  compile-only evidence for the additional targets.
+- Full workspace: `cargo fmt --all -- --check`, `cargo clippy --workspace
+  --all-targets -- -D warnings`, `archcheck`, and `cargo test --workspace
+  --offline` all exit 0. The sandbox suite's
+  `memory allocation of 1610612736 bytes failed` line is the expected signal
+  from the job-object memory cap test, not a failing test.
 
 ## 7. What changes on purpose
 

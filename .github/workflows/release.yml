@@ -1,0 +1,257 @@
+name: release
+
+# Run on version tags, or manually from the Actions tab (a dry run: it builds,
+# checks and uploads artifacts but does NOT publish a release).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # required by `gh release create`
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# ---------------------------------------------------------------------------
+# Build matrix.
+#
+# One job per NATIVE runner. Each runner compiles and LINKS a binary for the
+# host it actually runs on, so every artifact below is a real, executed check
+# rather than an untested cross-compile.
+#
+# We deliberately do NOT produce windows/arm64, linux/arm64 or darwin/amd64:
+#   * this project links `ring`, which needs a C compiler for the *target*;
+#   * the cross targets installed on developer boxes (x86_64-unknown-linux-gnu,
+#     aarch64-apple-darwin) have rustup std but NO target linker;
+#   * macos-latest is an Apple-silicon runner, so it links darwin/arm64 only.
+# See docs/release.md ("Claims and non-claims").
+# ---------------------------------------------------------------------------
+jobs:
+  build:
+    name: build ${{ matrix.artifact }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            os: windows
+            arch: amd64
+            triple: x86_64-pc-windows-msvc
+            artifact: forge-windows-amd64.exe
+          - runner: ubuntu-latest
+            os: linux
+            arch: amd64
+            triple: x86_64-unknown-linux-gnu
+            artifact: forge-linux-amd64
+          - runner: macos-latest
+            os: darwin
+            arch: arm64
+            triple: aarch64-apple-darwin
+            artifact: forge-darwin-arm64
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      # The committed .cargo/config.toml hard-codes the developer's ASCII
+      # target directory (D:/forge-rs-target/forge-rs). Never use that local
+      # Windows path in CI: this repo-local, ASCII value overrides it on every
+      # runner and keeps the artifact next to the checkout.
+      CARGO_TARGET_DIR: target
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Refuse a mislabelled runner
+        # Guard the artifact names: if the hosted image ever changes host
+        # triple, fail loudly instead of shipping a binary under the wrong OS/arch.
+        run: |
+          set -euo pipefail
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          echo "runner host: ${host}"
+          echo "expected:    ${{ matrix.triple }}"
+          test "${host}" = "${{ matrix.triple }}" || {
+            echo "::error::runner host ${host} != ${{ matrix.triple }}; refusing to mislabel the artifact"
+            exit 1
+          }
+
+      # ---------------------------------------------------------------------
+      # UI FIRST. crates/server/build.rs embeds web/dist when it exists and
+      # otherwise bakes in a small "bundle not built" 200 placeholder page.
+      # A release MUST therefore build the web UI before cargo, and then prove
+      # the real assets were embedded (see the marker checks below).
+      # ---------------------------------------------------------------------
+      - name: Build web UI
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Assert the web build produced a real bundle
+        run: |
+          set -euo pipefail
+          if [ ! -s web/dist/index.html ]; then
+            echo "::error::web/dist/index.html is missing or empty"
+            exit 1
+          fi
+          if [ ! -d web/dist/assets ]; then
+            echo "::error::web/dist/assets/ does not exist"
+            exit 1
+          fi
+          js="$(find web/dist/assets -maxdepth 1 -type f -name '*.js' | wc -l)"
+          if [ "${js}" -lt 1 ]; then
+            echo "::error::web/dist/assets/ has no JavaScript bundle"
+            exit 1
+          fi
+          echo "index.html: $(wc -c < web/dist/index.html) bytes; JS bundles: ${js}"
+          # Vite names the entry bundle index-<hash>.js; build.rs must see the
+          # same "assets/index-" string that we later grep for in the binary.
+          if ! grep -q 'assets/index-' web/dist/index.html; then
+            echo "::error::web/dist/index.html has no hashed 'assets/index-' entry bundle"
+            exit 1
+          fi
+
+      - name: Build release binary
+        # No --offline on hosted runners: Cargo.lock is committed, so --locked
+        # keeps the dependency set reproducible without needing the private
+        # local mirror. Building the workspace also builds the `forge` binary
+        # in crates/cli, and runs crates/server/build.rs against web/dist.
+        run: cargo build --release --locked
+
+      - name: Stage artifact under its release name
+        run: |
+          set -euo pipefail
+          src="target/release/forge"
+          if [ "${{ matrix.os }}" = "windows" ]; then src="target/release/forge.exe"; fi
+          test -f "${src}" || { echo "::error::${src} was not produced"; exit 1; }
+          cp "${src}" "target/release/${{ matrix.artifact }}"
+          ls -l "target/release/${{ matrix.artifact }}"
+
+      # ---------------------------------------------------------------------
+      # Two independent checks on the staged, linkable artifact:
+      #   1. it RUNS and prints the expected --version shape (OS/arch as built);
+      #   2. its bytes contain the hashed asset marker, proving build.rs embedded
+      #      the real UI and not the placeholder page.
+      # VERSION/COMMIT are frozen constants ("0.0.0-dev"/"unknown") in
+      # crates/cli/src/lib.rs; only the rustc version is injected at build time.
+      # The release tag is deliberately NOT compiled into the binary.
+      # ---------------------------------------------------------------------
+      - name: Verify binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          bin="target/release/${{ matrix.artifact }}"
+          got="$("${bin}" --version)"
+          echo "${got}"
+          case "${got}" in
+            "forge 0.0.0-dev (unknown) ${{ matrix.os }}/${{ matrix.arch }} rustc "*) ;;
+            *) echo "::error::unexpected --version output: ${got}"; exit 1 ;;
+          esac
+          if ! grep -aq 'assets/index-' "${bin}"; then
+            echo "::error::${{ matrix.artifact }} lacks the embedded UI marker; it would serve the placeholder page"
+            exit 1
+          fi
+          echo "OK: --version shape and embedded 'assets/index-' marker verified"
+
+      - name: Verify binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bin = "target/release/${{ matrix.artifact }}"
+          $got = & $bin --version
+          Write-Output $got
+          $expected = "forge 0.0.0-dev (unknown) ${{ matrix.os }}/${{ matrix.arch }} rustc "
+          if (-not $got.StartsWith($expected)) {
+            Write-Error "unexpected --version output: $got"
+            exit 1
+          }
+          # grep -a equivalent: decode the raw bytes as ASCII and search.
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $bin))
+          $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+          if (-not $text.Contains('assets/index-')) {
+            Write-Error "${{ matrix.artifact }} lacks the embedded UI marker; it would serve the placeholder page"
+            exit 1
+          }
+          Write-Output "OK: --version shape and embedded 'assets/index-' marker verified"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/release/${{ matrix.artifact }}
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------------
+  # Assemble, checksum, and (on tags only) publish. Runs on ubuntu-latest
+  # after ALL matrix builds succeed, so a single failed target blocks release.
+  # -------------------------------------------------------------------------
+  release:
+    name: checksums and publish
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate and verify SHA256SUMS
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          sha256sum forge-* > SHA256SUMS
+          sha256sum --check SHA256SUMS
+          echo "----- SHA256SUMS -----"
+          cat SHA256SUMS
+
+      - name: Upload combined release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-release-artifacts
+          path: |
+            dist/forge-*
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          # Only the built-in token; no PAT, no extra secrets.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          case "${version}" in
+            v[0-9]*) ;;
+            *) echo "::error::release tags must look like v1.2.3, got '${version}'"; exit 1 ;;
+          esac
+          cd dist
+          gh release create "${version}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${version}" \
+            --generate-notes \
+            --verify-tag \
+            forge-* SHA256SUMS

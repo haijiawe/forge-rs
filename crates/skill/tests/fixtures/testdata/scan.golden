@@ -1,0 +1,44 @@
+skills=5
+skill 0:
+  name:        "bare"
+  description: ""
+  dir:         "testdata/b/bare"
+  path:        "testdata/b/bare/SKILL.md"
+  body:        0 bytes (not loaded)
+  files:       []
+skill 1:
+  name:        "code-review"
+  description: "Review a diff for defects before it lands"
+  dir:         "testdata/a/code-review"
+  path:        "testdata/a/code-review/SKILL.md"
+  body:        0 bytes (not loaded)
+  files:       ["checklist.md"]
+skill 2:
+  name:        "dashes"
+  description: "A horizontal rule in the body must not truncate the skill"
+  dir:         "testdata/b/dashes"
+  path:        "testdata/b/dashes/SKILL.md"
+  body:        0 bytes (not loaded)
+  files:       []
+skill 3:
+  name:        "nested"
+  description: "A skill whose frontmatter has a field this parser refuses to guess about"
+  dir:         "testdata/b/nested"
+  path:        "testdata/b/nested/SKILL.md"
+  body:        0 bytes (not loaded)
+  files:       []
+skill 4:
+  name:        "release-notes"
+  description: "Turn merged commits into release notes"
+  dir:         "testdata/a/release-notes"
+  path:        "testdata/a/release-notes/SKILL.md"
+  body:        0 bytes (not loaded)
+  files:       ["notes.txt" "template.md"]
+skipped=4
+  - "testdata/b/code-review: duplicate skill name \"code-review\" (already provided by testdata/a/code-review)"
+  - "testdata/b/missing-desc: frontmatter has no description field"
+  - "testdata/b/notes: no SKILL.md"
+  - "testdata/b/unclosed: frontmatter is not closed by a second --- line"
+warnings=2
+  - "testdata/b/bare/SKILL.md: no frontmatter; name falls back to the directory name"
+  - "testdata/b/nested/SKILL.md: line 5: \"tags\" has a nested or multi-line value, which is not supported; key dropped"

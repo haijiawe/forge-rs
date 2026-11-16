@@ -1,0 +1,16 @@
+[package]
+name = "forge-subagent"
+description = "delegated child agents: fresh logs, chained parents, fail-closed tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+forge-core = { path = "../core" }
+forge-session = { path = "../session" }
+forge-llm = { path = "../llm" }
+forge-agent = { path = "../agent" }
+forge-tool = { path = "../tool" }
+serde.workspace = true
+serde_json.workspace = true

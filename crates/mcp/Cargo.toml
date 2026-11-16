@@ -1,0 +1,23 @@
+[package]
+name = "forge-mcp"
+description = "MCP client: stdio and Streamable HTTP transports, with no forge-internal dependencies"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+rustls.workspace = true
+rustls-pki-types.workspace = true
+webpki-roots.workspace = true
+
+# Integration tests need a controllable server process. Passing its mode on the
+# command line (instead of in an environment variable) keeps the environment
+# tests honest: they clear the whole environment before spawning it.
+[[bin]]
+name = "mcp-fake-server"
+path = "tests/support/fake_server.rs"
+test = false
+bench = false

@@ -2,7 +2,7 @@
 dir: crates/server
 layer: L3
 role: HTTP/1.1 and WebSocket over the session log
-public: []
+public: [Server]
 may_import: [forge-core, forge-session, forge-protocol]
 must_not:
   - import a crate from a higher layer
@@ -12,18 +12,130 @@ gate: cargo run -q -p archcheck --offline
 
 ## 做什么
 
-The local service: REST routes from `docs/contracts/api.md` and the WebSocket event stream. Ported in W4 from `forge-v2/internal/server` (which hand-wrote an RFC 6455 subset on the standard library).
+The local service: the REST routes from `docs/contracts/api.md`, the WebSocket
+event stream, and static UI hosting. Implemented in W4 by porting
+`forge-v2/internal/server` to the standard library — thread-per-connection,
+a hand-written HTTP/1.1 reader and RFC 6455 subset, and no async runtime or
+new dependency. The only truth is the append-only session log; the HTTP layer
+writes intake records (`turn/start`, `user/message`, approval decisions) and
+hands turn execution to a [`TurnRunner`](api::TurnRunner).
 
 ## 公开面
 
-Nothing yet — placeholder until W4. The acceptance is the 34-case HTTP corpus in `tests/conformance/cases/http/`, which the Go implementation already passes.
+Everything a caller needs is re-exported from the crate root:
+
+- **`Server`** — the HTTP/WebSocket service (defined in [`server`]).
+- From [`api`] (the frozen boundary): `Options`, `StaticSource`, `EventWriter`,
+  `TurnRunner`, `TurnContext`, `CancelToken`, `DeltaSink`, `SteeringSource`.
+
+### `Server`
+
+```rust
+impl Server {
+    /// Validate options, prepare the data directory, load or create the bearer
+    /// token, and prepare embedded assets. No listener is opened yet.
+    pub fn new(options: Options) -> forge_core::Result<Self>;
+
+    /// The bearer token the service accepts (also written to `<dataDir>/token`).
+    pub fn token(&self) -> &str;
+
+    /// The bound address once listening, else `None`. Tests poll this for
+    /// readiness when the server binds to port 0.
+    pub fn addr(&self) -> Option<String>;
+
+    /// Like `addr()`, but returns an error instead of `None` before bind.
+    pub fn bound_addr(&self) -> forge_core::Result<String>;
+
+    /// Request graceful shutdown. Idempotent.
+    pub fn shutdown(&self) -> forge_core::Result<()>;
+
+    /// Bind and serve on the current thread; returns when shutdown completes.
+    /// This is **blocking** and does **not** own a thread — the caller decides
+    /// how to schedule it (e.g. `std::thread::spawn`). A non-loopback bind is
+    /// refused with `server: refusing to bind "<addr>": protocol 1 is loopback only`.
+    pub fn listen_and_serve(&self) -> forge_core::Result<()>;
+
+    /// Serve on an already-bound listener (useful for tests that bind first).
+    pub fn serve_listener(&self, listener: std::net::TcpListener) -> forge_core::Result<()>;
+
+    /// Create a session directly, without going through HTTP. The HTTP
+    /// `POST /api/sessions` route calls the same validation.
+    pub fn create_session(
+        &self,
+        request: &forge_protocol::CreateSessionRequest,
+    ) -> forge_core::Result<forge_protocol::CreateSessionResponse>;
+
+    /// Append a fully-formed event to a session log and return its sequence.
+    pub fn append_event(
+        &self,
+        session_id: &str,
+        event: &forge_core::Event,
+    ) -> forge_core::Result<u64>;
+    pub fn last_seq(&self, session_id: &str) -> u64;
+    pub fn path(&self, session_id: &str) -> std::path::PathBuf;
+}
+
+impl EventWriter for Server { /* append, last_seq, path */ }
+```
+
+`Server` is `Clone` (it is an `Arc` handle), so an accept loop can hand worker
+threads a handle without borrowing the original. `shutdown()` sets a stop flag;
+in-flight connections finish before their thread exits.
+
+### Behaviour contract
+
+- **Auth & protocol**: every response carries `X-Forge-Protocol: 1`. `/healthz`
+  is unauthenticated and touches no disk. `/api/*` requires `Authorization:
+  Bearer <token>` or a `forge_token` cookie, plus `X-Forge-Protocol: 1`; a
+  missing header is `400 code=protocol_required`, a wrong version is
+  `400 code=protocol_unsupported`. Only loopback peers are accepted.
+- **Routes**: `GET/POST /api/sessions`, `GET /api/sessions/{id}`,
+  `.../events`, `POST .../messages`, `.../cancel`, `.../steer`,
+  `GET .../stream`, `POST .../approvals/{id}`. Unsupported methods return
+  `405` with an `Allow` header and `code=method_not_allowed`.
+- **Idempotency**: `POST .../messages` requires `Idempotency-Key`; the first
+  delivery is `202`, a replay is `200` with `deduplicated: true`. The server —
+  not the runner — appends `turn/start(number)` then `user/message` with matching
+  envelope `turn`, and stores the key in the message payload.
+- **WebSocket**: `GET .../stream` performs a hand-written RFC 6455 handshake
+  (SHA-1 accept value, masked client frames), then sends a snapshot, the
+  backlog in `(after, lastSeq]`, and live events/deltas. Policy failures before
+  upgrade are plain HTTP statuses (401/403/400).
+- **Static UI**: `StaticSource::Dir(path)` serves `index.html` for shell routes
+  (`no-cache`) and `assets/*` as immutable; `StaticSource::Embedded` serves
+  files generated by [`build.rs`](build.rs) from `web/dist`, or a 200
+  placeholder page when the UI has not been built. `/api/*` is never swallowed
+  by the static fallback.
 
 ## 依赖与边界
 
-Do not put agent logic here. The server reads the log, appends intake records, and hands turns to a `TurnRunner`; it must not own a provider or a tool registry.
+Runtime dependencies are limited to `forge-core`, `forge-session`,
+`forge-protocol`, `serde`, and `serde_json` (see `Cargo.toml`). Do not put agent
+logic here: the server reads the log, appends intake records, and hands turns
+to a `TurnRunner`; it must not own a provider or a tool registry. Approval
+timeouts are a decision the log commits to, so the decision is appended under
+the same append lock as every other mutation.
+
+### Embedded UI build recipe
+
+The embedded source is read by `build.rs` from `../../web/dist` (the web UI is
+a read-only sibling tree). From the workspace root:
+
+```powershell
+cd web
+npm ci
+npm run build
+```
+
+That produces `web/dist/index.html` and `web/dist/assets/*`. Rebuild the server
+crate afterwards so `build.rs` re-embeds them; `cargo:rerun-if-changed` watches
+the dist directory. Without a build, the embedded source is a placeholder page
+that still answers `200`.
 
 ## 不要做
 
-- Do not write code here before the wave that owns it. A placeholder that
-  compiles is honest; a half-implementation that looks finished is not.
-- Do not add a dependency outside the workspace budget in Cargo.toml.
+- Do not add `tokio` or any async runtime — the server is thread-per-connection.
+- Do not add a dependency outside the workspace budget in `Cargo.toml`.
+- Do not make the runner append intake events; the HTTP layer owns them so a
+  replayed key can be deduplicated without starting a second turn.
+- Do not let a static fallback answer an `/api/*` path.

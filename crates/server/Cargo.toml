@@ -7,3 +7,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+forge-core = { path = "../core" }
+forge-session = { path = "../session" }
+forge-protocol = { path = "../protocol" }
+serde.workspace = true
+serde_json.workspace = true

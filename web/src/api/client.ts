@@ -1,0 +1,274 @@
+// The HTTP client: one place that knows the frozen wire contract
+// (docs/contracts/api.md), the auth token and the error envelope.
+//
+// Two rules it exists to enforce:
+//
+//   * The token is read from ?token= exactly once, kept in sessionStorage (not
+//     localStorage: a token must not survive the tab), and then stripped from
+//     the address bar with history.replaceState — a token in the URL leaks into
+//     screenshots, history and the Referer header.
+//   * Every /api/* response is checked for the protocol version and for the
+//     `{error:{code,message}}` envelope, so callers branch on a code and never
+//     on a status number.
+
+import { decodeFrame, HeaderVersion, IdempotencyKeyHeader, Version } from './protocol';
+import type {
+  ApprovalDecision,
+  ApprovalDecisionResponse,
+  CancelResponse,
+  EventsPage,
+  PingFrame,
+  PostMessageResponse,
+  ServerFrame,
+  SessionDetail,
+  SessionList,
+  SteerResponse,
+} from './types';
+
+/** The error envelope's machine-readable half, surfaced as a throwable. */
+export class ApiError extends Error {
+  readonly code: string;
+  readonly status: number;
+  readonly details: Record<string, unknown> | undefined;
+
+  constructor(code: string, message: string, status: number, details?: Record<string, unknown>) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
+    this.details = details;
+  }
+}
+
+export interface ClientOptions {
+  /** Origin the API lives on; '' means same origin (the shipped UI). */
+  baseUrl?: string;
+  token: string;
+  protocolVersion?: number;
+  fetchImpl?: typeof fetch;
+}
+
+export interface ListSessionsOptions {
+  cursor?: string;
+  limit?: number;
+}
+
+/** The subset of the client the session screen needs, so tests can fake it. */
+export interface ForgeApi {
+  listSessions(options?: ListSessionsOptions): Promise<SessionList>;
+  getSession(id: string): Promise<SessionDetail>;
+  events(id: string, after: number, limit?: number): Promise<EventsPage>;
+  postMessage(id: string, text: string): Promise<PostMessageResponse>;
+  /** Ask the running turn to stop (§4.9); the turn's ending arrives on the stream. */
+  cancel(id: string): Promise<CancelResponse>;
+  /** Inject text into the running turn (§4.10); 409 when nothing is running. */
+  steer(id: string, text: string): Promise<SteerResponse>;
+  decide(
+    id: string,
+    approvalId: string,
+    decision: ApprovalDecision,
+    note?: string,
+  ): Promise<ApprovalDecisionResponse>;
+}
+
+function trimTrailingSlash(baseUrl: string): string {
+  return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+}
+
+/** A fresh key for a state-changing POST that must not append twice on retry. */
+function newIdempotencyKey(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${String(Date.now())}-${Math.random().toString(36).slice(2)}`;
+}
+
+export class ForgeClient implements ForgeApi {
+  readonly baseUrl: string;
+  readonly token: string;
+  readonly protocolVersion: number;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(options: ClientOptions) {
+    this.baseUrl = trimTrailingSlash(options.baseUrl ?? '');
+    this.token = options.token;
+    this.protocolVersion = options.protocolVersion ?? Version;
+    this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  }
+
+  private headers(extra: Record<string, string> = {}): Record<string, string> {
+    return {
+      Accept: 'application/json',
+      [HeaderVersion]: String(this.protocolVersion),
+      ...(this.token === '' ? {} : { Authorization: `Bearer ${this.token}` }),
+      ...extra,
+    };
+  }
+
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      ...init,
+      headers: this.headers({
+        ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...((init.headers as Record<string, string> | undefined) ?? {}),
+      }),
+    });
+
+    if (!response.ok) {
+      // The envelope is {"error":{"code","message","details"?}}; a proxy or a
+      // crashed server may return something else, which must not crash the UI.
+      let code = `http_${String(response.status)}`;
+      let message = response.statusText === '' ? 'request failed' : response.statusText;
+      let details: Record<string, unknown> | undefined;
+      try {
+        const body: unknown = await response.json();
+        if (typeof body === 'object' && body !== null && 'error' in body) {
+          const error = (body as { error?: unknown }).error;
+          if (typeof error === 'object' && error !== null) {
+            const e = error as { code?: unknown; message?: unknown; details?: unknown };
+            if (typeof e.code === 'string') code = e.code;
+            if (typeof e.message === 'string') message = e.message;
+            if (typeof e.details === 'object' && e.details !== null) {
+              details = e.details as Record<string, unknown>;
+            }
+          }
+        }
+      } catch {
+        // Keep the synthetic code from the status line.
+      }
+      throw new ApiError(code, message, response.status, details);
+    }
+
+    const echoed = response.headers.get(HeaderVersion);
+    if (echoed !== null && echoed !== String(this.protocolVersion)) {
+      throw new ApiError(
+        'protocol_mismatch',
+        `server answered protocol ${echoed}, this client speaks ${String(this.protocolVersion)}`,
+        response.status,
+      );
+    }
+    return (await response.json()) as T;
+  }
+
+  listSessions(options: ListSessionsOptions = {}): Promise<SessionList> {
+    const query = new URLSearchParams();
+    if (options.cursor !== undefined && options.cursor !== '') query.set('cursor', options.cursor);
+    if (options.limit !== undefined) query.set('limit', String(options.limit));
+    const suffix = query.toString();
+    return this.request<SessionList>(`/api/sessions${suffix === '' ? '' : `?${suffix}`}`);
+  }
+
+  getSession(id: string): Promise<SessionDetail> {
+    return this.request<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}`);
+  }
+
+  events(id: string, after: number, limit = 200): Promise<EventsPage> {
+    const query = new URLSearchParams({ after: String(after), limit: String(limit) });
+    return this.request<EventsPage>(`/api/sessions/${encodeURIComponent(id)}/events?${query.toString()}`);
+  }
+
+  postMessage(id: string, text: string): Promise<PostMessageResponse> {
+    // The key makes a retry safe: the same key never appends a second message.
+    return this.request<PostMessageResponse>(`/api/sessions/${encodeURIComponent(id)}/messages`, {
+      method: 'POST',
+      headers: { [IdempotencyKeyHeader]: newIdempotencyKey() },
+      body: JSON.stringify({ text }),
+    });
+  }
+
+  cancel(id: string): Promise<CancelResponse> {
+    // No body and no key: cancelling twice is the same request, and the answer
+    // says whether a turn was open in the log at the time (§4.9).
+    return this.request<CancelResponse>(`/api/sessions/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+    });
+  }
+
+  steer(id: string, text: string): Promise<SteerResponse> {
+    return this.request<SteerResponse>(`/api/sessions/${encodeURIComponent(id)}/steer`, {
+      method: 'POST',
+      headers: { [IdempotencyKeyHeader]: newIdempotencyKey() },
+      body: JSON.stringify({ text }),
+    });
+  }
+
+  decide(
+    id: string,
+    approvalId: string,
+    decision: ApprovalDecision,
+    note?: string,
+  ): Promise<ApprovalDecisionResponse> {
+    const body = note === undefined || note.trim() === '' ? { decision } : { decision, note };
+    return this.request<ApprovalDecisionResponse>(
+      `/api/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`,
+      { method: 'POST', body: JSON.stringify(body) },
+    );
+  }
+}
+
+/** WebSocket URL for a session stream, same origin unless baseUrl overrides. */
+export function streamUrl(baseUrl: string, sessionId: string, after: number): string {
+  let origin = baseUrl;
+  if (origin === '') {
+    origin =
+      typeof location === 'undefined'
+        ? 'http://127.0.0.1'
+        : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
+  } else if (origin.startsWith('http://')) {
+    origin = `ws://${origin.slice('http://'.length)}`;
+  } else if (origin.startsWith('https://')) {
+    origin = `wss://${origin.slice('https://'.length)}`;
+  }
+  const query = new URLSearchParams({ after: String(after) });
+  return `${origin}/api/sessions/${encodeURIComponent(sessionId)}/stream?${query.toString()}`;
+}
+
+export const TOKEN_STORAGE_KEY = 'forge.token';
+
+export interface TokenCaptureSources {
+  /** Location-like object; defaults to the real window.location. */
+  location?: { href: string; search: string; pathname: string; hash: string };
+  storage?: Pick<Storage, 'getItem' | 'setItem'>;
+  replaceState?: (url: string) => void;
+}
+
+/**
+ * Read the token from ?token= once, persist it for this tab only and remove it
+ * from the address bar. Returns '' when there is no token, which the UI treats
+ * as "not authenticated yet".
+ */
+export function captureToken(sources: TokenCaptureSources = {}): string {
+  const locationLike = sources.location ?? (typeof location === 'undefined' ? null : location);
+  const storage =
+    sources.storage ??
+    (typeof sessionStorage === 'undefined' ? null : sessionStorage);
+  const replaceState =
+    sources.replaceState ??
+    (typeof history === 'undefined'
+      ? undefined
+      : (url: string) => {
+          history.replaceState(history.state, '', url);
+        });
+
+  if (locationLike !== null) {
+    const params = new URLSearchParams(locationLike.search);
+    const fromUrl = params.get('token');
+    if (fromUrl !== null && fromUrl !== '') {
+      storage?.setItem(TOKEN_STORAGE_KEY, fromUrl);
+      params.delete('token');
+      const query = params.toString();
+      const stripped = `${locationLike.pathname}${query === '' ? '' : `?${query}`}${locationLike.hash}`;
+      replaceState?.(stripped);
+      return fromUrl;
+    }
+  }
+
+  const stored = storage?.getItem(TOKEN_STORAGE_KEY) ?? '';
+  return stored;
+}
+
+/** Parse one WS payload into a protocol frame (throws on garbage). */
+export function parseFrame(raw: string): ServerFrame {
+  return decodeFrame(raw);
+}
+
+export const PING_FRAME: PingFrame = { kind: 'ping' };
