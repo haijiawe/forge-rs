@@ -1,0 +1,13 @@
+[package]
+name = "forge-agent"
+description = "the one-turn loop: history from the log, tool calls on the record"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+forge-core = { path = "../core" }
+forge-session = { path = "../session" }
+forge-llm = { path = "../llm" }
+serde_json.workspace = true

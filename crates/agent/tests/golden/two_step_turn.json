@@ -1,0 +1,14 @@
+{"payload":{"model":"fake-model","startedBy":"cli","system":"you are a test assistant","workspace":"/work/forge"},"seq":1,"session":"s_test","type":"session/start","v":1}
+{"payload":{"number":1},"seq":2,"session":"s_test","turn":1,"type":"turn/start","v":1}
+{"payload":{"attachments":[],"text":"ping"},"seq":3,"session":"s_test","turn":1,"type":"user/message","v":1}
+{"payload":{"index":0,"model":"fake-model"},"seq":4,"session":"s_test","step":1,"turn":1,"type":"step/start","v":1}
+{"payload":{"messages":2,"model":"fake-model","tools":["echo"]},"seq":5,"session":"s_test","step":1,"turn":1,"type":"llm/call","v":1}
+{"payload":{"durationMs":0,"stopReason":"tool_use","text":""},"seq":6,"session":"s_test","step":1,"turn":1,"type":"assistant/message","v":1}
+{"payload":{"args":{"x":1},"callId":"call_1","tool":"echo"},"seq":7,"session":"s_test","step":1,"turn":1,"type":"tool/call","v":1}
+{"payload":{"index":0,"reason":"tool_use"},"seq":8,"session":"s_test","step":1,"turn":1,"type":"step/end","v":1}
+{"payload":{"callId":"call_1","ok":true,"output":"echoed","tool":"echo"},"seq":9,"session":"s_test","step":1,"turn":1,"type":"tool/result","v":1}
+{"payload":{"index":1,"model":"fake-model"},"seq":10,"session":"s_test","step":2,"turn":1,"type":"step/start","v":1}
+{"payload":{"messages":4,"model":"fake-model","tools":["echo"]},"seq":11,"session":"s_test","step":2,"turn":1,"type":"llm/call","v":1}
+{"payload":{"durationMs":0,"stopReason":"end_turn","text":"done","usage":{"inputTokens":11,"outputTokens":3}},"seq":12,"session":"s_test","step":2,"turn":1,"type":"assistant/message","v":1}
+{"payload":{"index":1,"reason":"end_turn"},"seq":13,"session":"s_test","step":2,"turn":1,"type":"step/end","v":1}
+{"payload":{"reason":"completed","steps":2},"seq":14,"session":"s_test","turn":1,"type":"turn/end","v":1}

@@ -148,18 +148,71 @@ Rules that keep the oracle honest:
 Each wave ends with a green gate and a commit; nothing is "in progress" across a
 wave boundary.
 
-| Wave | Delivers | Acceptance |
-| --- | --- | --- |
-| **W0** | workspace, `.cargo/config.toml`, `forge-core` (event, ids, canonical JSON, errors), conformance runner, this document | 21/21 cases; canonical bytes identical; `cargo test` green |
-| **W1** | `forge-session` (store, recovery, projection), `forge-config`, `forge-exec`, `forge-sandbox`, `forge-cli` (version/help/doctor) | 5 fixture logs replay to the golden projection; torn tail repaired; `--version` < 30 ms; `doctor` prints ten checks |
-| **W2** | `forge-llm` (SSE), agent loop with retries, cancellation, steering | fixture streams drive a whole turn; event order matches `tests/golden/agent/text-turn.json` |
-| **W3** | `forge-tool` (registry, executor, policy, approvals, 7 builtin tools, danger list) | a tool call executes end to end; approval recorded before asked; denied paths produce `denied`/`denied_refused` |
-| **W4** | `forge-protocol`, `forge-server` (HTTP + WS), embedded UI | API contract §4 satisfied; WS frames; the React build served from the binary |
-| **W5** | index (`rusqlite`), import, MCP, skills, subagent | `forge index --rebuild` / `--search`; `forge import` reproduces an old tree; a fake MCP server's tools appear |
-| **W6** | bench, release, docs | six cross-built artefacts; `bench -strict`; this document's claims all measured |
+| Wave | Delivers | Acceptance | Status (2026-11-16) |
+| --- | --- | --- | --- |
+| **W0** | workspace, `.cargo/config.toml`, `forge-core` (event, ids, canonical JSON, errors), conformance runner, this document | 21/21 cases; canonical bytes identical; `cargo test` green | Delivered, `04ebb4f` |
+| **W1** | `forge-session` (store, recovery, projection), `forge-config`, `forge-exec`, `forge-sandbox`, `forge-cli` (version/help/doctor), `tools/archcheck` | 5 fixture logs replay to the golden projection; torn tail repaired; `--version` < 30 ms; `doctor` prints ten checks | Delivered, `1b5ef75` |
+| **W2** | `forge-llm` (SSE), agent loop with retries, cancellation, steering | fixture streams drive a whole turn; event order matches `tests/golden/agent/text-turn.json` | Delivered, awaiting the W2 commit |
+| **W3** | `forge-tool` (registry, executor, policy, approvals, 7 builtin tools, danger list) | a tool call executes end to end; approval recorded before asked; denied paths produce `denied`/`denied_refused` | Delivered with W2 (same gate) |
+| **W4** | `forge-protocol`, `forge-server` (HTTP + WS), embedded UI | API contract §4 satisfied; WS frames; the React build served from the binary | Pending; 34 HTTP conformance cases already ported |
+| **W5** | index (`rusqlite`), import, MCP, skills, subagent | `forge index --rebuild` / `--search`; `forge import` reproduces an old tree; a fake MCP server's tools appear | Pending |
+| **W6** | bench, release, docs | six cross-built artefacts; `bench -strict`; this document's claims all measured | Pending |
+
+### W1 evidence (measured on this host, not quoted from a report)
+
+- `pwsh -File check.ps1` (fmt → clippy `-D warnings` → archcheck → workspace tests): **ok**.
+- `forge --version`: **10.5 ms**, binary **1.64 MB** (Go: 11 ms / 13.1 MB).
+- `forge doctor`: 10 checks in **4 ms** warm. The Rust port initially spawned
+  PowerShell for the disk check (664–1379 ms); it now calls
+  `GetDiskFreeSpaceExW` from `windows-sys 0.52` — a dependency already present in
+  the lock file via `ring`, not a new one.
+- Cross checks: `x86_64-unknown-linux-gnu` and `aarch64-apple-darwin` exit 0.
+- Tests: session 21, exec 25, sandbox 11, cli 12, config 11, core 15,
+  archcheck 27. The sandbox suite intentionally allocates 1 GiB to prove the
+  job-object cap; its "memory allocation failed" line is the expected signal,
+  not a failing test.
+- `tools/archcheck` proves its rules by deliberate violations: an upward edge
+  in `crates/core/Cargo.toml` reports `edge.upward: forge-core (L0) depends on
+  forge-exec (L1)` and exits 1.
+
+GNU `make` is not installed on this host (only `nmake`, which echoes recipes),
+so `check.ps1` runs the same four steps in the same order as the Makefile.
+
+### W2 boundary, fixed before delegating
+
+`crates/llm/src/contract.rs` is owned by the consumer, not by whichever wave
+writes the provider. It froze `Role`, `Message`, `ToolCall`, `ToolSpec`,
+`Request::validate`, `Usage`, `Delta`, `Stream`, `Provider`, `ProviderError` and
+`Aggregator` before three agents started in parallel, so the agent loop and the
+SSE client compile against the same shapes. `forge-agent` likewise defines its
+own narrow `ToolRunner` trait; W3's `forge-tool` implements it later instead of
+the two crates waiting on each other. `forge-agent` is declared in
+`architecture.yaml` L2, and no new dependency was added to the workspace for
+this split.
 
 The web UI is **not** ported. It is TypeScript and it talks HTTP: it moves
 across unchanged, which is also the cheapest proof that the wire contract held.
+
+### W2/W3 evidence (measured on this host)
+
+- `pwsh -File check.ps1`: **ok** across the whole workspace, after W2/W3 landed.
+- `forge-llm`: 35 integration tests, including UTF-8 split inside 🚀, a 256 KiB
+  tool-arguments fragment, exact `[0, 1, 0, 1]` call indices, Retry-After in
+  seconds and HTTP-date form, key redaction, and `[DONE]` gating. `https://`
+  bases use the workspace-frozen rustls stack, not a TCP-only stub.
+- `forge-agent`: 8 loop tests + 9 summarizer tests. Golden two-step turn matches
+  `tests/golden/agent/text-turn.json` once `ts`/`id` are stripped. The frozen
+  `contract.rs` was not edited by the provider or loop agents.
+- `forge-tool`: 31 tests after replacing the brief's accidental hand-rolled
+  regex with the workspace's `regex` crate. The dumber matcher would have
+  changed what the model sees from `fs_grep` — a behaviour port cannot ship.
+- `DEFAULT_SUMMARY_BYTES` was first written as 8 KiB by the agent; the lead
+  changed it to **2048**, matching Go's `session.DefaultSummaryBytes`
+  (`forge-v2/internal/session/compact.go:513`) and `m4-surface.md` §4. A
+  different default silently changes what a resumed session remembers.
+- Deliberate limits: cancellation is a cooperative `Cancel` token checked
+  between stream deltas, not a goroutine interrupting a blocking `Recv`; a
+  private-CA TLS endpoint is not covered (trust is pinned `webpki-roots`).
 
 ## 7. What changes on purpose
 

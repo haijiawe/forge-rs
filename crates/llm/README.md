@@ -2,7 +2,7 @@
 dir: crates/llm
 layer: L2
 role: provider contract and the OpenAI-compatible SSE client
-public: []
+public: [Provider, Stream, Request, Message, ToolSpec, Delta, Usage, Aggregator, ProviderError, Client, Options, OpenAiStream, Canceller]
 may_import: [forge-core]
 must_not:
   - import a crate from a higher layer
@@ -12,11 +12,11 @@ gate: cargo run -q -p archcheck --offline
 
 ## 做什么
 
-The model adapter: a `Provider` trait that yields deltas, and an OpenAI-compatible SSE implementation that speaks `/chat/completions`. Ported in W2 from `forge-v2/internal/llm`.
+The model adapter: a `Provider` trait that yields deltas, and an OpenAI-compatible SSE implementation that speaks `/chat/completions`, ported from `forge-v2/internal/llm/openai`. The provider uses blocking sockets on the calling thread — no async runtime. Plain `http://` uses `std::net::TcpStream`; `https://` uses the workspace rustls stack with the pinned `webpki-roots` CA bundle.
 
 ## 公开面
 
-Nothing yet — the crate is a placeholder until W2. The planned surface is `Provider`, `Request`, `Message`, `ToolSpec`, `Delta`, `Stream`, and the `openai` client behind `FORGE_BASE_URL`/`FORGE_API_KEY`.
+The frozen `contract.rs` surface (`Provider`, `Stream`, `Request`, `Message`, `ToolSpec`, `Delta`, `Usage`, `Aggregator`, `ProviderError`) plus the OpenAI adapter: `openai::Client`, `Options`, `openai::OpenAiStream`, `openai::Canceller`, `openai::provider_error`, and the shared error-code constants. `Client::stream_open` returns the concrete stream so callers can obtain a `Canceller` and close a blocked reader from another thread.
 
 ## 依赖与边界
 
@@ -24,6 +24,6 @@ Do not import `forge-session`: the provider must not know that a log exists, or 
 
 ## 不要做
 
-- Do not write code here before the wave that owns it. A placeholder that
-  compiles is honest; a half-implementation that looks finished is not.
 - Do not add a dependency outside the workspace budget in Cargo.toml.
+- Do not silently switch to async or add an SSE/HTTP client crate: the wire code is intentionally std + workspace-TLS only.
+- Do not let an API key reach an error message or a clipped body.

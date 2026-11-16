@@ -1,7 +1,14 @@
-//! provider contract and the OpenAI-compatible SSE client.
+//! The contract between the agent loop and a language-model provider.
 //!
-//! Layer L2. Not yet ported: this crate is W2 in the plan at
-//! docs/08-rust-port.md. It exists now so the workspace member list is stable
-//! and the layer map can be checked before the code arrives.
+//! Layer L2. `contract` is the frozen surface owned by the consumer; the
+//! OpenAI-compatible SSE client is added in W2 by the provider unit, behind
+//! that contract. Provider-specific options stay in the provider module.
 
 #![forbid(unsafe_op_in_unsafe_fn)]
+
+mod contract;
+mod openai;
+mod sse;
+
+pub use contract::*;
+pub use openai::*;

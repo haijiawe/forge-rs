@@ -7,3 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+forge-core = { path = "../core" }
+forge-exec = { path = "../exec" }
+forge-llm = { path = "../llm" }
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
