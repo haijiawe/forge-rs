@@ -1,4 +1,4 @@
-//! Delegated child agents (port of `forge-v2/internal/subagent` M5 U3).
+//! Delegated child agents (port of `archive/forge-go/internal/subagent` M5 U3).
 //!
 //! Layer L2. A `Runner` exposes one `subagent` tool; calling it opens a fresh
 //! child session log under `<data_dir>/sessions/<fresh-id>.jsonl`, runs one

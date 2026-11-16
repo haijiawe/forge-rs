@@ -1,8 +1,12 @@
 # forge-rs
 
-A Rust rewrite of the Go tree in `../forge-v2`. The Go tree is the reference
+A Rust rewrite of the Go tree in `../archive/forge-go`. The Go tree is the reference
 implementation: its tests are the oracle, and ported behaviour is expected to
-match it rather than to improve on it.
+match it rather than to improve on it. It was archived there once the port passed
+W6 and the five capability crates were wired into the CLI; nothing in this tree
+reads it at build or test time, because the conformance cases, fixtures and
+goldens were copied in. It is documentation and a second opinion, not a
+dependency.
 
 The workspace is arranged as fifteen product crates, one per boundary that should be
 violated loudly, plus `tools/archcheck` and `tools/bench` gates. `architecture.yaml`
@@ -40,6 +44,14 @@ These were measured on this host, not chosen:
   `D:\魔改版Agent框架\...`, every crate that compiles C dies in `cl.exe` with
   `D8050 ... 未能将命令行放入调试记录中`. The source tree may keep its name;
   only the target must move.
+- **The same path is also exported as `CARGO_TARGET_DIR`** — in the same
+  `.cargo/config.toml`, via `[env]`. `build.target-dir` is cargo's private
+  business and is not passed to the programs cargo runs, but the e2e harness
+  spawns a real `forge` binary and finds it through that variable. Without it,
+  `pwsh -File check.ps1` fails with `forge binary not found at
+  ...\forge-rs\target\debug\forge.exe` while the same command from a shell that
+  exports the variable passes. Two adjacent lines on purpose: change one, change
+  both.
 - **MSVC only.** The GNU toolchain is installed but broken:
   `error calling dlltool 'dlltool.exe': program not found`. A build failure must
   not be "fixed" by switching to GNU.

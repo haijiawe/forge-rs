@@ -1,4 +1,4 @@
-//! Workspace-relative path resolution, ported from `forge-v2/internal/tool/path.go`.
+//! Workspace-relative path resolution, ported from `archive/forge-go/internal/tool/path.go`.
 //!
 //! An explicit workspace is the only source of truth. Missing children are
 //! reattached to the deepest existing ancestor after symlink resolution so a

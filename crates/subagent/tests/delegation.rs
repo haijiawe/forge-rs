@@ -1,4 +1,4 @@
-//! Delegation behaviour mirrored from `forge-v2/internal/subagent`.
+//! Delegation behaviour mirrored from `archive/forge-go/internal/subagent`.
 //!
 //! Every test uses the scripted provider and a fresh on-disk log; assertions
 //! read the log back, because in this crate the log is the only truth.

@@ -1,4 +1,4 @@
-//! The frozen tool boundary, ported from `forge-v2/internal/tool/contract.go`.
+//! The frozen tool boundary, ported from `archive/forge-go/internal/tool/contract.go`.
 //!
 //! A `Call` carries model-supplied JSON and an explicit workspace. A `Result`
 //! is data for the loop to record; a failing tool is not a failed Rust call.

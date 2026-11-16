@@ -1,4 +1,4 @@
-//! The one-turn agent loop (port of forge-v2/internal/agent/agent.go).
+//! The one-turn agent loop (port of archive/forge-go/internal/agent/agent.go).
 //!
 //! One public call [`Agent::run`] drives a single user turn. History is never
 //! cached: every run re-reads the append-only log and re-projects it through

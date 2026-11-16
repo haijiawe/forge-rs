@@ -437,12 +437,12 @@ the exit code**; `warn` and `skip` do not.
 ```text
 forge 0.0.0-dev (unknown)  windows/amd64  go1.27.0
 config     C:\Users\Administrator\.forge\config.json
-workspace  D:\魔改版Agent框架\forge-v2
+workspace  D:\魔改版Agent框架\forge-rs
 
 OK    config     using defaults (no config file)
 FAIL  data dir   config: data dir C:\Users\Administrator\.forge is not writable: open C:\Users\Administrator\.forge\.write-probe: Access is denied.
                  -> pick a writable dataDir in C:\Users\Administrator\.forge\config.json
-OK    workspace  D:\魔改版Agent框架\forge-v2 (git repo)
+OK    workspace  D:\魔改版Agent框架\forge-rs (git repo)
 OK    git        E:\Tools\PortableGit\cmd\git.exe
 WARN  sandbox    windows-job-object: windows job object: process tree (KILL_ON_JOB_CLOSE), process memory 1 GiB, job memory 2 GiB, active processes 64 — filesystem and network are NOT confined
                  -> the enforcer installed, but filesystem writes are not confined on this host; the detail is its own account of what it does enforce
@@ -493,7 +493,7 @@ A single JSON object, 2-space indented (Go `json.Encoder` with
   "arch": "amd64",
   "goVersion": "go1.27.0",
   "configPath": "C:\\Users\\Administrator\\.forge\\config.json",
-  "workspace": "D:\\魔改版Agent框架\\forge-v2",
+  "workspace": "D:\\魔改版Agent框架\\forge-rs",
   "durationMs": 16,
   "checks": [
     {

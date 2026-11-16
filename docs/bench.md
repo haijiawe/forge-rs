@@ -1,6 +1,6 @@
 # forge-bench — performance harness and baseline gate
 
-Rust port of `forge-v2/scripts/bench`. The Go tree stays the oracle: metric
+Rust port of `archive/forge-go/scripts/bench`. The Go tree stays the oracle: metric
 names, units, tolerances, document shape and gate policy are preserved, with
 `goVersion` renamed to `rustVersion`.
 

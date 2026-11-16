@@ -1,4 +1,4 @@
-//! The transcript summarizer (port of forge-v2/internal/agent/summarizer.go).
+//! The transcript summarizer (port of archive/forge-go/internal/agent/summarizer.go).
 //!
 //! Compaction replaces a log range with one system message. The summarizer is a
 //! strict reader: no tools, no retries, no fallback. A tool call in the stream
@@ -36,7 +36,7 @@ Rules:
 - Write in the language of the transcript. If it mixes languages, write in the one most of it uses."#;
 
 /// The summary byte budget when `max_bytes <= 0`. This is a copy of Go's
-/// `session.DefaultSummaryBytes` (`forge-v2/internal/session/compact.go:513`),
+/// `session.DefaultSummaryBytes` (`archive/forge-go/internal/session/compact.go:513`),
 /// which the frozen contract `m4-surface.md` §4 pins at 2048. It must not drift
 /// from the oracle: a larger default changes what a resumed session remembers.
 pub const DEFAULT_SUMMARY_BYTES: usize = 2048;

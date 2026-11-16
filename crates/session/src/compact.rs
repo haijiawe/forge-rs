@@ -1,4 +1,4 @@
-//! Context compaction (port of `forge-v2/internal/session/compact.go` and
+//! Context compaction (port of `archive/forge-go/internal/session/compact.go` and
 //! `compact_wire.go`).
 //!
 //! Compaction replaces the oldest complete history with one summary record. The

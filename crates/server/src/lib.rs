@@ -2,7 +2,7 @@
 //!
 //! Layer L3. The public boundary between this crate and the runner is frozen in
 //! [`api`]; W4 implements the server behind it. The Go oracle is
-//! `forge-v2/internal/server` and the wire contract is `docs/contracts/api.md`.
+//! `archive/forge-go/internal/server` and the wire contract is `docs/contracts/api.md`.
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 // The frozen `api` boundary defines the runner factory as an inline

@@ -1,6 +1,6 @@
 //! `forge chat` — run one agent turn and stream the answer to stdout.
 //!
-//! Layer L3. Ported from `forge-v2/cmd/forge/chat.go`. The event log is the only
+//! Layer L3. Ported from `archive/forge-go/cmd/forge/chat.go`. The event log is the only
 //! truth: every fact is appended before it is reported, so a restart never loses
 //! what happened. This module owns argument parsing, session recovery and the
 //! approval conversation; the agent crate owns the turn/step event order.

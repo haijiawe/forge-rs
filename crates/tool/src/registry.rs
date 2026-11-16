@@ -1,4 +1,4 @@
-//! Name-to-tool registry, ported from `forge-v2/internal/tool/registry.go`.
+//! Name-to-tool registry, ported from `archive/forge-go/internal/tool/registry.go`.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};

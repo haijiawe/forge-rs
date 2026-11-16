@@ -1,6 +1,6 @@
 //! HTTP/1.1 and WebSocket surface for the forge session log.
 //!
-//! Layer L3. This module is the Rust half of `forge-v2/internal/server`. The
+//! Layer L3. This module is the Rust half of `archive/forge-go/internal/server`. The
 //! event log is the only state that survives a restart: every list, detail and
 //! stream answer is re-derived from the log on use, and every mutation appends
 //! through [`Server::append`] so there is exactly one seq counter per session.

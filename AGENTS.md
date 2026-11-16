@@ -1,6 +1,6 @@
 # AGENTS.md — read this before you touch a file
 
-This tree is a Rust rewrite of `../forge-v2` (Go). The Go tree is the **reference
+This tree is a Rust rewrite of `../archive/forge-go` (Go). The Go tree is the **reference
 implementation**: it is frozen, it is what our tests compare against, and reading
 it is the fastest way to understand any behaviour here.
 

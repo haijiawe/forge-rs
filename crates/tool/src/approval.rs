@@ -1,4 +1,4 @@
-//! Policy and approval boundaries, ported from `forge-v2/internal/tool/approval.go`.
+//! Policy and approval boundaries, ported from `archive/forge-go/internal/tool/approval.go`.
 
 use std::fmt;
 

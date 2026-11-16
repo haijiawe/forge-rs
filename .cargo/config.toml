@@ -10,6 +10,19 @@
 [build]
 target-dir = "D:/forge-rs-target/forge-rs"
 
+# The same path again, this time as an environment variable, because
+# `build.target-dir` is cargo's private business: it is NOT exported to the
+# programs cargo runs. The e2e harness spawns a real `forge` binary and finds it
+# through `CARGO_TARGET_DIR` (see tests/e2e/tests/acceptance.rs `target_root`),
+# so without this line `cargo test --workspace` fails with
+#   forge binary not found at ...\forge-rs\target\debug\forge.exe
+# while the same command run from a shell that exports the variable passes —
+# a gate that depends on who starts it. The two values are adjacent on purpose:
+# change one, change both. `force = false` keeps an explicit shell export
+# winning, which is what a developer bisecting a different target dir expects.
+[env]
+CARGO_TARGET_DIR = { value = "D:/forge-rs-target/forge-rs", force = false }
+
 [net]
 # The rsproxy mirror is what makes an offline build possible on this network;
 # crates.io itself is unreachable through schannel here.

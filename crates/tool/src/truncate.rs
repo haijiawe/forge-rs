@@ -1,4 +1,4 @@
-//! Bounded tool output, ported from `forge-v2/internal/tool/truncate.go`.
+//! Bounded tool output, ported from `archive/forge-go/internal/tool/truncate.go`.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Limits {

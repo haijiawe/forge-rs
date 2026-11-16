@@ -5,10 +5,14 @@
 - **Decision owner:** the user. This document records the consequences, not the
   debate; ADR-0001 keeps the measurements that led to Go so the reversal has a
   paper trail.
-- **Scope:** a new tree at `D:\魔改版Agent框架\forge-rs`. The Go tree
-  (`forge-v2`) is **frozen** as the reference implementation: it is not deleted,
-  not edited except for bug fixes that change an oracle, and it is what the Rust
-  build is tested against until W6.
+- **Scope:** a new tree at `D:\魔改版Agent框架\forge-rs`. The Go tree was moved
+  to `D:\魔改版Agent框架\archive\forge-go` once the port passed W6 and the five
+  capability crates were wired in: it is **frozen** as the reference
+  implementation — archived rather than deleted, with its git history intact, not
+  edited except for bug fixes that change an oracle, and it is what the Rust
+  build is tested against. Nothing in this tree reads it at build or test time;
+  the conformance cases, fixtures and goldens were copied here, so the Go tree is
+  documentation and a second opinion, not a dependency.
 
 ## 0. Why the switch, in one paragraph
 
@@ -119,7 +123,7 @@ These are not preferences. Each was found by a failing build:
 
 ## 5. The oracle: how a port is proven
 
-`forge-v2` is the writer; `forge-rs` is the reader under test. The shared bytes
+`archive/forge-go` is the writer; `forge-rs` is the reader under test. The shared bytes
 live in this tree, copied verbatim in W0:
 
 | Artefact | Count | What it pins |
@@ -210,7 +214,7 @@ across unchanged, which is also the cheapest proof that the wire contract held.
   changed what the model sees from `fs_grep` — a behaviour port cannot ship.
 - `DEFAULT_SUMMARY_BYTES` was first written as 8 KiB by the agent; the lead
   changed it to **2048**, matching Go's `session.DefaultSummaryBytes`
-  (`forge-v2/internal/session/compact.go:513`) and `m4-surface.md` §4. A
+  (`archive/forge-go/internal/session/compact.go:513`) and `m4-surface.md` §4. A
   different default silently changes what a resumed session remembers.
 - Deliberate limits: cancellation is a cooperative `Cancel` token checked
   between stream deltas, not a goroutine interrupting a blocking `Recv`; a
@@ -293,7 +297,7 @@ each one is a shape of mistake that will recur in the later waves.
 | Risk | Mitigation |
 | --- | --- |
 | Compile time makes iteration painful | ten small crates, `thin` LTO in release only, no async, no proc-macro crates beyond serde |
-| Two trees drift while both exist | `forge-v2` is frozen; a fix that changes an oracle is made in Go first, then ported |
+| Two trees drift while both exist | `archive/forge-go` is frozen; a fix that changes an oracle is made in Go first, then ported |
 | Windows-only C toolchain quirk resurfaces | ASCII target dir is in `.cargo/config.toml`, documented in §4.1, and asserted by CI |
 | Rust rewrite stalls at 60% | waves are independently shippable; W0–W1 already replace the storage layer, and the Go binary keeps working meanwhile |
 | Agent-written Rust compiles but is unidiomatic | every crate has a README with `may_import`/`must_not`, and `archcheck` enforces the graph, not the style |

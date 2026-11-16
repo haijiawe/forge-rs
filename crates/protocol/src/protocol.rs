@@ -1,7 +1,7 @@
 //! The wire types shared by the server and the browser UI.
 //!
-//! Layer L2. This file is the frozen Rust half of `forge-v2/internal/protocol/
-//! protocol.go`; the Go tree is the oracle, and `forge-v2/web/src/api/
+//! Layer L2. This file is the frozen Rust half of `archive/forge-go/internal/protocol/
+//! protocol.go`; the Go tree is the oracle, and `archive/forge-go/web/src/api/
 //! protocol.ts` is generated from the same shapes. Nothing here touches the
 //! filesystem, the log or the network — changing a field here is changing a
 //! published contract and must be made in the Go oracle first.

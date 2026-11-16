@@ -12,7 +12,7 @@ gate: cargo run -q -p archcheck --offline
 
 ## 做什么
 
-The model adapter: a `Provider` trait that yields deltas, and an OpenAI-compatible SSE implementation that speaks `/chat/completions`, ported from `forge-v2/internal/llm/openai`. The provider uses blocking sockets on the calling thread — no async runtime. Plain `http://` uses `std::net::TcpStream`; `https://` uses the workspace rustls stack with the pinned `webpki-roots` CA bundle.
+The model adapter: a `Provider` trait that yields deltas, and an OpenAI-compatible SSE implementation that speaks `/chat/completions`, ported from `archive/forge-go/internal/llm/openai`. The provider uses blocking sockets on the calling thread — no async runtime. Plain `http://` uses `std::net::TcpStream`; `https://` uses the workspace rustls stack with the pinned `webpki-roots` CA bundle.
 
 ### Private CA
 

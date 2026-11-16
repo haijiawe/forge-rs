@@ -13,12 +13,12 @@ the Go server and Vite side by side:
 
 ```powershell
 # terminal 1 — the API on 127.0.0.1:8848
-cd D:\魔改版Agent框架\forge-v2
+cd D:\魔改版Agent框架\forge-rs
 go run ./cmd/forge serve
 
 # terminal 2 — the UI on 127.0.0.1:5173, proxying /api and /ws to :8848
-$env:npm_config_cache="D:\魔改版Agent框架\forge-v2\.cache\npm"
-$env:npm_config_store_dir="D:\魔改版Agent框架\forge-v2\.cache\pnpm-store"
+$env:npm_config_cache="D:\魔改版Agent框架\forge-rs\.cache\npm"
+$env:npm_config_store_dir="D:\魔改版Agent框架\forge-rs\.cache\pnpm-store"
 cd web
 npm run dev
 ```
@@ -41,7 +41,7 @@ Point the dev proxy at a different server with
 ## Build, test, check
 
 ```powershell
-$env:npm_config_cache="D:\魔改版Agent框架\forge-v2\.cache\npm"
+$env:npm_config_cache="D:\魔改版Agent框架\forge-rs\.cache\npm"
 cd web
 npm ci            # exact pinned versions, lockfile committed
 npm run typecheck # tsc --noEmit

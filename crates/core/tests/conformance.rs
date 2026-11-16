@@ -6,7 +6,7 @@
 //! answer, and (for accepted logs) the exact canonical bytes to reproduce.
 //!
 //! Files live in `tests/conformance/cases/events/`, copied verbatim from
-//! `forge-v2/tests/conformance/cases/events/`. See docs/08-rust-port.md §5.
+//! `archive/forge-go/tests/conformance/cases/events/`. See docs/08-rust-port.md §5.
 
 use forge_core::{event::parse_log, json::encode, ErrorKind};
 use serde::Deserialize;

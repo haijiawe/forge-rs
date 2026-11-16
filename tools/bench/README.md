@@ -10,7 +10,7 @@ gate: cargo fmt -p forge-bench -- --check && cargo clippy -p forge-bench --all-t
 
 # forge-bench
 
-The Rust port of `forge-v2/scripts/bench`. Six metrics, one baseline document,
+The Rust port of `archive/forge-go/scripts/bench`. Six metrics, one baseline document,
 one rule: **only `-strict` fails a regression**.
 
 ## 做什么

@@ -10,7 +10,7 @@ gate: cargo run -q -p archcheck --offline
 
 ## 做什么
 
-Port of the forge-v2 one-turn agent loop and the transcript summarizer. `Agent::run` drives one user turn: it re-projects the append-only log through forge-session (invariant I1), emits events in the frozen events-v1 order (envelope step 1-based, payload index 0-based), retries provider failures only before the first text fragment, closes the stream exactly once on cancellation while still writing `turn/end`, and feeds tool-call results back into the model. `ProviderSummarizer` folds an ordered event range into messages and summarizes it with no tools, no retries, no fallback, and thinking markers stripped.
+Port of the archive/forge-go one-turn agent loop and the transcript summarizer. `Agent::run` drives one user turn: it re-projects the append-only log through forge-session (invariant I1), emits events in the frozen events-v1 order (envelope step 1-based, payload index 0-based), retries provider failures only before the first text fragment, closes the stream exactly once on cancellation while still writing `turn/end`, and feeds tool-call results back into the model. `ProviderSummarizer` folds an ordered event range into messages and summarizes it with no tools, no retries, no fallback, and thinking markers stripped.
 
 ## 公开面
 

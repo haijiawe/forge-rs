@@ -1,6 +1,6 @@
 //! Integration tests for context compaction (`crates/session/src/compact.rs`).
 //!
-//! The cases mirror `forge-v2/internal/session/compact_test.go` one-for-one where
+//! The cases mirror `archive/forge-go/internal/session/compact_test.go` one-for-one where
 //! the behaviour is contractual: which range a plan may name, what a writer
 //! refuses, and what a reader sees afterwards. Every test builds its log through
 //! the real store, so the seqs under test are the ones a session would actually
