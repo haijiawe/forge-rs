@@ -415,13 +415,11 @@ fn dial(addr: &str, session_id: &str, after: u64, token: &str) -> (Option<WsClie
         .cloned()
         .unwrap_or_default();
     let want_accept = base64(&sha1(format!("{key}{WS_GUID}").as_bytes()));
-    // The contract does not fix the handshake's base64 padding, and RFC 6455
-    // clients commonly accept both padded and unpadded Sec-WebSocket-Accept.
-    assert_eq!(
-        accept.trim_end_matches('='),
-        want_accept.trim_end_matches('='),
-        "bad Sec-WebSocket-Accept"
-    );
+    // Byte for byte, padding included. RFC 6455 §4.2.2 defines the accept as the
+    // base64 (padded) digest, and a browser compares it exactly: trimming the
+    // `=` here once let a server that dropped it pass every test and fail every
+    // real browser.
+    assert_eq!(accept, want_accept, "bad Sec-WebSocket-Accept");
     (
         Some(WsClient {
             stream,

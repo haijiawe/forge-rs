@@ -6,7 +6,7 @@
 use forge_core::{Event, EventType};
 use forge_protocol::SnapshotFrame;
 use forge_server::api::{Options, StaticSource, TurnContext, TurnRunner};
-use forge_server::Server;
+use forge_server::{RateLimit, Server, WS_SUBPROTOCOL};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{Read, Write};
@@ -308,9 +308,12 @@ fn websocket_snapshot_backlog_live_ping_and_close() {
             accept_value.push_str(value);
         }
     }
-    // RFC 6455 §1.3 pins this exact accept value for the canonical sample
-    // key, so it verifies the server's SHA-1/base64 handshake without a dep.
-    assert_eq!(accept_value, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo");
+    // RFC 6455 §1.2 pins this exact accept value for the canonical sample key,
+    // so it verifies the server's SHA-1/base64 handshake without a dep. Note the
+    // trailing `=`: SHA-1 is 20 bytes, so the padded form always ends in one. An
+    // earlier version of this assertion omitted it, encoding the very bug it was
+    // meant to catch.
+    assert_eq!(accept_value, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
 
     // First data frame is the snapshot, then the backlog event we seeded.
     let (op, payload) = read_ws_frame(&mut stream);
@@ -346,6 +349,123 @@ fn websocket_snapshot_backlog_live_ping_and_close() {
     close.clear();
     let (op, _) = read_ws_frame(&mut stream);
     assert_eq!(op, 0x8, "server echoes a close frame");
+}
+
+// A browser cannot set a request header on a WebSocket handshake and cannot put
+// a bearer token in one, so the two things it needs have to travel elsewhere:
+// the token as a cookie the shell sets, the version as a subprotocol. Both were
+// missing, and a real browser proved it — the UI's stream answered 401 forever,
+// and would have answered 400 protocol_required even with a cookie.
+
+/// Reads a raw HTTP response head off a socket, returning the 101's headers.
+fn read_upgrade_head(stream: &mut TcpStream) -> String {
+    let mut response = Vec::new();
+    let mut byte = [0u8; 1];
+    while !response.ends_with(b"\r\n\r\n") {
+        stream.read_exact(&mut byte).expect("handshake byte");
+        response.push(byte[0]);
+    }
+    String::from_utf8(response).expect("handshake utf8")
+}
+
+/// A browser-shaped upgrade: cookie credential, subprotocol version, and no
+/// `Authorization` or `X-Forge-Protocol` header at all.
+const WS_PADDED_KEY: &str = "4P9nCkKqC5XSj9D3a7utoQ==";
+/// SHA-1 of `WS_PADDED_KEY` plus the RFC 6455 GUID, base64 with padding.
+const WS_PADDED_ACCEPT: &str = "uYxl2aMFAJzUVMCCqNX8cPhh+8U=";
+fn browser_upgrade(addr: &str, session: &str, cookie: Option<&str>) -> TcpStream {
+    let mut stream = TcpStream::connect(addr).expect("connect ws");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("read timeout");
+    // Chosen because the accept for this key ends in `=`; the RFC's sample key
+    // produces an unpadded accept, which is how a padding bug hid here once.
+    let mut request = format!(
+        "GET /api/sessions/{session}/stream?after=0 HTTP/1.1\r\n\
+         Host: {addr}\r\n\
+         Upgrade: websocket\r\n\
+         Connection: keep-alive, Upgrade\r\n\
+         Sec-WebSocket-Key: {WS_PADDED_KEY}\r\n\
+         Sec-WebSocket-Version: 13\r\n\
+         Sec-WebSocket-Protocol: {WS_SUBPROTOCOL}\r\n\
+         Origin: http://{addr}\r\n"
+    );
+    if let Some(cookie) = cookie {
+        request.push_str(&format!("Cookie: {cookie}\r\n"));
+    }
+    request.push_str("\r\n");
+    stream.write_all(request.as_bytes()).expect("send upgrade");
+    stream
+}
+
+#[test]
+fn the_shell_sets_the_cookie_for_the_printed_token() {
+    let fixture = Fixture::default();
+    let (status, headers, _) = fixture.raw_request("GET", "/?token=wrong", &[], &[]);
+    assert_eq!(status, 200, "a wrong token still serves the shell");
+    assert!(
+        !headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("Set-Cookie")),
+        "a wrong token must not mint a cookie: {headers:?}"
+    );
+
+    let path = format!("/?token={}", fixture.token);
+    let (status, headers, _) = fixture.raw_request("GET", &path, &[], &[]);
+    assert_eq!(status, 200);
+    let cookie = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("Set-Cookie"))
+        .map(|(_, value)| value.clone())
+        .unwrap_or_else(|| panic!("no Set-Cookie in {headers:?}"));
+    assert_eq!(
+        cookie,
+        format!(
+            "forge_token={}; HttpOnly; SameSite=Strict; Path=/",
+            fixture.token
+        )
+    );
+}
+
+#[test]
+fn a_browser_style_upgrade_authenticates_by_cookie_and_names_its_subprotocol() {
+    let fixture = Fixture::default();
+    let workspace = std::env::temp_dir().join(format!("forge-ws-browser-{}", std::process::id()));
+    let session = fixture.create_session(&workspace);
+    fixture.append(&session, EventType::TURN_START, 1, json!({ "number": 1 }));
+
+    // Without the cookie there is no credential on this request at all.
+    let mut anonymous = browser_upgrade(&fixture.addr.to_string(), &session, None);
+    let head = read_upgrade_head(&mut anonymous);
+    assert!(
+        head.starts_with("HTTP/1.1 401"),
+        "a handshake with no credential must be refused: {head}"
+    );
+
+    let cookie = format!("forge_token={}", fixture.token);
+    let mut stream = browser_upgrade(&fixture.addr.to_string(), &session, Some(&cookie));
+    let head = read_upgrade_head(&mut stream);
+    assert!(
+        head.starts_with("HTTP/1.1 101 Switching Protocols"),
+        "cookie plus subprotocol must upgrade: {head}"
+    );
+    // RFC 6455 §4.2.2: selecting a subprotocol without naming it makes the
+    // browser fail the connection on its own.
+    assert!(
+        head.contains(&format!("Sec-WebSocket-Protocol: {WS_SUBPROTOCOL}")),
+        "the 101 must echo the selected subprotocol: {head}"
+    );
+    // Padding included: a browser compares this byte for byte, and a value one
+    // `=` short is a failed handshake.
+    assert!(
+        head.contains(&format!("Sec-WebSocket-Accept: {WS_PADDED_ACCEPT}")),
+        "the accept must be padded standard base64: {head}"
+    );
+
+    let (op, payload) = read_ws_frame(&mut stream);
+    assert_eq!(op, 0x1);
+    let snapshot: SnapshotFrame = serde_json::from_slice(&payload).expect("snapshot frame");
+    assert_eq!(snapshot.session.summary.id, session);
 }
 
 #[test]
@@ -533,4 +653,93 @@ fn cancel_and_steer_act_on_a_live_turn() {
         "steer must append user/message"
     );
     assert!(log.contains("steering"), "steer payload is marked");
+}
+
+// ---------------------------------------------------------------------------
+// Rate limiting (`rate_limited` / 429)
+// ---------------------------------------------------------------------------
+
+/// Ends the turn immediately: the budget is charged per accepted turn, so this
+/// test only needs turns to be accepted, not to do anything.
+struct QuickRunner;
+
+impl TurnRunner for QuickRunner {
+    fn run_turn(
+        &self,
+        _context: &TurnContext,
+        _session: &str,
+        _text: &str,
+    ) -> forge_core::Result<()> {
+        Ok(())
+    }
+
+    fn cancel(&self) -> forge_core::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_burst_of_turns_is_refused_with_429_and_retry_after() {
+    let options = Options {
+        addr: "127.0.0.1:0".to_string(),
+        data_dir: unique_dir("ratelimit"),
+        new_runner: Some(Arc::new(|_| Arc::new(QuickRunner) as Arc<dyn TurnRunner>)),
+        // Two turns for the whole minute, so the third request in this test is
+        // the first one a real client would have to wait for.
+        rate_limit: RateLimit::new(2, Duration::from_secs(60)),
+        ..Options::default()
+    };
+    let fixture = Fixture::start(options);
+    let workspace = std::env::temp_dir().join(format!("forge-ratelimit-ws-{}", std::process::id()));
+    let session = fixture.create_session(&workspace);
+
+    for (index, key) in ["rl-1", "rl-2"].iter().enumerate() {
+        let (status, _, bytes) = fixture.api(
+            "POST",
+            &format!("/api/sessions/{session}/messages"),
+            Some(&json!({ "text": format!("turn {index}") })),
+            &[("Idempotency-Key", key)],
+        );
+        assert_eq!(
+            status,
+            202,
+            "post {key}: {}",
+            String::from_utf8_lossy(&bytes)
+        );
+    }
+
+    let before = fs::read_to_string(fixture.server.path(&session)).expect("session log");
+    let (status, headers, bytes) = fixture.api(
+        "POST",
+        &format!("/api/sessions/{session}/messages"),
+        Some(&json!({ "text": "one too many" })),
+        &[("Idempotency-Key", "rl-3")],
+    );
+    assert_eq!(
+        status,
+        429,
+        "third post: {}",
+        String::from_utf8_lossy(&bytes)
+    );
+
+    let retry = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("Retry-After"))
+        .map(|(_, value)| value.clone())
+        .expect("a 429 must carry Retry-After");
+    let secs: u64 = retry
+        .parse()
+        .expect("Retry-After is an integer number of seconds");
+    assert!((1..=60).contains(&secs), "unexpected Retry-After: {secs}");
+
+    let error: Value = serde_json::from_slice(&bytes).expect("error body");
+    assert_eq!(error["error"]["code"], "rate_limited");
+    assert_eq!(error["error"]["details"]["sessionId"], session);
+    assert_eq!(error["error"]["details"]["limit"], 2);
+
+    // A refused request must leave no trace: a phantom turn/start would make
+    // the next reader believe work had begun.
+    let after = fs::read_to_string(fixture.server.path(&session)).expect("session log");
+    assert_eq!(before, after, "a refused request must not append anything");
+    assert!(!after.contains("one too many"));
 }

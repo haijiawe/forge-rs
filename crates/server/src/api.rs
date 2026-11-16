@@ -14,6 +14,8 @@ use std::time::Duration;
 
 use forge_core::{Event, Result};
 
+use crate::ratelimit::RateLimit;
+
 /// Cooperative cancellation. There is no async runtime in this workspace:
 /// cancellation is a flag the loop checks between stream deltas, never a thread
 /// kill, and closing the stream is the runner's job.
@@ -99,6 +101,10 @@ pub struct Options {
     pub poll_interval: Duration,
     pub ping_interval: Duration,
     pub delta_interval: Duration,
+    /// How many turn-starting requests one session may send per window. See
+    /// [`crate::ratelimit`]; `RateLimit::disabled()` is for callers that drive
+    /// the server themselves and know their own rate.
+    pub rate_limit: RateLimit,
 }
 
 impl Default for Options {
@@ -113,6 +119,7 @@ impl Default for Options {
             poll_interval: Duration::from_millis(25),
             ping_interval: Duration::from_secs(30),
             delta_interval: Duration::from_millis(50),
+            rate_limit: RateLimit::default(),
         }
     }
 }

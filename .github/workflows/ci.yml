@@ -4,6 +4,21 @@ name: ci
 # in AGENTS.md and README.md: formatting, lints, the architecture contract, the
 # test suite, and a web-bundle build. `release.yml` is separate because it needs
 # a tag and produces artifacts; nothing here uploads anything.
+#
+# Two jobs, two toolchains, on purpose:
+#   * `test` builds and runs the suite on the *minimum* supported rustc (1.89,
+#     set by rusqlite; see Cargo.toml `rust-version`). If a dependency starts
+#     needing a newer compiler, this job is where it surfaces.
+#   * `lint` runs on current stable, because clippy lints are introduced by new
+#     releases: a developer on stable must not be able to commit a lint that a
+#     pinned-toolchain lint job would never see (`is_multiple_of` is exactly
+#     that kind of lint).
+#
+# Note on `--offline`: this repository's development machine is behind an
+# rsproxy mirror, so the local Makefile and check.ps1 pass `--offline` to keep
+# the loop honest about what the vendored registry holds. CI has no such
+# constraint and a cold runner has an empty registry — passing `--offline` there
+# would fail on the first run, so it is deliberately absent here.
 on:
   push:
     branches: ["**"]
@@ -35,10 +50,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install Rust 1.85
+      - name: install the minimum supported Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.85"
+          toolchain: "1.89"
+
+      - name: cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-1.89-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: architecture contract
+        run: cargo run --quiet -p archcheck
+
+      - name: cargo test
+        run: cargo test --workspace
+
+  lint:
+    name: lint (stable)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
           components: rustfmt, clippy
 
       - name: cache cargo
@@ -48,19 +89,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
 
       - name: cargo fmt
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
-        run: cargo clippy --workspace --all-targets --offline -- -D warnings
-
-      - name: architecture contract
-        run: cargo run --quiet -p archcheck --offline
-
-      - name: cargo test
-        run: cargo test --workspace --offline
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   web:
     name: web bundle

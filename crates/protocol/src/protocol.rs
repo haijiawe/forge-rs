@@ -38,6 +38,10 @@ pub mod code {
     pub const UNPROCESSABLE: &str = "unprocessable_entity";
     pub const PRECONDITION_FAILED: &str = "precondition_required";
     pub const METHOD_NOT_ALLOWED: &str = "method_not_allowed";
+    /// The one code whose response also carries a header: `Retry-After` is the
+    /// only thing a client can act on, and deriving it from a message string
+    /// would make the contract prose load-bearing.
+    pub const RATE_LIMITED: &str = "rate_limited";
     pub const INTERNAL: &str = "internal_error";
     pub const LOG_READ_FAILED: &str = "log_read_failed";
 }

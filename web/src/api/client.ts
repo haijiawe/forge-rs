@@ -205,6 +205,15 @@ export class ForgeClient implements ForgeApi {
   }
 }
 
+/**
+ * The WebSocket subprotocol that carries the protocol version. A page cannot
+ * set `X-Forge-Protocol` on a handshake, so the version rides here and the
+ * server echoes the choice in the 101 (RFC 6455 §4.2.2). The token cannot ride
+ * here too: the server sets the HttpOnly `forge_token` cookie when it serves the
+ * shell for the printed URL.
+ */
+export const WS_SUBPROTOCOL = 'forge.v1';
+
 /** WebSocket URL for a session stream, same origin unless baseUrl overrides. */
 export function streamUrl(baseUrl: string, sessionId: string, after: number): string {
   let origin = baseUrl;

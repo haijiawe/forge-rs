@@ -354,6 +354,13 @@ impl WebRunner {
         // No fallback text: a summary that is not the model's words would become the
         // permanent record of what those events said.
         let summary = summarizer.summarize(&covered)?;
+        // An empty summary would replace hundreds of records with nothing: the
+        // session would lose its history and gain no account of it. The CLI path
+        // gets this guard from `compact_log`; the web path writes the event
+        // itself, so it has to check here.
+        if summary.trim().is_empty() {
+            return Ok(false);
+        }
         let payload = json!({
             "summary": summary,
             "replaces": {"from": plan.from, "to": plan.to},
@@ -861,5 +868,233 @@ mod tests {
         assert_eq!(parsed.approve, "never");
         assert!(parsed.no_browser);
         assert_eq!(parsed.addr, DEFAULT_ADDR);
+    }
+
+    // -----------------------------------------------------------------------
+    // Compaction on the web surface
+    // -----------------------------------------------------------------------
+
+    /// A provider that answers every request with one delta and then closes.
+    /// The summarizer never offers tools, so a single text delta is a complete
+    /// answer for it.
+    struct FixedProvider(String);
+
+    struct FixedStream {
+        text: Option<String>,
+    }
+
+    impl forge_llm::Stream for FixedStream {
+        fn recv(&mut self) -> Result<Option<forge_llm::Delta>> {
+            Ok(self.text.take().map(|text| forge_llm::Delta {
+                text,
+                ..Default::default()
+            }))
+        }
+        fn close(&mut self) {}
+    }
+
+    impl Provider for FixedProvider {
+        fn stream(&self, _request: &forge_llm::Request) -> Result<Box<dyn forge_llm::Stream>> {
+            Ok(Box::new(FixedStream {
+                text: Some(self.0.clone()),
+            }))
+        }
+    }
+
+    /// The web surface must fold history the same way the CLI does: one summary
+    /// record that replaces a run of complete turns, written through the server
+    /// because the server owns the seq counter.
+    ///
+    /// The claim this test pins is the one the README used to get wrong. The
+    /// summary lands *in the current turn*, appended after the HTTP layer's
+    /// `turn/start` + `user/message`; the plan's `replaces` stops at the last
+    /// closed turn, so the open tail is re-applied after the summary by
+    /// projection. Nothing is deferred to the next turn.
+    #[test]
+    fn web_compaction_folds_closed_turns_into_one_summary() {
+        let dir = std::env::temp_dir().join(format!("forge-web-compact-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let server = Arc::new(
+            forge_server::Server::new(ServerOptions {
+                addr: "127.0.0.1:0".to_string(),
+                data_dir: dir.clone(),
+                version: "test".to_string(),
+                token: "test-token".to_string(),
+                ..ServerOptions::default()
+            })
+            .expect("server"),
+        );
+        let session = "web_compact_session";
+        server
+            .append_event(
+                session,
+                &Event::new(session, EventType::SESSION_START, Some(json!({}))),
+            )
+            .expect("session/start");
+
+        // 60 complete turns of four events each: comfortably over the 200-record
+        // floor and an exact multiple of a turn, so the plan's `to` is the last
+        // turn/end and nothing has to be guessed.
+        for turn in 1..=60u32 {
+            for typ in [
+                EventType::TURN_START,
+                EventType::USER_MESSAGE,
+                EventType::ASSISTANT_MESSAGE,
+                EventType::TURN_END,
+            ] {
+                // The summarizer projects `text`, so a fixture that only carries
+                // `turn` projects to zero messages and the summarizer answers an
+                // empty string without an error. Seed what the product writes.
+                let text = format!("turn {turn} of the fold");
+                let payload = match typ {
+                    EventType::USER_MESSAGE => json!({ "text": text }),
+                    EventType::ASSISTANT_MESSAGE => json!({ "text": text }),
+                    _ => json!({ "turn": turn }),
+                };
+                let mut event = Event::new(session, typ, Some(payload));
+                event.turn = turn;
+                server.append_event(session, &event).expect("seed event");
+            }
+        }
+        // The HTTP layer writes these two before the runner runs, which is what
+        // makes "the summary lands one turn late" false.
+        for typ in [EventType::TURN_START, EventType::USER_MESSAGE] {
+            let mut event = Event::new(session, typ, Some(json!({ "text": "open" })));
+            event.turn = 61;
+            server.append_event(session, &event).expect("open tail");
+        }
+
+        let runner = WebRunner::new(
+            Arc::clone(&server),
+            Arc::new(FixedProvider("the fold, in the model's words".to_string())),
+            "fixed-model".to_string(),
+            dir.to_string_lossy().to_string(),
+            SandboxMode::ReadOnly,
+            WebApproveMode::Never,
+            TurnEnv {
+                cfg: Arc::new(Config::default()),
+                data_dir: dir.clone(),
+                system: String::new(),
+            },
+        );
+        assert!(
+            runner.compact(session).expect("compaction runs"),
+            "241 records must produce a summary"
+        );
+
+        let log = std::fs::read_to_string(server.path(session)).expect("log");
+        let events = parse_log(&log).expect("log parses");
+        let summary = events.last().expect("a summary is the last record");
+        assert_eq!(
+            summary.typ,
+            EventType::COMPACTION_SUMMARY.as_str(),
+            "tail was {:?}",
+            events
+                .iter()
+                .rev()
+                .take(3)
+                .map(|event| event.typ.clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            summary.payload.as_ref().expect("payload")["summary"],
+            json!("the fold, in the model's words")
+        );
+        // The replacement stops at the last closed turn: turn 61 is still open,
+        // so its turn/start and user/message stay outside the folded range.
+        let replaces = &summary.payload.as_ref().expect("payload")["replaces"];
+        assert_eq!(replaces["from"], json!(1));
+        let to = replaces["to"].as_u64().expect("to is a seq");
+        let folded = events
+            .iter()
+            .find(|event| event.seq == to)
+            .expect("the folded range ends on a real record");
+        assert_eq!(
+            folded.typ,
+            EventType::TURN_END.as_str(),
+            "a plan may only cut at a turn boundary"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.seq > to && event.typ == EventType::USER_MESSAGE.as_str()),
+            "the open prompt must survive the fold"
+        );
+
+        // A second call must not mint a second summary of the same range.
+        assert!(
+            !runner.compact(session).expect("second compaction runs"),
+            "an already-folded range must not be folded twice"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A log can hold hundreds of records that project to no messages at all:
+    /// turns that only called tools, or messages written without text. The
+    /// summarizer answers those with an empty string and no error, so the fold
+    /// has to refuse them itself — otherwise the session loses its history and
+    /// gains no account of it.
+    #[test]
+    fn web_compaction_refuses_an_empty_summary() {
+        let dir = std::env::temp_dir().join(format!("forge-web-empty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let server = Arc::new(
+            forge_server::Server::new(ServerOptions {
+                addr: "127.0.0.1:0".to_string(),
+                data_dir: dir.clone(),
+                version: "test".to_string(),
+                token: "test-token".to_string(),
+                ..ServerOptions::default()
+            })
+            .expect("server"),
+        );
+        let session = "web_empty_summary";
+        server
+            .append_event(
+                session,
+                &Event::new(session, EventType::SESSION_START, Some(json!({}))),
+            )
+            .expect("session/start");
+        for turn in 1..=60u32 {
+            for typ in [
+                EventType::TURN_START,
+                EventType::USER_MESSAGE,
+                EventType::ASSISTANT_MESSAGE,
+                EventType::TURN_END,
+            ] {
+                let mut event = Event::new(session, typ, Some(json!({ "turn": turn })));
+                event.turn = turn;
+                server.append_event(session, &event).expect("seed event");
+            }
+        }
+        let before = std::fs::read(server.path(session)).expect("log before");
+
+        let runner = WebRunner::new(
+            Arc::clone(&server),
+            Arc::new(FixedProvider(String::new())),
+            "fixed-model".to_string(),
+            dir.to_string_lossy().to_string(),
+            SandboxMode::ReadOnly,
+            WebApproveMode::Never,
+            TurnEnv {
+                cfg: Arc::new(Config::default()),
+                data_dir: dir.clone(),
+                system: String::new(),
+            },
+        );
+
+        assert!(
+            !runner.compact(session).expect("compaction answers"),
+            "an empty summary is refused rather than appended"
+        );
+        let after = std::fs::read(server.path(session)).expect("log after");
+        assert_eq!(before, after, "a refused fold must not touch the log");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

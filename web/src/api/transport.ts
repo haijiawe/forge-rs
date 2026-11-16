@@ -8,7 +8,7 @@
 // reconnect never re-applies an event the machine already applied (the machine
 // also ignores seq <= lastSeq, belt and braces).
 
-import { PING_FRAME, parseFrame, streamUrl } from './client';
+import { PING_FRAME, parseFrame, streamUrl, WS_SUBPROTOCOL } from './client';
 import type { ClientFrame, ServerFrame } from './types';
 
 export type StreamEvent =
@@ -62,7 +62,10 @@ export class SessionStream {
     const url = streamUrl(this.options.baseUrl ?? '', this.options.sessionId, this.options.after());
     let socket: WebSocket;
     try {
-      socket = new Impl(url);
+      // The subprotocol is the only field a page can set on a handshake: both
+      // the token (a cookie, set by the server when it serves the shell for the
+      // printed URL) and the version (this list) have to travel without headers.
+      socket = new Impl(url, [WS_SUBPROTOCOL]);
     } catch (error) {
       this.scheduleReconnect();
       this.options.onEvent({

@@ -67,9 +67,17 @@ Version: **1**. Negotiated with the `X-Forge-Protocol` header (§3).
   `docs/contracts/cli.md`).
 - Every request must present the token, either as
   `Authorization: Bearer {token}` or, for browser clients, as the `HttpOnly`
-  cookie `forge_token`. The operator sets that cookie out of band (there is no
-  auth endpoint in protocol 1; adding one is an additive change). Missing or
-  wrong token → `401 unauthorized`. The token is compared in constant time.
+  cookie `forge_token`. Missing or wrong token → `401 unauthorized`. The token is
+  compared in constant time.
+  - A browser cannot set `Authorization` on a `GET /` navigation, so the server
+    itself sets the cookie: when it serves the shell for a request whose `token`
+    query parameter matches, the response carries
+    `Set-Cookie: forge_token={token}; HttpOnly; SameSite=Strict; Path=/`. A wrong
+    or absent `token` parameter still serves the shell, just without the cookie
+    (the operator may also set it out of band; there is no auth endpoint in
+    protocol 1). This is what makes the URL `forge web` prints a working
+    credential end to end, including the WebSocket, which a page cannot attach a
+    header to.
 - Requests whose peer address is not a loopback address are rejected with
   `403 forbidden` regardless of token. There is no "bind to the network" mode in
   protocol 1.
@@ -101,6 +109,14 @@ Version: **1**. Negotiated with the `X-Forge-Protocol` header (§3).
 - WebSocket clients send the header on the upgrade request; each server frame
   also carries `"protocol": 1` so a proxy that strips headers cannot silently
   downgrade a stream.
+  - A browser cannot send a request header on a WebSocket handshake at all. Such
+    a client therefore offers the subprotocol `forge.v1` in
+    `Sec-WebSocket-Protocol` instead of sending `X-Forge-Protocol`; the server
+    accepts a handshake that offers it and echoes
+    `Sec-WebSocket-Protocol: forge.v1` in the `101` (RFC 6455 §4.2.2 requires the
+    selection to be named, or the browser fails the connection). Either signal
+    satisfies negotiation; a handshake carrying neither is still
+    `400 protocol_required`.
 
 ---
 
@@ -487,20 +503,36 @@ Codes and their HTTP statuses:
 > **Implementation status — one open deviation.**
 >
 > 1. `internal`: the shipped value is **`internal_error`**
->    (`protocol.CodeInternal`, `internal/protocol/protocol.go:43`), and the
->    JSON-marshal failure fallback uses the literal `"internal_error"` as well
->    (`internal/server/server.go` `writeJSON`, `internal/server/stream.go`). The
->    contract text above says `internal`; the code says `internal_error`, and a
->    rename would break every client written against the shipped behaviour, so
->    the value in the table is what a client will actually receive.
-> 2. `rate_limited` / `429`: **not implemented at all.** No endpoint returns `429`
->    and no `Retry-After` header is ever set. This is the one row a client must
->    treat as reserved.
+>    (`protocol::code::INTERNAL`), and the JSON-encode failure fallback uses the
+>    literal `"internal_error"` as well. The contract text above says `internal`;
+>    the code says `internal_error`, and a rename would break every client
+>    written against the shipped behaviour, so the value in the table is what a
+>    client will actually receive.
+> 2. `rate_limited` / `429`: **implemented in W6.** Only
+>    `POST /api/sessions/{id}/messages` is limited. The budget is per *session*
+>    (not per peer: the listener is loopback-only, and one browser tab is one
+>    session), with a fixed window of **120 turns per 60 s** by default
+>    (`forge_server::RateLimit::default()`). The response carries
+>    `Retry-After: <seconds>`, rounded up and never below `1`, plus
+>    `details: {sessionId, limit, windowSeconds, retryAfterSeconds}`. A refused
+>    request appends **nothing** — the charge happens after the state checks and
+>    before the first event, so a client can tell "refused" from "accepted" by
+>    reading the log. Requests refused for another reason (`409`, `503`) do not
+>    spend the budget, so retrying a broken request still shows its error.
+>    `RateLimit::disabled()` exists for callers that drive the server themselves
+>    (the e2e harness, the benchmark) and know their own rate.
 >
 > `method_not_allowed` used to be deviation #1: `405` answers shipped with
-> `bad_request`. Fixed in M7 — `internal/protocol` now has the constant and the
-> three sites use it (`internal/server/server.go:451`, `:545`,
-> `internal/server/static.go:111`).
+> `bad_request`. Fixed in M7 — `forge_protocol::code` now has the constant and
+> the three sites use it.
+>
+> §2 and §3 gained the two browser mechanisms late: the shell sets the
+> `forge_token` cookie for the printed `?token=` URL, and a WebSocket handshake
+> may signal its version with the `forge.v1` subprotocol instead of
+> `X-Forge-Protocol`. Neither is a wire deviation — both are additive, and a
+> handshake carrying neither signal is still `400`. They exist because the
+> earlier text described a browser flow no browser could perform: the UI's
+> stream retried `401` forever against a real Edge window before these landed.
 >
 > `log_read_failed` above was missing from this table until M7; the server emits
 > it on `500` and the contract had no name for it.

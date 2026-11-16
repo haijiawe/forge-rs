@@ -356,9 +356,9 @@ fn resume_threads(pid: u32) -> CoreResult<()> {
 pub(crate) fn format_bytes(bytes: u64) -> String {
     if bytes == 0 {
         "unlimited".to_string()
-    } else if bytes % (1 << 30) == 0 {
+    } else if bytes.is_multiple_of(1 << 30) {
         format!("{} GiB", bytes >> 30)
-    } else if bytes % (1 << 20) == 0 {
+    } else if bytes.is_multiple_of(1 << 20) {
         format!("{} MiB", bytes >> 20)
     } else {
         format!("{} B", bytes)

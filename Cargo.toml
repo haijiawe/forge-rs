@@ -10,7 +10,7 @@ members = ["crates/*", "tools/archcheck", "tools/bench", "tests/e2e", "tests/ws"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.89"
 license = "UNLICENSED"
 
 # The dependency budget. Every entry answers "why not the standard library".

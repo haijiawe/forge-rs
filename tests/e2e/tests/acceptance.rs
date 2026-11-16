@@ -1101,7 +1101,27 @@ fn http_surface_matches_oracle_protocol_and_event_contract() {
     let accepted_seq = posted_json["seq"].as_u64().unwrap();
     assert!(accepted_seq >= 2);
 
-    let page = poll_events(port, token, &session, "turn/end");
+    let mut page = poll_events(port, token, &session, "turn/end");
+    // `lastSeq` and the page are two reads of the same file inside one request,
+    // so a write that lands between them makes the two disagree for a moment —
+    // which is why this retries instead of asserting an instant. Once the turn
+    // has ended the log is quiescent, so agreement is permanent; a client that
+    // saw the mismatch would simply page again with `nextAfter`.
+    let deadline = Instant::now() + TIMEOUT;
+    loop {
+        let events = page["events"].as_array().unwrap();
+        if page["lastSeq"].as_u64() == Some(events.len() as u64) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "events page never agreed with lastSeq: lastSeq={:?}, events={}",
+            page["lastSeq"],
+            events.len()
+        );
+        thread::sleep(Duration::from_millis(10));
+        page = poll_events(port, token, &session, "turn/end");
+    }
     let events = page["events"].as_array().unwrap();
     assert_eq!(
         events

@@ -39,6 +39,13 @@ right way and is written down.
 
 These were measured on this host, not chosen:
 
+- **Minimum rustc is 1.89**, set in `Cargo.toml`'s `rust-version` and enforced by
+  the dependency tree rather than by taste: `rusqlite 0.43` requires 1.89 and
+  `libsqlite3-sys 0.40` requires 1.88. The earlier `1.85` in this file was wrong
+  for months of the port's planning; `cargo +1.85 check` fails with
+  `rustc 1.85.1 is not supported by the following packages` before compiling a
+  single line. Verified both ways: the whole suite passes on 1.89
+  (`cargo +1.89.0 test --workspace --offline`, 64 suites) and on 1.96.
 - **The target directory must be all-ASCII.** `.cargo/config.toml` sets
   `target-dir = "D:/forge-rs-target/forge-rs"`. With the target inside
   `D:\魔改版Agent框架\...`, every crate that compiles C dies in `cl.exe` with
@@ -124,10 +131,19 @@ test run ends with `test result: ok`. `make release` compile-checks the
 installed cross targets only — it does not link, because this host has no linker
 for them.
 
-`.github/workflows/ci.yml` runs the same gate on every push and pull request
-(`fmt`, `clippy -D warnings`, `archcheck`, `cargo test` on ubuntu and windows,
-plus the web bundle with its 2 MB raw budget). `.github/workflows/release.yml`
+`.github/workflows/ci.yml` runs three jobs on every push and pull request: `test`
+on ubuntu and windows against the **minimum** rustc (1.89), `lint` on current
+stable (`fmt --check`, `clippy --all-targets -D warnings`), and `web` (`npm ci`,
+`tsc --noEmit`, `vitest run`, `npm run build`, 2 MB raw bundle budget). Two
+toolchains because clippy grows lints in new releases: a developer on stable can
+otherwise write code that a pinned-toolchain lint job never sees — `% 2 != 0`
+becoming `is_multiple_of` was exactly that. CI deliberately does **not** pass
+`--offline` (a cold runner has an empty registry); the local `Makefile` and
+`check.ps1` do, because this host cannot reach crates.io. `.github/workflows/release.yml`
 builds and checksums the artifacts on version tags.
+
+Neither workflow has ever run on a GitHub runner: this checkout has no remote and
+no `gh`. Both were rehearsed step by step locally instead (see `docs/ci.md`).
 
 ## What is not done yet
 
@@ -136,8 +152,12 @@ builds and checksums the artifacts on version tags.
   No live request was made to the example endpoint during the port.
 - Compaction is wired on both surfaces (`forge chat` before each turn, `forge web`
   at the top of a turn, both at the Go original's 200-record floor). The web
-  surface compacts through `Server::append_event` because the server owns the seq
-  counter, so its summary lands one turn later than the CLI's.
+  surface folds only turns that are already closed, so the summary covers history
+  the user can no longer see and lands inside the turn that triggered it — the
+  open prompt is projected after the summary, exactly as on the CLI. A summary
+  that comes back empty is refused rather than appended (`web_compaction_refuses_an_empty_summary`
+  in `crates/cli/src/web.rs`): an empty fold would delete history and record
+  nothing in its place.
 - Cross-target release builds from this host are compile checks only; see the
   toolchain section and `docs/release.md`. CI uses native runners for the
   artifacts it claims.
@@ -157,6 +177,11 @@ builds and checksums the artifacts on version tags.
 - Linux and macOS containment (Landlock, `sandbox-exec`) is compile-checked only;
   only the Windows job object was measured. `forge doctor` says so in its
   `sandbox` line rather than claiming containment it has not shown.
+- The web transcript was measured in a real browser: 5,000 messages (10,001
+  events, 480,130 px of scrollback) scroll at a flat **60 fps** while mounting 27
+  rows, load in ~650 ms, and hold ~18 MB of heap. Numbers, method and the three
+  browser-only defects the measurement exposed are in `docs/web-ui.md`. It is one
+  headless Edge on Windows/amd64; no other browser or GPU was measured.
 - No `LICENSE` file yet: all rights reserved, do not redistribute.
 - `make check` could not be executed on the authoring host because GNU make is
   not installed. Its component commands were run directly and are the source
