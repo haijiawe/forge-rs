@@ -1,0 +1,9 @@
+[package]
+name = "forge-cli"
+description = "the forge binary: chat, web, doctor, import, index"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]

@@ -1,0 +1,9 @@
+[package]
+name = "forge-llm"
+description = "provider contract and the OpenAI-compatible SSE client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]

@@ -1,0 +1,51 @@
+# The workspace is one repository with ten crates, one per layer boundary.
+#
+# Why ten and not one: a crate is the only dependency edge Cargo enforces at
+# compile time. The layer map in architecture.yaml is a human promise; a crate
+# graph is a compiler-checked one. See docs/08-rust-port.md §2.
+[workspace]
+resolver = "2"
+members = ["crates/*", "tools/archcheck"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "UNLICENSED"
+
+# The dependency budget. Every entry answers "why not the standard library".
+# Adding a line here is a decision; see docs/08-rust-port.md §3.
+[workspace.dependencies]
+# JSON is the on-disk and on-the-wire format. There is no std JSON.
+serde = { version = "1", features = ["derive"] }
+# arbitrary_precision keeps the *text* of a number, not an f64 approximation.
+# Canonical re-encoding has to be byte-stable or golden files are a lie.
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+# 128 bits of entropy for event ids and tokens. std has no CSPRNG.
+getrandom = "0.3"
+# SHA-256 for the import id derivation; also the digest rustls already needs.
+ring = "0.17"
+# TLS because std has none, and native-tls would drag OpenSSL in on Linux.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pki-types = "1"
+# A CA bundle in the binary: a proxy with a corporate CA is the normal case in
+# the places this tool runs, and reading the OS store is a per-platform project.
+webpki-roots = "1"
+# The session index needs SQL with FTS5. bundled = one static SQLite, no
+# system dependency, reproducible on every target.
+rusqlite = { version = "0.43", features = ["bundled"] }
+# fs_grep promises patterns. Writing a regex engine is not this project.
+regex = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
+# Tests and benchmarks stay in the release-ish profile because the perf gate
+# compares numbers across builds; a 20x slower debug loop would make the
+# baseline meaningless.
+[profile.bench]
+inherits = "release"

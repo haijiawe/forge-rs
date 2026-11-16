@@ -1,0 +1,9 @@
+{
+  "name": "error_not_an_envelope",
+  "description": "A line that is valid JSON but not a JSON object cannot be an event envelope. An array is the classic example: it parses, but no envelope field can be read from it.",
+  "lines": [
+    "[1,2,3]"
+  ],
+  "expect": "error",
+  "errorContains": "does not match the v1 envelope"
+}

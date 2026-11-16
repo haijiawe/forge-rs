@@ -1,0 +1,413 @@
+{
+  "name": "ok_two_turn_session",
+  "description": "A realistic two-turn session with tool calls: fifteen records in one log, dense sequence, one session, canonical form identical to the input.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "a1f0c3d47b2e4f6198a5c7d3e1b0a9f2",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "session/start",
+      "payload": {
+        "workspace": "D:/work/demo",
+        "model": "deepseek-chat",
+        "profile": "default"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "b2e1d4c5a6f7081923a4b5c6d7e8f901",
+      "ts": 1794787201012,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "type": "turn/start"
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "id": "c3f2e5d6b7a8091a2b3c4d5e6f7a8b02",
+      "ts": 1794787201104,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "type": "user/message",
+      "payload": {
+        "text": "Add a retry helper to the HTTP client."
+      }
+    },
+    {
+      "v": 1,
+      "seq": 4,
+      "id": "d4a3f6e7c8b9102a3b4c5d6e7f8a9b03",
+      "ts": 1794787202098,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "step": 1,
+      "type": "assistant/message",
+      "payload": {
+        "text": "Let me look at the client first.",
+        "stopReason": "tool_use"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 5,
+      "id": "e5b4a7f8d9c0012b3c4d5e6f7a8b9c04",
+      "ts": 1794787202110,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "step": 1,
+      "type": "tool/call",
+      "payload": {
+        "callId": "call_01",
+        "tool": "fs.read",
+        "args": {
+          "path": "internal/http/client.go"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "seq": 6,
+      "id": "f6c5b8a9e0d1123c4d5e6f7a8b9c0d05",
+      "ts": 1794787202151,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "step": 1,
+      "type": "tool/result",
+      "payload": {
+        "callId": "call_01",
+        "ok": true,
+        "truncated": false,
+        "output": "package http\n\nfunc Get(url string) (*Response, error) {\n\t// ...\n}\n"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 7,
+      "id": "a7d6c9b0f1e2234d5e6f7a8b9c0d1e06",
+      "ts": 1794787203302,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "step": 2,
+      "type": "assistant/message",
+      "payload": {
+        "text": "Added a retry wrapper with jitter.",
+        "stopReason": "end_turn"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 8,
+      "id": "b8e7d0c1a2f3345e6f7a8b9c0d1e2f07",
+      "ts": 1794787203310,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "type": "turn/end",
+      "payload": {
+        "reason": "completed",
+        "steps": 2
+      }
+    },
+    {
+      "v": 1,
+      "seq": 9,
+      "id": "c9f8e1d2b3a4456f7a8b9c0d1e2f3a08",
+      "ts": 1794787205001,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "type": "turn/start"
+    },
+    {
+      "v": 1,
+      "seq": 10,
+      "id": "d0a9f2e3c4b5567a8b9c0d1e2f3a4b09",
+      "ts": 1794787205103,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "type": "user/message",
+      "payload": {
+        "text": "Now run the package tests."
+      }
+    },
+    {
+      "v": 1,
+      "seq": 11,
+      "id": "e1b0a3f4d5c6678b9c0d1e2f3a4b5c0a",
+      "ts": 1794787206200,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "step": 1,
+      "type": "tool/call",
+      "payload": {
+        "callId": "call_02",
+        "tool": "shell",
+        "args": {
+          "command": "go test ./internal/http/...",
+          "timeoutMs": 120000
+        }
+      }
+    },
+    {
+      "v": 1,
+      "seq": 12,
+      "id": "f2c1b4a5e6d7789c0d1e2f3a4b5c6d0b",
+      "ts": 1794787220402,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "step": 1,
+      "type": "tool/result",
+      "payload": {
+        "callId": "call_02",
+        "ok": false,
+        "exitCode": 1,
+        "truncated": false,
+        "output": "--- FAIL: TestRetry (0.01s)\n    retry_test.go:42: got 2 attempts, want 3\n"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 13,
+      "id": "a3d2c5b6f7e8890d1e2f3a4b5c6d7e0c",
+      "ts": 1794787222100,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "step": 2,
+      "type": "assistant/message",
+      "payload": {
+        "text": "One test fails: the loop gives up after the second attempt.",
+        "stopReason": "end_turn"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 14,
+      "id": "b4e3d6c7a8f99a1e2f3a4b5c6d7e8f0d",
+      "ts": 1794787222108,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "type": "turn/end",
+      "payload": {
+        "reason": "completed",
+        "steps": 2
+      }
+    },
+    {
+      "v": 1,
+      "seq": 15,
+      "id": "c5f4e7d8b9a0ab2f3a4b5c6d7e8f9a0e",
+      "ts": 1794787222110,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "session/end",
+      "payload": {
+        "reason": "completed"
+      }
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "a1f0c3d47b2e4f6198a5c7d3e1b0a9f2",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "session/start",
+      "payload": {
+        "workspace": "D:/work/demo",
+        "model": "deepseek-chat",
+        "profile": "default"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "b2e1d4c5a6f7081923a4b5c6d7e8f901",
+      "ts": 1794787201012,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "type": "turn/start"
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "id": "c3f2e5d6b7a8091a2b3c4d5e6f7a8b02",
+      "ts": 1794787201104,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "type": "user/message",
+      "payload": {
+        "text": "Add a retry helper to the HTTP client."
+      }
+    },
+    {
+      "v": 1,
+      "seq": 4,
+      "id": "d4a3f6e7c8b9102a3b4c5d6e7f8a9b03",
+      "ts": 1794787202098,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "step": 1,
+      "type": "assistant/message",
+      "payload": {
+        "text": "Let me look at the client first.",
+        "stopReason": "tool_use"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 5,
+      "id": "e5b4a7f8d9c0012b3c4d5e6f7a8b9c04",
+      "ts": 1794787202110,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "step": 1,
+      "type": "tool/call",
+      "payload": {
+        "callId": "call_01",
+        "tool": "fs.read",
+        "args": {
+          "path": "internal/http/client.go"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "seq": 6,
+      "id": "f6c5b8a9e0d1123c4d5e6f7a8b9c0d05",
+      "ts": 1794787202151,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "step": 1,
+      "type": "tool/result",
+      "payload": {
+        "callId": "call_01",
+        "ok": true,
+        "truncated": false,
+        "output": "package http\n\nfunc Get(url string) (*Response, error) {\n\t// ...\n}\n"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 7,
+      "id": "a7d6c9b0f1e2234d5e6f7a8b9c0d1e06",
+      "ts": 1794787203302,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "step": 2,
+      "type": "assistant/message",
+      "payload": {
+        "text": "Added a retry wrapper with jitter.",
+        "stopReason": "end_turn"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 8,
+      "id": "b8e7d0c1a2f3345e6f7a8b9c0d1e2f07",
+      "ts": 1794787203310,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "type": "turn/end",
+      "payload": {
+        "reason": "completed",
+        "steps": 2
+      }
+    },
+    {
+      "v": 1,
+      "seq": 9,
+      "id": "c9f8e1d2b3a4456f7a8b9c0d1e2f3a08",
+      "ts": 1794787205001,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "type": "turn/start"
+    },
+    {
+      "v": 1,
+      "seq": 10,
+      "id": "d0a9f2e3c4b5567a8b9c0d1e2f3a4b09",
+      "ts": 1794787205103,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "type": "user/message",
+      "payload": {
+        "text": "Now run the package tests."
+      }
+    },
+    {
+      "v": 1,
+      "seq": 11,
+      "id": "e1b0a3f4d5c6678b9c0d1e2f3a4b5c0a",
+      "ts": 1794787206200,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "step": 1,
+      "type": "tool/call",
+      "payload": {
+        "callId": "call_02",
+        "tool": "shell",
+        "args": {
+          "command": "go test ./internal/http/...",
+          "timeoutMs": 120000
+        }
+      }
+    },
+    {
+      "v": 1,
+      "seq": 12,
+      "id": "f2c1b4a5e6d7789c0d1e2f3a4b5c6d0b",
+      "ts": 1794787220402,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "step": 1,
+      "type": "tool/result",
+      "payload": {
+        "callId": "call_02",
+        "ok": false,
+        "exitCode": 1,
+        "truncated": false,
+        "output": "--- FAIL: TestRetry (0.01s)\n    retry_test.go:42: got 2 attempts, want 3\n"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 13,
+      "id": "a3d2c5b6f7e8890d1e2f3a4b5c6d7e0c",
+      "ts": 1794787222100,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "step": 2,
+      "type": "assistant/message",
+      "payload": {
+        "text": "One test fails: the loop gives up after the second attempt.",
+        "stopReason": "end_turn"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 14,
+      "id": "b4e3d6c7a8f99a1e2f3a4b5c6d7e8f0d",
+      "ts": 1794787222108,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "type": "turn/end",
+      "payload": {
+        "reason": "completed",
+        "steps": 2
+      }
+    },
+    {
+      "v": 1,
+      "seq": 15,
+      "id": "c5f4e7d8b9a0ab2f3a4b5c6d7e8f9a0e",
+      "ts": 1794787222110,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "session/end",
+      "payload": {
+        "reason": "completed"
+      }
+    }
+  ]
+}

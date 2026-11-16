@@ -1,0 +1,165 @@
+{
+  "session_id": "s1",
+  "model": "claude-sonnet-4",
+  "profile": "default",
+  "cwd": "/work",
+  "ended": true,
+  "end_reason": "completed",
+  "last_seq": 20,
+  "turns": [
+    {
+      "number": 1,
+      "status": "complete",
+      "steps": 1,
+      "start_seq": 2,
+      "end_seq": 11,
+      "end_reason": "complete"
+    },
+    {
+      "number": 2,
+      "status": "aborted",
+      "steps": 0,
+      "start_seq": 12,
+      "end_seq": 16,
+      "end_reason": "cancelled"
+    },
+    {
+      "number": 3,
+      "status": "running",
+      "steps": 1,
+      "start_seq": 17
+    }
+  ],
+  "messages": [
+    {
+      "kind": "user",
+      "turn": 1,
+      "seq": 3,
+      "ts": 1763000000003,
+      "text": "read notes.txt"
+    },
+    {
+      "kind": "assistant",
+      "turn": 1,
+      "step": 1,
+      "seq": 4,
+      "ts": 1763000000004,
+      "text": "Reading notes.txt.",
+      "tool_calls": [
+        {
+          "id": "c1",
+          "name": "fs/read",
+          "args": {
+            "path": "notes.txt"
+          }
+        },
+        {
+          "id": "c2",
+          "name": "shell",
+          "args": {
+            "cmd": "ls"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "turn": 1,
+      "step": 1,
+      "seq": 6,
+      "ts": 1763000000006,
+      "text": "alpha",
+      "call_id": "c1",
+      "name": "fs/read"
+    },
+    {
+      "kind": "tool",
+      "turn": 1,
+      "step": 1,
+      "seq": 10,
+      "ts": 1763000000010,
+      "text": "permission denied",
+      "call_id": "c2",
+      "name": "shell",
+      "is_error": true
+    },
+    {
+      "kind": "user",
+      "turn": 2,
+      "seq": 13,
+      "ts": 1763000000013,
+      "text": "try again"
+    },
+    {
+      "kind": "assistant",
+      "turn": 3,
+      "step": 1,
+      "seq": 18,
+      "ts": 1763000000018,
+      "text": "partial"
+    }
+  ],
+  "tool_calls": [
+    {
+      "call_id": "c1",
+      "name": "fs/read",
+      "turn": 1,
+      "step": 1,
+      "seq": 5,
+      "args": {
+        "path": "notes.txt"
+      },
+      "status": "ok",
+      "output": "alpha",
+      "result_seq": 6
+    },
+    {
+      "call_id": "c2",
+      "name": "shell",
+      "turn": 1,
+      "step": 1,
+      "seq": 9,
+      "args": {
+        "cmd": "ls"
+      },
+      "status": "error",
+      "output": "permission denied",
+      "error_code": "E_EXIT",
+      "result_seq": 10
+    },
+    {
+      "call_id": "c3",
+      "name": "shell",
+      "turn": 2,
+      "step": 1,
+      "seq": 14,
+      "args": {
+        "cmd": "sleep 30"
+      },
+      "status": "pending"
+    }
+  ],
+  "pending_approvals": [
+    {
+      "id": "a2",
+      "call_id": "c3",
+      "kind": "exec",
+      "title": "run shell",
+      "detail": "long running",
+      "turn": 2,
+      "seq": 15,
+      "ts": 1763000000015
+    }
+  ],
+  "counters": {
+    "turns": 3,
+    "steps": 2,
+    "messages": 6,
+    "tool_calls": 3,
+    "prompt_tokens": 15,
+    "completion_tokens": 7,
+    "total_tokens": 22,
+    "skipped": 1,
+    "duplicates": 0
+  }
+}

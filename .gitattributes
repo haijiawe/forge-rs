@@ -1,0 +1,10 @@
+# LF everywhere. The conformance cases and golden files are byte-compared
+# across two implementations; a checkout that rewrote their endings would make
+# the oracle depend on the machine that cloned it.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.exe binary
+*.zip binary

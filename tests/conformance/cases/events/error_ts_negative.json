@@ -1,0 +1,16 @@
+{
+  "name": "error_ts_negative",
+  "description": "A negative timestamp is not a millisecond epoch value a writer may emit; the contract requires ts > 0, and readers reject the record rather than inventing a date.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "e8f90123456789abcdef0123456789ab",
+      "ts": -1,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "session/start"
+    }
+  ],
+  "expect": "error",
+  "errorContains": "empty ts"
+}

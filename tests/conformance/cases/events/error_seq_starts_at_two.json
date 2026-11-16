@@ -1,0 +1,16 @@
+{
+  "name": "error_seq_starts_at_two",
+  "description": "The first record of a log has seq 1. Starting at 2 hides a lost record that no later replay can recover.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "123456789abcdef0123456789abcdef0",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "session/start"
+    }
+  ],
+  "expect": "error",
+  "errorContains": "not dense"
+}

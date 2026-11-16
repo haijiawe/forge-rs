@@ -1,0 +1,92 @@
+{
+  "name": "tool-call-stream",
+  "description": "OpenAI-compatible chat.completion.chunk stream with one fragmented tool call: id and name arrive first, then the JSON arguments arrive in two pieces, then finish_reason tool_calls and a usage chunk. M1 has no tool executor, so this fixture pins the documented refusal (error event code tool_unavailable, turn/end reason error) that M2 will replace.",
+  "model": "gpt-4o-mini",
+  "chunks": [
+    {
+      "id": "chatcmpl-tool-1",
+      "object": "chat.completion.chunk",
+      "created": 1763000001,
+      "model": "gpt-4o-mini",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "index": 0,
+                "id": "call_fixture_1",
+                "type": "function",
+                "function": { "name": "fs_read", "arguments": "" }
+              }
+            ]
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-tool-1",
+      "object": "chat.completion.chunk",
+      "created": 1763000001,
+      "model": "gpt-4o-mini",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "tool_calls": [
+              {
+                "index": 0,
+                "function": { "arguments": "{\"path\":" }
+              }
+            ]
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-tool-1",
+      "object": "chat.completion.chunk",
+      "created": 1763000001,
+      "model": "gpt-4o-mini",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "tool_calls": [
+              {
+                "index": 0,
+                "function": { "arguments": "\"notes.txt\"}" }
+              }
+            ]
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-tool-1",
+      "object": "chat.completion.chunk",
+      "created": 1763000001,
+      "model": "gpt-4o-mini",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {},
+          "finish_reason": "tool_calls"
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-tool-1",
+      "object": "chat.completion.chunk",
+      "created": 1763000001,
+      "model": "gpt-4o-mini",
+      "choices": [],
+      "usage": { "prompt_tokens": 31, "completion_tokens": 12, "total_tokens": 43 }
+    }
+  ]
+}

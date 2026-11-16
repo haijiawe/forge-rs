@@ -1,0 +1,16 @@
+{
+  "name": "error_empty_session",
+  "description": "Every record names the session it belongs to; an empty session cannot be routed, indexed or resumed.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "b5c6d7e8f90123456789abcdef012345",
+      "ts": 1794787200000,
+      "session": "",
+      "type": "session/start"
+    }
+  ],
+  "expect": "error",
+  "errorContains": "empty session"
+}

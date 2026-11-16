@@ -1,0 +1,14 @@
+# Build output lives outside the tree on purpose: this project's path contains
+# non-ASCII characters and cl.exe cannot write a debug record into such a path.
+# See .cargo/config.toml and docs/08-rust-port.md §4.
+/target
+/bin
+*.exe
+*.pdb
+*.dSYM
+
+# Scratch space for probes and local experiments.
+/.cache
+
+# Nothing here is generated into the source tree; if it appears, it is a mistake.
+**/dist/

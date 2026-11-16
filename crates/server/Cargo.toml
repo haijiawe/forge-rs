@@ -1,0 +1,9 @@
+[package]
+name = "forge-server"
+description = "HTTP and WebSocket over the session log"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]

@@ -1,0 +1,9 @@
+[package]
+name = "forge-session"
+description = "append-only log, projection, compaction, decisions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]

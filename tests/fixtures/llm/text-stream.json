@@ -1,0 +1,80 @@
+{
+  "name": "text-stream",
+  "description": "OpenAI-compatible chat.completion.chunk stream: a role-only chunk, three content fragments (one multi-byte), finish_reason stop, then a usage-only chunk. Used to pin the M1 text path: deltas are concatenated, not replaced, and usage reaches assistant/message.",
+  "model": "gpt-4o-mini",
+  "chunks": [
+    {
+      "id": "chatcmpl-text-1",
+      "object": "chat.completion.chunk",
+      "created": 1763000000,
+      "model": "gpt-4o-mini",
+      "choices": [
+        {
+          "index": 0,
+          "delta": { "role": "assistant", "content": "" },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-text-1",
+      "object": "chat.completion.chunk",
+      "created": 1763000000,
+      "model": "gpt-4o-mini",
+      "choices": [
+        {
+          "index": 0,
+          "delta": { "content": "Hello" },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-text-1",
+      "object": "chat.completion.chunk",
+      "created": 1763000000,
+      "model": "gpt-4o-mini",
+      "choices": [
+        {
+          "index": 0,
+          "delta": { "content": ", " },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-text-1",
+      "object": "chat.completion.chunk",
+      "created": 1763000000,
+      "model": "gpt-4o-mini",
+      "choices": [
+        {
+          "index": 0,
+          "delta": { "content": "世界" },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-text-1",
+      "object": "chat.completion.chunk",
+      "created": 1763000000,
+      "model": "gpt-4o-mini",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {},
+          "finish_reason": "stop"
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-text-1",
+      "object": "chat.completion.chunk",
+      "created": 1763000000,
+      "model": "gpt-4o-mini",
+      "choices": [],
+      "usage": { "prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19 }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "ok_minimal_event",
+  "description": "An event carrying only the required envelope fields is valid, and re-encoding it adds no optional field. This is the smallest record a writer may emit.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "a1f0c3d47b2e4f6198a5c7d3e1b0a9f2",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "session/start"
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "a1f0c3d47b2e4f6198a5c7d3e1b0a9f2",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "session/start"
+    }
+  ]
+}

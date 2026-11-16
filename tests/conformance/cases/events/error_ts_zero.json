@@ -1,0 +1,16 @@
+{
+  "name": "error_ts_zero",
+  "description": "Timestamps are Unix epoch milliseconds and must be strictly positive. Zero means the writer forgot to set it, so the record cannot be ordered against real history.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "d7e8f90123456789abcdef0123456789",
+      "ts": 0,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "session/start"
+    }
+  ],
+  "expect": "error",
+  "errorContains": "empty ts"
+}

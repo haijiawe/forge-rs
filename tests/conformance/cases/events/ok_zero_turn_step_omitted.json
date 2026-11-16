@@ -1,0 +1,29 @@
+{
+  "name": "ok_zero_turn_step_omitted",
+  "description": "turn and step are optional counters that are omitted when zero. A record may write them explicitly as 0; the canonical form drops them, so readers must treat absent and zero as the same value.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "60718293a4b5c6d7e8f90123456789ab",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 0,
+      "step": 0,
+      "type": "session/start",
+      "payload": {}
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "60718293a4b5c6d7e8f90123456789ab",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "session/start",
+      "payload": {}
+    }
+  ]
+}

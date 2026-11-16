@@ -1,0 +1,16 @@
+{
+  "name": "error_version_2",
+  "description": "A record written with an unsupported format version must be rejected rather than guessed at. A breaking change bumps v; until the reader knows v2 it must fail closed.",
+  "lines": [
+    {
+      "v": 2,
+      "seq": 1,
+      "id": "93a4b5c6d7e8f90123456789abcdef01",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "session/start"
+    }
+  ],
+  "expect": "error",
+  "errorContains": "unsupported event version"
+}
