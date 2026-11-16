@@ -2,7 +2,7 @@
 dir: crates/sandbox
 layer: L1
 role: containment enforcers for job objects plus AppContainers, Landlock, and sandbox-exec
-public: [Mode, Spec, Support, Enforcer, Logger, NoopLogger, UnavailableError, new, available, appcontainer_available, maybe_exec_helper, mode_from_str]
+public: [Mode, Spec, Support, Enforcer, Logger, NoopLogger, UnavailableError, new, available, appcontainer_available, prune_appcontainer_profiles, maybe_exec_helper, mode_from_str]
 may_import: [forge-core]
 must_not: [forge-exec, forge-session, forge-llm, forge-tool, forge-protocol, forge-server, forge-cli]
 gate: make arch
@@ -27,10 +27,14 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
 - `Mode`：`ReadOnly` / `WorkspaceWrite` / `FullAccess`；`as_str()` 返回配置拼写
   `"read-only"` / `"workspace-write"` / `"full-access"`；`mode_from_str()` 只认
   这三个拼写。
-- `Spec { mode, workspace, allow_net, extra_write, wrapper }`：workspace 必须是绝对
+- `Spec { mode, workspace, allow_net, extra_write, extra_read, wrapper }`：workspace 必须是绝对
   路径、存在且是目录；文件系统根被拒绝（那等于 full-access）。`wrapper` 是“`main`
   第一句调用 `maybe_exec_helper` 的可执行文件”，默认 `None` 表示本进程（`forge`
-  自己）；把本 crate 当库嵌进别的宿主才需要设置它。
+  自己）；把本 crate 当库嵌进别的宿主才需要设置它。`extra_read` 是“workspace 之外
+  仍可读”的路径，只对默认拒绝读的平台有意义（Windows 的 AppContainer 从零可读开始；
+  Linux 的 Landlock 策略只管写、macOS 的 profile 已经 `allow file-read*`，所以那两个
+  平台上是空操作）。不存在的读路径会被跳过而不是拒绝：这份清单描述的是“这台机器
+  通常有什么”，机器上没有 `~/.npmrc` 不该变成沙箱拒绝启动。
 - `Support { filesystem, network, process_tree, enforced, detail }`：`detail` 必须
   说清楚缺什么。`available()` 报告能力但从不声称 `enforced`；
   `appcontainer_available()` 用无副作用的 derive 探测回答“这台 Windows 能不能造
@@ -44,6 +48,10 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
   enforcer 已关闭 → `ErrorKind::Conflict`。
 - `maybe_exec_helper()`：wrapper 子进程入口（Linux Landlock、Windows AppContainer），
   `main` 必须最先调用；其他平台为空操作。
+- `prune_appcontainer_profiles() -> Result<PruneReport>`（Windows）：删掉本工具在该
+  用户下创建的 `forge.sandbox.*` 包身份，返回 `{found, removed, failed}`。profile 服务
+  没有枚举 API，所以索引就是 `%LOCALAPPDATA%\Packages` 里的目录名。这是维护而不是
+  打扫：攒到约九十个身份后，服务会成段时间拒绝新名字。
 
 ## 依赖与边界
 

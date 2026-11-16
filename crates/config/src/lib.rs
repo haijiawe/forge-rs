@@ -118,6 +118,25 @@ pub struct SubagentConfig {
     pub max_depth: i32,
 }
 
+/// The `"sandboxAccess"` object: paths the sandboxed child may touch outside its
+/// workspace.
+///
+/// Absent sections mean "use the built-in defaults", which are what make a
+/// contained `git` or `npm` work at all; an empty list is the explicit way to say
+/// "grant nothing extra". The distinction matters: a caller who found the defaults
+/// too wide must be able to narrow them without editing code, and a casing or key
+/// typo must not silently turn into "everything allowed".
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SandboxAccessConfig {
+    /// Read-only grants, for the platforms that deny reads by default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read: Option<Vec<String>>,
+    /// Read-write grants.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write: Option<Vec<String>>,
+}
+
 /// User-level configuration stored in `$FORGE_HOME/config.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -142,6 +161,8 @@ pub struct Config {
     pub skills: SkillsConfig,
     /// Subagent depth.
     pub subagent: SubagentConfig,
+    /// Extra paths the sandboxed child may read or write.
+    pub sandbox_access: SandboxAccessConfig,
 }
 
 impl Default for Config {
@@ -176,6 +197,7 @@ impl Config {
                 roots: vec![skills_root],
             },
             subagent: SubagentConfig::default(),
+            sandbox_access: SandboxAccessConfig::default(),
         }
     }
 
@@ -256,6 +278,14 @@ impl Config {
         if let Some(subagent) = raw.subagent {
             if let Some(max_depth) = subagent.max_depth {
                 self.subagent.max_depth = max_depth;
+            }
+        }
+        if let Some(access) = raw.sandbox_access {
+            if access.read.is_some() {
+                self.sandbox_access.read = access.read;
+            }
+            if access.write.is_some() {
+                self.sandbox_access.write = access.write;
             }
         }
     }
@@ -558,6 +588,7 @@ struct RawConfig {
     mcp: Option<RawMCPConfig>,
     skills: Option<RawSkillsConfig>,
     subagent: Option<RawSubagentConfig>,
+    sandbox_access: Option<RawSandboxAccessConfig>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -576,4 +607,11 @@ struct RawSkillsConfig {
 #[serde(default, rename_all = "camelCase")]
 struct RawSubagentConfig {
     max_depth: Option<i32>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct RawSandboxAccessConfig {
+    read: Option<Vec<String>>,
+    write: Option<Vec<String>>,
 }

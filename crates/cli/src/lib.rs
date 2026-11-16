@@ -21,6 +21,7 @@ use std::path::PathBuf;
 
 pub mod chat;
 pub mod doctor;
+pub mod grants;
 pub mod importcmd;
 pub mod indexcmd;
 pub mod sessioncmd;
@@ -169,7 +170,7 @@ usage:
   forge session <command>      operate on a session log without running a turn
   forge import <old-dir>       import a session tree from the old harness
   forge index [flags]          rebuild or query the search index
-  forge doctor [--json]        check the environment
+  forge doctor [flags]         check the environment
   forge help                   this message
 
 docs: docs/README.md

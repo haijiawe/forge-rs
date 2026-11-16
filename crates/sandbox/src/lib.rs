@@ -95,6 +95,13 @@ pub struct Spec {
     pub workspace: String,
     pub allow_net: bool,
     pub extra_write: Vec<String>,
+    /// Directories and files the child may read even though they sit outside the
+    /// workspace. Only platforms that deny reads by default need this: on Windows
+    /// an AppContainer starts with nothing readable, so a tool that wants its own
+    /// configuration (`~/.gitconfig`, `%APPDATA%`) would otherwise fail. On Linux the
+    /// Landlock policy here grants writes only — reads are never restricted — so this
+    /// list is a no-op there; on macOS it becomes `file-read*` rules.
+    pub extra_read: Vec<String>,
     /// The executable that hosts the re-exec wrapper, when that is not this
     /// process. The wrapper must call [`maybe_exec_helper`] as its first
     /// statement; `forge` does, and so does the sandbox's own test child. A
@@ -111,6 +118,7 @@ impl Spec {
             workspace: String::new(),
             allow_net: false,
             extra_write: Vec::new(),
+            extra_read: Vec::new(),
             wrapper: None,
         }
     }
@@ -367,6 +375,15 @@ pub fn maybe_exec_helper() {
 #[cfg(target_os = "windows")]
 pub fn appcontainer_available() -> bool {
     appcontainer::available()
+}
+
+/// Delete the package profiles this crate created for this user, and report what
+/// happened. Windows only: the other platforms do not leave identities behind.
+///
+/// See [`appcontainer::prune`] for why this is maintenance rather than tidiness.
+#[cfg(target_os = "windows")]
+pub fn prune_appcontainer_profiles() -> forge_core::Result<appcontainer::PruneReport> {
+    appcontainer::prune()
 }
 
 /// Whether a path is a filesystem root. `workspace-write` at `/` (or `C:\`) is

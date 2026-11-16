@@ -95,6 +95,7 @@ impl crate::Platform for WindowsPlatform {
             spec.mode.as_str().to_string(),
             spec.workspace.clone(),
             spec.extra_write.clone(),
+            spec.extra_read.clone(),
             spec.allow_net,
         )?))
     }
@@ -131,6 +132,7 @@ impl JobEnforcer {
         mode: String,
         workspace: String,
         extra_write: Vec<String>,
+        extra_read: Vec<String>,
         allow_net: bool,
     ) -> CoreResult<Self> {
         if limits.process_memory_bytes == 0
@@ -159,6 +161,7 @@ impl JobEnforcer {
                 mode,
                 workspace,
                 extra_write,
+                extra_read,
                 allow_net,
             },
         })
@@ -178,8 +181,8 @@ impl Enforcer for JobEnforcer {
             enforced: true,
             detail: format!(
                 "windows: AppContainer (package SID, {} write access to the workspace, {} outbound \
-                 sockets) inside a job object (process tree via KILL_ON_JOB_CLOSE, process memory {}, \
-                 job memory {}, active processes {})",
+                 sockets, {} extra read and {} extra write paths) inside a job object (process tree \
+                 via KILL_ON_JOB_CLOSE, process memory {}, job memory {}, active processes {})",
                 if self.spec.mode == "workspace-write" {
                     "read and"
                 } else {
@@ -190,6 +193,8 @@ impl Enforcer for JobEnforcer {
                 } else {
                     "no capability, so no"
                 },
+                self.spec.extra_read.len(),
+                self.spec.extra_write.len(),
                 format_bytes(self.limits.process_memory_bytes),
                 format_bytes(self.limits.job_memory_bytes),
                 self.limits.active_processes

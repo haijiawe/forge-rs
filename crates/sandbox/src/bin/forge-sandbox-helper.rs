@@ -91,6 +91,18 @@ fn main() {
             };
             let _ = std::fs::write(marker, outcome);
         }
+        "read" => {
+            // Read containment is only observable from inside: the test grants one
+            // path and withholds another, and this child reports which one it could
+            // open.
+            let target = &args[2];
+            let marker = &args[3];
+            let outcome = match std::fs::read_to_string(target) {
+                Ok(text) => format!("read: {}", text.trim()),
+                Err(error) => format!("denied: {}", error.kind()),
+            };
+            let _ = std::fs::write(marker, outcome);
+        }
         other => {
             eprintln!("unknown helper mode {other:?}");
             std::process::exit(2);

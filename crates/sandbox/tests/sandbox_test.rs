@@ -339,6 +339,60 @@ fn windows_network_is_absent_without_the_capability() {
 
 #[cfg(windows)]
 #[test]
+fn windows_reads_are_granted_only_where_asked() {
+    // An AppContainer starts with nothing readable, so a tool cannot even open its
+    // own `~/.gitconfig` unless the host grants that path. This test proves the grant
+    // is what makes the difference: the same child, the same directory, one spec with
+    // the grant and one without.
+    let workspace = scratch("reads");
+    let outside = scratch("reads-outside");
+    let allowed = outside.join("allowed.txt");
+    let withheld = outside.join("withheld.txt");
+    std::fs::write(&allowed, "allowed-contents").expect("write allowed file");
+    std::fs::write(&withheld, "withheld-contents").expect("write withheld file");
+
+    let run = |path: &Path, granted: bool, name: &str| -> String {
+        let mut spec = spec_in(Mode::WorkspaceWrite, &workspace);
+        if granted {
+            spec.extra_read = vec![path.display().to_string()];
+        }
+        let enforcer = new(spec, None).expect("install");
+        let marker = marker(&workspace, name);
+        let mut command = std::process::Command::new(contained_helper(&workspace));
+        command.args([
+            "read",
+            path.to_str().expect("read path"),
+            marker.to_str().expect("marker path"),
+        ]);
+        enforcer.apply(&mut command).expect("apply");
+        let mut child = command.spawn().expect("spawn");
+        enforcer.after_start(child.id()).expect("adopt");
+        assert!(
+            wait_for(&marker, Duration::from_secs(20)),
+            "the contained child never reported a read result"
+        );
+        let outcome = std::fs::read_to_string(&marker).expect("read marker");
+        let _ = enforcer.close();
+        let _ = child.kill();
+        let _ = child.wait();
+        outcome
+    };
+
+    let granted = run(&allowed, true, "granted");
+    assert!(
+        granted.starts_with("read: allowed-contents"),
+        "a granted path was still unreadable: {granted}"
+    );
+
+    let ungranted = run(&withheld, false, "ungranted");
+    assert!(
+        ungranted.starts_with("denied"),
+        "an ungranted path outside the workspace was readable: {ungranted}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
 fn windows_apply_after_close_is_refused() {
     let workspace = scratch("closed");
     let enforcer = new(spec_in(Mode::WorkspaceWrite, &workspace), None).expect("install");

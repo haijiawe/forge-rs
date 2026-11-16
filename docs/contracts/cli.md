@@ -68,6 +68,7 @@ a bug, not contract. `forge` does not use exit code `1` for "unknown command".
 | `forge help` | `-h`, `--help`, no arguments at all | usage text on stdout | `0` |
 | `forge doctor` | — | human-readable check report on stdout | `0` or `1` |
 | `forge doctor --json` | — | JSON report on stdout | `0` or `1` |
+| `forge doctor --prune-profiles` | — | Deletes the Windows AppContainer profiles this tool created, then reports what happened | `0` or `1` |
 
 `forge session` has one implemented subcommand today: `fork`. `list`, `show`,
 `resume` and `export` are reserved words (§2.6) and exit `2` with a message rather
@@ -108,7 +109,7 @@ usage:
   forge session <command>      operate on a session log without running a turn
   forge import <old-dir>       import a session tree from the old harness
   forge index [flags]          rebuild or query the search index
-  forge doctor [--json]        check the environment
+  forge doctor [flags]         check the environment
   forge help                   this message
 
 docs: docs/README.md
@@ -402,7 +403,7 @@ below.
 | `2` | Usage error: unknown flag, invalid `--session`, empty prompt, unknown `--approve` value, `--no-tools` combined with `--approve=always`/`--approve=prompt`, or `--approve=prompt` with a stdin that is not a terminal. No session file is created. |
 | `130` | Ctrl+C: the first signal cancels the turn, closes it in the log with reason `cancelled`, prints the summary line and exits `130`; a second Ctrl+C exits immediately without unwinding. |
 
-### 2.4 `forge doctor [--json]`
+### 2.4 `forge doctor [flags]`
 
 Runs environment checks and reports them. The checks are read-only except for the
 data-directory probe, which creates and deletes `.write-probe` inside the data
@@ -413,6 +414,7 @@ Flags:
 | Flag | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `-json` / `--json` | bool | `false` | Emit the JSON report instead of the text report. Both spellings are accepted (`flag` package). |
+| `-prune-profiles` / `--prune-profiles` | bool | `false` | Windows only: delete every `forge.sandbox.*` package profile this tool created, then print a one-line summary (or a JSON object with `--json`). Runs *instead of* the checks, because it changes the machine and the checks must stay read-only. Exit `1` if any profile could not be deleted. |
 
 Checks, in this order (all ten always run; order and names are contract):
 
@@ -559,6 +561,8 @@ flag provided but not defined: -nope
 Usage of doctor:
   -json
     	machine-readable output
+  -prune-profiles
+    	delete the Windows sandbox profiles this tool created
 ```
 
 `doctor` ignores positional arguments after its flags today: `forge doctor

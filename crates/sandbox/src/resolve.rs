@@ -59,11 +59,25 @@ pub(crate) fn resolve_spec(spec: Spec) -> CoreResult<Spec> {
         extra.push(resolved.display().to_string());
     }
 
+    // A read grant is resolved the same way, but a path that does not exist is
+    // skipped rather than refused: these lists are assembled from what a machine
+    // happens to have (`~/.gitconfig`, `%APPDATA%`), and a missing optional file
+    // must not turn a working sandbox into a refusal to start.
+    let mut reads = Vec::with_capacity(spec.extra_read.len());
+    for path in &spec.extra_read {
+        if let Ok(resolved) = resolve_path("extra read path", path) {
+            if std::fs::metadata(&resolved).is_ok() {
+                reads.push(resolved.display().to_string());
+            }
+        }
+    }
+
     Ok(Spec {
         mode: spec.mode,
         workspace: workspace.display().to_string(),
         allow_net: spec.allow_net,
         extra_write: extra,
+        extra_read: reads,
         wrapper: spec.wrapper.clone(),
     })
 }

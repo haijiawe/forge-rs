@@ -72,6 +72,9 @@ const PROFILE_ATTEMPTS: usize = 8;
 /// One identity for the whole user, used only when the profile service refuses to
 /// create new names. See `package_sid`.
 const SHARED_PROFILE: &str = "forge.sandbox";
+/// Every profile this crate creates starts with this, which is what makes pruning
+/// possible: the profile service cannot enumerate its own profiles.
+const PROFILE_PREFIX: &str = "forge.sandbox.";
 /// What `GetStdHandle` returns for a stream the parent does not have.
 const INVALID_HANDLE_VALUE: isize = -1;
 
@@ -163,6 +166,7 @@ extern "system" {
         sid: *mut Sid,
     ) -> i32;
     fn DeriveAppContainerSidFromAppContainerName(name: *const u16, sid: *mut Sid) -> i32;
+    fn DeleteAppContainerProfile(name: *const u16) -> i32;
     fn ConvertStringSidToSidW(text: *const u16, sid: *mut Sid) -> i32;
     fn GetNamedSecurityInfoW(
         object: *mut u16,
@@ -573,6 +577,11 @@ pub struct WrapperSpec {
     pub workspace: String,
     #[serde(default)]
     pub extra_write: Vec<String>,
+    /// Paths the container may read although they are outside the workspace. An
+    /// AppContainer starts with nothing readable, so this is how a tool gets at its
+    /// own configuration.
+    #[serde(default)]
+    pub extra_read: Vec<String>,
     #[serde(default)]
     pub allow_net: bool,
 }
@@ -617,6 +626,18 @@ pub fn run_in_container(spec: &WrapperSpec, program: &OsStr, args: &[String]) ->
                 }
                 grant(path, sid, ACCESS_WRITE)?;
             }
+        }
+        for extra in &spec.extra_read {
+            let path = Path::new(extra);
+            if !path.is_absolute() {
+                return Err(Error::new(
+                    ErrorKind::Invalid,
+                    format!(
+                        "sandbox: windows appcontainer: extra read path must be absolute, got \"{extra}\""
+                    ),
+                ));
+            }
+            grant(path, sid, ACCESS_READ)?;
         }
         Ok(())
     })();
@@ -829,6 +850,84 @@ pub fn available() -> bool {
     true
 }
 
+/// Which profiles look like ours, and what deleting one did.
+///
+/// The profile service has no "list" call, so the folder name is the only index that
+/// exists: `%LOCALAPPDATA%\Packages\<name>` is created by the service itself, which is
+/// also why this cannot delete a profile that was never created.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PruneReport {
+    /// Profile names that were found.
+    pub found: usize,
+    /// Names the service accepted a delete for.
+    pub removed: Vec<String>,
+    /// `(name, hr)` for the ones it refused.
+    pub failed: Vec<(String, i32)>,
+}
+
+impl PruneReport {
+    /// True when every profile that was found is gone.
+    pub fn clean(&self) -> bool {
+        self.failed.is_empty()
+    }
+}
+
+/// Delete every package profile this crate created for this user.
+///
+/// Leaving one profile per workspace behind is the price of per-workspace containment,
+/// and on a machine that has seen many workspaces the profile service starts refusing
+/// new names (see `package_sid`). Pruning is therefore maintenance, not cleanup for
+/// tidiness: it is how the strict path becomes available again.
+pub fn prune() -> CoreResult<PruneReport> {
+    let local = match std::env::var_os("LOCALAPPDATA") {
+        Some(value) if !value.is_empty() => PathBuf::from(value),
+        _ => {
+            return Err(Error::new(
+                ErrorKind::Io,
+                "sandbox: windows appcontainer: LOCALAPPDATA is not set, so the package directory is unknown",
+            ))
+        }
+    };
+    let packages = local.join("Packages");
+    let entries = match std::fs::read_dir(&packages) {
+        Ok(entries) => entries,
+        Err(error) => {
+            return Err(Error::new(
+                ErrorKind::Io,
+                format!(
+                    "sandbox: windows appcontainer: read {}: {error}",
+                    packages.display()
+                ),
+            ))
+        }
+    };
+
+    let mut names: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with(PROFILE_PREFIX) {
+            names.push(name);
+        }
+    }
+    names.sort();
+
+    let mut report = PruneReport {
+        found: names.len(),
+        removed: Vec::new(),
+        failed: Vec::new(),
+    };
+    for name in names {
+        let wide_name = wide(OsStr::new(&name));
+        let deleted = unsafe { DeleteAppContainerProfile(wide_name.as_ptr()) };
+        if deleted >= 0 {
+            report.removed.push(name);
+        } else {
+            report.failed.push((name, deleted));
+        }
+    }
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{available, quote_argument, run_in_container, WrapperSpec};
@@ -880,6 +979,7 @@ mod tests {
             mode: "workspace-write".to_string(),
             workspace: root.display().to_string(),
             extra_write: Vec::new(),
+            extra_read: Vec::new(),
             allow_net: false,
         }
     }

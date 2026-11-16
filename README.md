@@ -183,12 +183,20 @@ no `gh`. Both were rehearsed step by step locally instead (see `docs/ci.md`).
   (write access to the workspace, plus `internetClient` only when `allow_net`).
   Measured on this host: a command inside the container writes its workspace, a
   write to a sibling directory is denied by the OS, and a loopback connect is
-  refused. The cost is real — a contained process may not read `%USERPROFILE%`
-  or the build directory it was started from, so tools that expect a home
-  directory (git, npm, pip) can fail where they used to work; the enforcer says so
-  in `Support.Detail` and `forge doctor` prints it; one profile per workspace path is
-  left behind in `%LOCALAPPDATA%\Packages` (permanent, keyed by the path). That
-  service is the one unreliable part of this story: on a host where enough of those
+  refused. The cost is real — a contained process may not read the build directory
+  it was started from, and it starts with *nothing* else readable either, so tools
+  that expect a home directory (git, npm, pip) fail where they used to work. The
+  fix is a list, not a hole: `crates/cli/src/grants.rs` grants read on the
+  tool-owned paths a machine actually has (`~/.gitconfig`, `~/.cargo`, `~/.npmrc`,
+  `%APPDATA%\npm`, `%APPDATA%\pip`, `~/.config`) and read-write on `%TEMP%`, and
+  `sandboxAccess.read` / `sandboxAccess.write` in `config.json` replaces that list
+  (an explicit empty list means "grant nothing extra"). Verified on this host by
+  reading `~/.gitconfig` from inside a container and failing to read an ungranted
+  file next to it (`windows_reads_are_granted_only_where_asked`). One profile per
+  workspace path is left behind in `%LOCALAPPDATA%\Packages` (permanent, keyed by
+  the path); `forge doctor --prune-profiles` deletes them — 106 were removed on this
+  machine, after which the count read back as 0. That service is the one unreliable
+  part of this story: on a host where enough of those
   profiles have accumulated it starts refusing *new* names outright for minutes at a
   time, so an existing profile is adopted by lookup and never re-created, a hiccup is
   retried for about eight seconds, and if a new identity still cannot be minted the

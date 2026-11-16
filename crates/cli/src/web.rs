@@ -615,6 +615,10 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
 
     let mut enforcer_spec = SandboxSpec::new(sandbox);
     enforcer_spec.workspace = workspace_str.clone();
+    // Same grants as `chat`: a browser session's tools are the same tools.
+    let (read, write) = crate::grants::effective(&cfg);
+    enforcer_spec.extra_read = read;
+    enforcer_spec.extra_write = write;
     let _enforcer = match forge_sandbox::new(enforcer_spec, None) {
         Ok(enforcer) => enforcer,
         Err(e) => return runtime_error(stderr, &format!("sandbox: {}", e.message())),

@@ -718,6 +718,12 @@ fn execute_turn(
 
     let mut spec = SandboxSpec::new(sandbox);
     spec.workspace = workspace.to_string();
+    // Tools need their own configuration (`~/.gitconfig`, `%APPDATA%`) and a scratch
+    // directory, or a contained process is correct and useless. The list lives in
+    // `grants.rs` where it can be read and replaced from `config.json`.
+    let (read, write) = crate::grants::effective(cfg);
+    spec.extra_read = read;
+    spec.extra_write = write;
     // Hold the enforcer for the turn: its Drop closes the sandbox hook.
     let _enforcer = forge_sandbox::new(spec, None)
         .map_err(|e| runtime_error_str(stderr, &format!("sandbox: {}", e.message())))?;

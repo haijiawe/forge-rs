@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use forge_cli::{reorder_flags, run, USAGE};
 
-const EXPECTED_USAGE: &str = "forge — an agent harness\n\nusage:\n  forge --version              print version (fast path, no config)\n  forge chat [flags] [prompt]  run one turn and stream the answer to stdout\n  forge \"<prompt>\"             shorthand for forge chat\n  forge web [flags]            serve the browser UI on loopback\n  forge session <command>      operate on a session log without running a turn\n  forge import <old-dir>       import a session tree from the old harness\n  forge index [flags]          rebuild or query the search index\n  forge doctor [--json]        check the environment\n  forge help                   this message\n\ndocs: docs/README.md\n";
+const EXPECTED_USAGE: &str = "forge — an agent harness\n\nusage:\n  forge --version              print version (fast path, no config)\n  forge chat [flags] [prompt]  run one turn and stream the answer to stdout\n  forge \"<prompt>\"             shorthand for forge chat\n  forge web [flags]            serve the browser UI on loopback\n  forge session <command>      operate on a session log without running a turn\n  forge import <old-dir>       import a session tree from the old harness\n  forge index [flags]          rebuild or query the search index\n  forge doctor [flags]         check the environment\n  forge help                   this message\n\ndocs: docs/README.md\n";
 
 fn env_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -228,7 +228,7 @@ fn doctor_unknown_flag_is_exit_two_with_the_flag_package_message() {
     assert!(stdout.is_empty());
     assert_eq!(
         stderr,
-        "flag provided but not defined: -nope\nUsage of doctor:\n  -json\n    \tmachine-readable output\n"
+        "flag provided but not defined: -nope\nUsage of doctor:\n  -json\n    \tmachine-readable output\n  -prune-profiles\n    \tdelete the Windows sandbox profiles this tool created\n"
     );
 }
 

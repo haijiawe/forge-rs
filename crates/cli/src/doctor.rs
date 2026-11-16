@@ -143,6 +143,7 @@ struct DoctorOptions<'a> {
 /// Parses doctor flags and runs the checks. Returns 0 unless a check failed.
 pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     let mut json = false;
+    let mut prune = false;
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
@@ -153,6 +154,11 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         }
         if arg == "-json" || arg == "--json" {
             json = true;
+            i += 1;
+            continue;
+        }
+        if arg == "-prune-profiles" || arg == "--prune-profiles" {
+            prune = true;
             i += 1;
             continue;
         }
@@ -176,6 +182,13 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
             return 2;
         }
         i += 1;
+    }
+
+    if prune {
+        // Maintenance runs instead of the checks, not after them: the point of the
+        // flag is to free the profile budget, and a caller who asked for it does not
+        // need ten green lines first.
+        return prune_profiles(json, stdout, stderr);
     }
 
     let config_path = match forge_config::default_path() {
@@ -252,11 +265,79 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     }
 }
 
+/// Delete the Windows package profiles this tool created, then say what happened.
+///
+/// Separate from the check report on purpose: the checks describe the environment and
+/// must stay read-only, while this changes it. A user who asked for the checks did not
+/// ask for a delete.
+fn prune_profiles(json: bool, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
+    #[cfg(target_os = "windows")]
+    {
+        let report = match forge_sandbox::prune_appcontainer_profiles() {
+            Ok(report) => report,
+            Err(error) => {
+                let _ = writeln!(stderr, "forge doctor: {}", error.message());
+                return 1;
+            }
+        };
+        if json {
+            let payload = serde_json::json!({
+                "found": report.found,
+                "removed": report.removed,
+                "failed": report
+                    .failed
+                    .iter()
+                    .map(|(name, hr)| serde_json::json!({ "name": name, "hr": format!("0x{hr:08x}") }))
+                    .collect::<Vec<_>>(),
+            });
+            match serde_json::to_string_pretty(&payload) {
+                Ok(text) => {
+                    let _ = writeln!(stdout, "{text}");
+                }
+                Err(error) => {
+                    let _ = writeln!(stderr, "forge doctor: {error}");
+                    return 1;
+                }
+            }
+        } else {
+            let _ = writeln!(
+                stdout,
+                "sandbox profiles: {} found, {} removed, {} failed",
+                report.found,
+                report.removed.len(),
+                report.failed.len()
+            );
+            for (name, hr) in &report.failed {
+                let _ = writeln!(stdout, "  {name}: 0x{hr:08x}");
+            }
+        }
+        if report.clean() {
+            0
+        } else {
+            1
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = json;
+        let _ = writeln!(
+            stdout,
+            "sandbox profiles: nothing to prune on this platform"
+        );
+        0
+    }
+}
+
 fn write_bad_flag(stderr: &mut dyn Write, name: &str) {
     let _ = writeln!(stderr, "flag provided but not defined: -{name}");
     let _ = writeln!(stderr, "Usage of doctor:");
     let _ = writeln!(stderr, "  -json");
     let _ = writeln!(stderr, "    \tmachine-readable output");
+    let _ = writeln!(stderr, "  -prune-profiles");
+    let _ = writeln!(
+        stderr,
+        "    \tdelete the Windows sandbox profiles this tool created"
+    );
 }
 
 fn check_config(options: &DoctorOptions<'_>) -> Check {
@@ -355,6 +436,11 @@ fn check_sandbox(options: &DoctorOptions<'_>) -> Check {
     };
     let mut spec = forge_sandbox::Spec::new(mode);
     spec.workspace = options.workspace.clone();
+    // Ask about the spec a turn would actually build: a report on a layout the
+    // product never uses would describe a sandbox nobody runs.
+    let (read, write) = crate::grants::effective(config);
+    spec.extra_read = read;
+    spec.extra_write = write;
     match forge_sandbox::new(spec, None) {
         Ok(enforcer) => {
             let support = enforcer.support();

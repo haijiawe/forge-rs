@@ -109,7 +109,7 @@ func Available() Support
 | macOS | `darwin.go` | 生成 `sandbox-exec` profile：`(deny default)` + 放行工作区读写 + `(deny network*)` | 只编译验证，同上 |
 | 其它/不支持 | `unsupported.go` | `New` 在要求限制时返回错误 | — |
 
-**Windows 的成本（如实写在 `Support.Detail` 与 README 里）**：AppContainer 的 package profile 按 workspace 路径命名，一个路径一个 profile，创建后长期留在 `%LOCALAPPDATA%\Packages`；容器里的进程读不到 `%USERPROFILE%` 与启动目录，所以依赖 home 目录的工具（git、npm、pip）可能失败。`CreateAppContainerProfile` 会因 profile 服务繁忙返回 `ERROR_ACCESS_DENIED`/`ERROR_PATH_NOT_FOUND`，实现里对这两个瞬时代码做 8 次退避重试（约 8 秒）——一次瞬时失败曾经让沙箱在能用的机器上拒绝执行命令。本机实测到一个更坏的形态：攒到约九十个 `forge.sandbox.*` profile 之后，profile 服务会成段时间**拒绝创建任何新名字**（新建 workspace 全线失败，而已有 profile 照常可用，几分钟后自行恢复）。因此实现分三级：**已存在就按目录 lookup 直接 derive（从不重建）→ 新建名失败则退避重试 → 仍失败则退到全用户共享的 `forge.sandbox` 身份**。共享身份仍然把命令关在授予它的目录里，但不再保证两个 workspace 彼此隔离；这层降级必须被说出来，不能静默改用。
+**Windows 的成本（如实写在 `Support.Detail` 与 README 里）**：AppContainer 的 package profile 按 workspace 路径命名，一个路径一个 profile，创建后长期留在 `%LOCALAPPDATA%\Packages`；容器里的进程读不到 `%USERPROFILE%` 与启动目录，所以依赖 home 目录的工具（git、npm、pip）可能失败。`CreateAppContainerProfile` 会因 profile 服务繁忙返回 `ERROR_ACCESS_DENIED`/`ERROR_PATH_NOT_FOUND`，实现里对这两个瞬时代码做 8 次退避重试（约 8 秒）——一次瞬时失败曾经让沙箱在能用的机器上拒绝执行命令。本机实测到一个更坏的形态：攒到约九十个 `forge.sandbox.*` profile 之后，profile 服务会成段时间**拒绝创建任何新名字**（新建 workspace 全线失败，而已有 profile 照常可用，几分钟后自行恢复）。因此实现分三级：**已存在就按目录 lookup 直接 derive（从不重建）→ 新建名失败则退避重试 → 仍失败则退到全用户共享的 `forge.sandbox` 身份**。积累的身份可以用 `forge doctor --prune-profiles` 删除（本机实测 106 个删到 0，第二次运行报 `0 found`）；它的默认清单式读授权见 §8。共享身份仍然把命令关在授予它的目录里，但不再保证两个 workspace 彼此隔离；这层降级必须被说出来，不能静默改用。
 
 **Linux 与 macOS 的诚实要求**：`Support.Enforced` 在这两个平台只有在真的装成功后才为 `true`；
 `Support.Detail` 必须包含 "unverified on this host" 字样（本仓库没有这两台机器，说"通过"是撒谎）。
@@ -251,8 +251,13 @@ bin/forge.exe chat --sandbox=read-only "写一个文件到 /tmp"   # 必须被�
 
 - 不做"受限令牌 + ACL 重整"（Windows 上另一种降权），因为它需要管理员权限且会让 git/npm
   这类工具莫名失败；改用 AppContainer（见上表）——它不需要管理员，代价是容器里的进程
-  读不到 `%USERPROFILE%` 与启动目录，凡是要 home 目录的工具会失败，这条写在
-  `Support.Detail` 里让操作者在批准前看得见。
+  读不到启动目录，凡是要 home 目录的工具会失败。这条不再只是写在 `Support.Detail` 里
+  让操作者自己撞：`Spec.extra_read` / `extra_write` 让宿主显式授予少数工具自有路径
+  （`~/.gitconfig`、`~/.cargo`、`~/.npmrc`、`%APPDATA%\npm`、`%APPDATA%\pip`、`~/.config`
+  只读，`%TEMP%` 读写），CLI 在 `crates/cli/src/grants.rs` 里算出默认清单，`config.json` 的
+  `sandboxAccess.read` / `.write` 可整份替换（显式空数组＝什么都不额外授予，这是唯一能要到
+  最严格行为的方式）。本机实测：容器内能读到 `~/.gitconfig`，读同一目录下未授予的文件被拒
+  （`windows_reads_are_granted_only_where_asked`）。
 - 不做网络代理/防火墙规则（需要管理员）；`AllowNet=false` 在 Windows（无
   `internetClient` 能力，loopback 也一样不通）、macOS 与 landlock ABI≥4 上生效。
 - 不做容器/VM（那是另一个产品）。
