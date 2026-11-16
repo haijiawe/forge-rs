@@ -86,6 +86,29 @@ const INVALID_HANDLE_VALUE: isize = -1;
 /// future capability is a one-line change rather than a struct.
 const INTERNET_CLIENT: &str = "S-1-15-3-1";
 
+/// `OpenProcessToken` access for a read-only query.
+const TOKEN_QUERY: u32 = 0x0008;
+/// `TOKEN_INFORMATION_CLASS::TokenIntegrityLevel`.
+const TOKEN_INTEGRITY_LEVEL: u32 = 25;
+/// `SECURITY_MANDATORY_MEDIUM_RID`: anything below this (Low is exactly 0x1000,
+/// Untrusted 0x0000) cannot write to the profile directories the profile service
+/// needs. The comparison is `< medium`, not `< low`, because Low *is* 0x1000.
+const MEDIUM_INTEGRITY_RID: u32 = 0x2000;
+
+/// The layout of a SID up to its variable-length sub-authority array.
+#[repr(C)]
+struct SidHeader {
+    revision: u8,
+    sub_authority_count: u8,
+    identifier_authority: [u8; 6],
+    sub_authority: [u32; 1],
+}
+
+#[repr(C)]
+struct TokenMandatoryLabel {
+    label: SidAndAttributes,
+}
+
 #[repr(C)]
 struct SidAndAttributes {
     sid: Sid,
@@ -239,6 +262,15 @@ extern "system" {
     fn SetHandleInformation(handle: isize, mask: u32, flags: u32) -> i32;
     fn LocalFree(memory: *mut c_void) -> *mut c_void;
     fn GetLastError() -> u32;
+    fn GetCurrentProcess() -> isize;
+    fn OpenProcessToken(process: isize, access: u32, token: *mut isize) -> i32;
+    fn GetTokenInformation(
+        token: isize,
+        class: u32,
+        information: *mut c_void,
+        length: u32,
+        returned: *mut u32,
+    ) -> i32;
 }
 
 const HANDLE_FLAG_INHERIT: u32 = 0x0000_0001;
@@ -366,11 +398,79 @@ fn package_sid(workspace: &str) -> CoreResult<Sid> {
         Error::new(
             ErrorKind::Refused,
             format!(
-                "sandbox: windows appcontainer: neither a per-workspace nor the shared package profile could be obtained ({})",
-                err.message()
+                "sandbox: windows appcontainer: neither a per-workspace nor the shared package profile could be obtained ({}){}",
+                err.message(),
+                low_integrity_hint()
             ),
         )
     })
+}
+
+/// The token's mandatory integrity RID (0x1000 low, 0x2000 medium, 0x3000 high),
+/// or `None` when the token cannot be queried.
+fn integrity_rid() -> Option<u32> {
+    let mut token: isize = 0;
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return None;
+    }
+    // Aligned storage: `TOKEN_MANDATORY_LABEL` starts with a pointer, and the
+    // label SID follows it, so the struct is pointer-aligned and small (< 64 bytes
+    // for the one-sub-authority SIDs Windows uses for integrity labels).
+    let mut buffer = [0usize; 8];
+    let mut needed: u32 = 0;
+    let ok = unsafe {
+        GetTokenInformation(
+            token,
+            TOKEN_INTEGRITY_LEVEL,
+            buffer.as_mut_ptr().cast(),
+            std::mem::size_of_val(&buffer) as u32,
+            &mut needed,
+        )
+    };
+    let _ = close_handle(token);
+    if ok == 0 {
+        return None;
+    }
+    let label = unsafe { &*(buffer.as_ptr().cast::<TokenMandatoryLabel>()) };
+    if label.label.sid.is_null() {
+        return None;
+    }
+    let sid = unsafe { &*(label.label.sid.cast::<SidHeader>()) };
+    let count = usize::from(sid.sub_authority_count);
+    if count == 0 {
+        return None;
+    }
+    Some(unsafe { *sid.sub_authority.as_ptr().add(count - 1) })
+}
+
+/// Explain the one host condition that reads like a permissions bug but is not.
+///
+/// A process runs at the integrity level of its own image when that label is
+/// *lower* than its parent's. An image under a directory labelled `Low` (very
+/// commonly the whole tree a browser extracted a download into) therefore runs
+/// `Low`, and a Low process cannot write to `%LOCALAPPDATA%` — where the profile
+/// service creates profiles — nor read the DACL of a Medium object. Every failure
+/// this function is attached to was exactly that: `ERROR_ACCESS_DENIED` from calls
+/// that have nothing to do with the command being sandboxed.
+fn low_integrity_hint() -> String {
+    match integrity_rid() {
+        Some(rid) if rid < MEDIUM_INTEGRITY_RID => format!(
+            "; this process runs at Low mandatory integrity (RID 0x{rid:04x}), which cannot write %LOCALAPPDATA% — clear the label on the directory holding this executable with `icacls <dir> /setintegritylevel (OI)(CI)M /T /C`"
+        ),
+        _ => String::new(),
+    }
+}
+
+/// The same explanation for `Support::detail`, where it opens a sentence.
+pub(crate) fn unavailable_hint() -> String {
+    match integrity_rid() {
+        Some(rid) if rid < MEDIUM_INTEGRITY_RID => format!(
+            " (this process runs at Low mandatory integrity, RID 0x{rid:04x}, which cannot \
+             create a profile in %LOCALAPPDATA%; run the binary from a directory without a Low \
+             integrity label)"
+        ),
+        _ => String::new(),
+    }
 }
 
 /// Adopt the profile if it exists; create it if it does not.
@@ -995,6 +1095,7 @@ fn debug_log(line: &str) {
     if std::env::var_os("FORGE_SANDBOX_DEBUG").is_none() {
         return;
     }
+    eprintln!("forge: sandbox debug: {line}");
     let path = std::env::temp_dir().join("forge-sandbox-wrapper.log");
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
@@ -1017,6 +1118,13 @@ fn debug_log(line: &str) {
 /// moment, one of them got `ERROR_PATH_NOT_FOUND`, and the enforcer then reported
 /// `filesystem: false` on a machine that builds containers fine.
 pub fn available() -> bool {
+    // A Low-integrity process cannot write `%LOCALAPPDATA%`, so the profile service
+    // refuses it every time. Reporting the mechanism as present would make the
+    // strict modes claim enforcement they cannot deliver on this host, so it is
+    // reported as absent; the hint travels with the refusal (see `low_integrity_hint`).
+    if integrity_rid().is_some_and(|rid| rid < MEDIUM_INTEGRITY_RID) {
+        return false;
+    }
     let probe = wide(OsStr::new("forge.sandbox.probe"));
     let mut sid: Sid = std::ptr::null_mut();
     let derived = unsafe { DeriveAppContainerSidFromAppContainerName(probe.as_ptr(), &mut sid) };
@@ -1040,12 +1148,19 @@ pub struct PruneReport {
     pub removed: Vec<String>,
     /// `(name, hr)` for the ones it refused.
     pub failed: Vec<(String, i32)>,
+    /// True when pruning stopped because the service was refusing everything.
+    ///
+    /// The profile service goes through windows (measured, minutes long) where it
+    /// refuses *every* create and delete with `0x80070005`. Walking all N names in
+    /// that window costs seconds each and always ends the same way, so the first
+    /// refusal that survives the retries ends the run and says why.
+    pub stopped_early: bool,
 }
 
 impl PruneReport {
     /// True when every profile that was found is gone.
     pub fn clean(&self) -> bool {
-        self.failed.is_empty()
+        self.failed.is_empty() && !self.stopped_early
     }
 }
 
@@ -1092,24 +1207,81 @@ pub fn prune() -> CoreResult<PruneReport> {
         found: names.len(),
         removed: Vec::new(),
         failed: Vec::new(),
+        stopped_early: false,
     };
     for name in names {
-        let wide_name = wide(OsStr::new(&name));
-        let deleted = unsafe { DeleteAppContainerProfile(wide_name.as_ptr()) };
+        let deleted = delete_profile(&name);
         if deleted >= 0 {
             report.removed.push(name);
-        } else {
-            report.failed.push((name, deleted));
+            continue;
+        }
+        let refused_wholesale = report.removed.is_empty() && transient_profile_error(deleted);
+        report.failed.push((name, deleted));
+        if refused_wholesale {
+            // One probe is enough: the first name failed after the full retry budget
+            // and nothing has succeeded, so this is the service refusing, not this
+            // profile being stubborn. Repeating that 56 more times only wastes the
+            // operator's time in a way that looks like work.
+            report.stopped_early = true;
+            break;
         }
     }
     Ok(report)
 }
 
+/// Delete one profile, waiting out the service when it is merely busy.
+///
+/// `DeleteAppContainerProfile` refuses with the same transient errors that
+/// `CreateAppContainerProfile` does (measured: 57 profiles answered
+/// `0x80070005` in a window where nothing could be created either, and the same
+/// command removed 106 of them half an hour earlier). Without the retry the
+/// operator reads a hard failure and concludes the leftovers are permanent —
+/// which is the one wrong conclusion, since retrying is what makes the strict
+/// path available again.
+fn delete_profile(name: &str) -> i32 {
+    let wide_name = wide(OsStr::new(name));
+    let mut last = 0;
+    for attempt in 0..PROFILE_ATTEMPTS {
+        last = unsafe { DeleteAppContainerProfile(wide_name.as_ptr()) };
+        if last >= 0 {
+            return last;
+        }
+        if !transient_profile_error(last) {
+            return last;
+        }
+        if attempt + 1 < PROFILE_ATTEMPTS {
+            std::thread::sleep(std::time::Duration::from_millis(profile_backoff(attempt)));
+        }
+    }
+    last
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{available, quote_argument, run_in_container, WrapperSpec};
+    use super::{available, quote_argument, run_in_container, PruneReport, WrapperSpec};
     use std::ffi::OsStr;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn a_prune_that_stopped_early_is_not_reported_as_clean() {
+        // One profile left because the service refused is exactly as unfinished as
+        // fifty-seven: `clean()` answers "may the strict path be used again", and it
+        // may not. The early stop is a courtesy to the operator, not a success.
+        let stopped = PruneReport {
+            found: 57,
+            removed: Vec::new(),
+            failed: vec![("forge.sandbox.aa".to_string(), -2147024891)],
+            stopped_early: true,
+        };
+        assert!(!stopped.clean());
+        let finished = PruneReport {
+            found: 1,
+            removed: vec!["forge.sandbox.aa".to_string()],
+            failed: Vec::new(),
+            stopped_early: false,
+        };
+        assert!(finished.clean());
+    }
 
     #[test]
     fn arguments_are_quoted_the_way_commandlinetoargvw_parses_them() {

@@ -56,9 +56,12 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
 - `maybe_exec_helper()`：wrapper 子进程入口（Linux Landlock、Windows AppContainer），
   `main` 必须最先调用；其他平台为空操作。
 - `prune_appcontainer_profiles() -> Result<PruneReport>`（Windows）：删掉本工具在该
-  用户下创建的 `forge.sandbox.*` 包身份，返回 `{found, removed, failed}`。profile 服务
-  没有枚举 API，所以索引就是 `%LOCALAPPDATA%\Packages` 里的目录名。这是维护而不是
-  打扫：攒到约九十个身份后，服务会成段时间拒绝新名字。
+  用户下创建的 `forge.sandbox.*` 包身份，返回 `{found, removed, failed, stopped_early}`。
+  profile 服务没有枚举 API，所以索引就是 `%LOCALAPPDATA%\Packages` 里的目录名。这是
+  维护而不是打扫：攒到约九十个身份后，服务会成段时间拒绝新名字——**删除撞的是同一个
+  限流**（实测同一命令半小时后 57 个全 `0x80070005`，而当时新建也全线失败）。所以它
+  只给第一个名字完整重试预算作探针，失败且一个都没删成就置 `stopped_early` 并停手：
+  "服务正在拒绝，过几分钟重试"比逐个数完更接近事实。
 
 ## 依赖与边界
 
@@ -87,3 +90,11 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
   全用户共享的 `forge.sandbox`（共享身份不再隔离两个 workspace，必须在文档里说）。
 - 不要在 Linux/macOS 的能力文案里省略 `unverified on this host`：这两个平台只在
   本机编译检查过，没有实测。
+- 不要把 `ERROR_ACCESS_DENIED` 一律当权限问题去改 ACL。进程的强制完整性级别取
+  “父进程级别”和“自身镜像标签”中较低的那个：镜像放在打了 `Low` 标签的目录里
+  （浏览器解压的下载常见），进程就以 Low 运行，而 Low 进程**写不了 `%LOCALAPPDATA%`**，
+  profile 服务因此每次拒绝，连读 Medium 对象的 DACL 都会拒。本机栽过：项目树带
+  `Low` 标签，于是 `bin\forge.exe` 全部失败而 `%TEMP%` 下的同一份二进制正常，还
+  被误诊成“中文路径”。`integrity_rid()` 现在把这种情况写进拒绝文案并给出
+  `icacls <dir> /setintegritylevel (OI)(CI)M /T /C`；`available()` 在这种进程里
+  直接返回 false，不让严格模式声称它做不到的遏制。

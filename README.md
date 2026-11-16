@@ -213,9 +213,27 @@ no `gh`. Both were rehearsed step by step locally instead (see `docs/ci.md`).
   containment falls back to one shared identity for the user — which still confines a
   command to the directories granted to it, but no longer separates two workspaces
   from each other. The last resort is said out loud rather than silently skipped.
+  Deleting hits the same wall: half an hour after the 106 went away, the same command
+  answered `57 found, 0 removed, 57 failed` with `0x80070005` on every name, while
+  creating was failing too — the service refuses wholesale, it is not one stubborn
+  profile. So pruning spends its retry budget once as a probe, and if the first name
+  is refused with nothing removed it stops and says "the service is refusing right
+  now, retry in a few minutes" (3.9 s) instead of grinding through the list for three
+  minutes to report the same number.
   A host that cannot create a
   package identity (or a Windows version without AppContainers) gets
   `filesystem=false` as a WARN and `read-only` is refused rather than downgraded.
+  One such host is easier to create than it looks: **a process runs at the integrity
+  level of its own image when that label is lower than its parent's**, so every
+  binary under a directory labelled `Low` — which is what a browser-extracted
+  download produces — runs `Low`, and a Low process cannot write `%LOCALAPPDATA%`
+  where the profile service creates profiles. The symptom is `ERROR_ACCESS_DENIED`
+  from calls that have nothing to do with the sandboxed command, and it cost this
+  project an afternoon of chasing "non-ASCII paths", because every failing test ran
+  from inside the labelled tree and every passing one ran from `%TEMP%`. The refusal
+  now names the condition and prints the remedy (`icacls <dir> /setintegritylevel
+  (OI)(CI)M /T /C`), and `available()` reports the mechanism as absent instead of
+  letting the strict modes claim containment they cannot deliver.
 - The web transcript was measured in a real browser: 5,000 messages (10,001
   events, 480,130 px of scrollback) scroll at a flat **60 fps** while mounting 27
   rows, load in ~650 ms, and hold ~18 MB of heap. Numbers, method and the three

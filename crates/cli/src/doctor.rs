@@ -289,6 +289,7 @@ fn prune_profiles(json: bool, stdout: &mut dyn Write, stderr: &mut dyn Write) ->
                     .iter()
                     .map(|(name, hr)| serde_json::json!({ "name": name, "hr": format!("0x{hr:08x}") }))
                     .collect::<Vec<_>>(),
+                "stoppedEarly": report.stopped_early,
             });
             match serde_json::to_string_pretty(&payload) {
                 Ok(text) => {
@@ -309,6 +310,15 @@ fn prune_profiles(json: bool, stdout: &mut dyn Write, stderr: &mut dyn Write) ->
             );
             for (name, hr) in &report.failed {
                 let _ = writeln!(stdout, "  {name}: 0x{hr:08x}");
+            }
+            if report.stopped_early {
+                // Say what the number means, because "0 removed, 1 failed" out of 57
+                // found would otherwise read as "the tool gave up after one try".
+                let _ = writeln!(
+                    stderr,
+                    "forge doctor: the profile service is refusing deletes right now; \
+                     the rest were not attempted — retrying in a few minutes is the fix"
+                );
             }
         }
         if report.clean() {

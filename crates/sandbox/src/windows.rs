@@ -48,13 +48,14 @@ impl crate::Platform for WindowsPlatform {
                 network: false,
                 process_tree: true,
                 enforced: false,
-                detail:
-                    "windows: no AppContainer is available on this host, so only the job object \
-                         applies — process tree, per-process and per-job commit memory and a \
-                         process-count cap. Filesystem and network are NOT confined, so read-only \
-                         is refused and workspace-write reports filesystem=false rather than \
-                         silently downgrading to 'process limits only'"
-                        .to_string(),
+                detail: format!(
+                    "windows: no AppContainer is available for this process, so only the job object \
+                     applies — process tree, per-process and per-job commit memory and a \
+                     process-count cap. Filesystem and network are NOT confined, so read-only \
+                     is refused and workspace-write reports filesystem=false rather than \
+                     silently downgrading to 'process limits only'{}",
+                    appcontainer::unavailable_hint()
+                ),
             };
         }
         Support {
