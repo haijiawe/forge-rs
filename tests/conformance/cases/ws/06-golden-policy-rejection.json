@@ -1,0 +1,24 @@
+{
+  "name": "golden_policy_rejection_before_upgrade",
+  "description": "A bad bearer token is rejected as HTTP 401 before the WebSocket upgrade; no close code 1008 is involved.",
+  "sessionId": "ws-golden-0001",
+  "mode": "policy",
+  "pingIntervalMs": 30000,
+  "seedEvents": [
+    {
+      "id": "evt_wsg_0001",
+      "payload": {"cwd": "/workspace/ws-golden", "model": "conformance-model", "workspace": "/workspace/ws-golden"},
+      "seq": 1,
+      "session": "ws-golden-0001",
+      "ts": 1000000000000,
+      "turn": 0,
+      "type": "session/start",
+      "v": 1
+    }
+  ],
+  "post": false,
+  "liveEvents": [],
+  "runnerDelta": null,
+  "connections": [],
+  "expectHTTPStatus": 401
+}

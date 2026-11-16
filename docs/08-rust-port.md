@@ -128,6 +128,8 @@ live in this tree, copied verbatim in W0:
 | `tests/fixtures/events/v1/*.jsonl` | 5 | real logs: happy path, approvals, aborted turn, unknown future event, torn tail |
 | `tests/golden/projection/basic.json` | 1 | the folded state after replaying a known log |
 | `tests/golden/agent/text-turn.json` | 1 | a whole turn's event sequence |
+| `tests/conformance/cases/http/*.json` | 34 | HTTP route/error/stream behavior |
+| `tests/conformance/cases/ws/*.json` | 8 | snapshot/event/delta framing, ping, close codes, upgrade policy |
 | `docs/contracts/*.md` | 6 | field names, status codes, exit codes |
 
 Rules that keep the oracle honest:
@@ -251,6 +253,11 @@ across unchanged, which is also the cheapest proof that the wire contract held.
   states which artifacts are not produced and that the workflow has never run
   on this host. The Go tree's six cross-check artifacts remain the only
   compile-only evidence for the additional targets.
+- The WebSocket golden corpus is mirrored byte-for-byte in both trees and
+  caught three Rust server deviations: synthetic delta `seq`, a JSON text
+  keepalive instead of an RFC6455 control ping, and close code 1011 on ping
+  timeout. All three were fixed in `crates/server/src/server.rs`; goldens were
+  not weakened. Go `TestWS` (8 subtests) and Rust `golden_ws_transcripts` pass.
 - Full workspace: `cargo fmt --all -- --check`, `cargo clippy --workspace
   --all-targets -- -D warnings`, `archcheck`, and `cargo test --workspace
   --offline` all exit 0. The sandbox suite's

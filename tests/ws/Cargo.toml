@@ -1,0 +1,17 @@
+[package]
+name = "forge-ws"
+description = "Language-neutral golden WebSocket transcript runner for the Rust port"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "UNLICENSED"
+publish = false
+
+# Workspace member: the root Cargo.toml lists tests/ws explicitly.
+# Keep this crate dependency-light; it reads the shared golden corpus from
+# tests/conformance/cases/ws and drives a real forge-server WS endpoint.
+
+[dependencies]
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+forge-core = { path = "../../crates/core" }
+forge-server = { path = "../../crates/server" }

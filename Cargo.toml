@@ -5,7 +5,7 @@
 # graph is a compiler-checked one. See docs/08-rust-port.md §2.
 [workspace]
 resolver = "2"
-members = ["crates/*", "tools/archcheck", "tools/bench", "tests/e2e"]
+members = ["crates/*", "tools/archcheck", "tools/bench", "tests/e2e", "tests/ws"]
 
 [workspace.package]
 version = "0.1.0"

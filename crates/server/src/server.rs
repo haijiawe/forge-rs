@@ -2423,7 +2423,6 @@ impl Server {
         let mut last_ping = Instant::now();
         let mut missed_pongs = 0u32;
         let mut delta_clock = Instant::now();
-        let mut last_delta_seq = 0u64;
         let read_timeout = poll.max(Duration::from_millis(10));
         let _ = stream.set_read_timeout(Some(read_timeout));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
@@ -2440,17 +2439,18 @@ impl Server {
             if delta_clock.elapsed() >= delta_interval {
                 let pending: Vec<(u32, u32, u64, String)> = {
                     let mut shared = lock_state(&self.shared.state);
+                    // A delta is advisory, but its seq is not invented: it is the
+                    // last durable seq at flush time (api.md §4.8). The Go server
+                    // stamps ls.lastSeq here, too. The stream's snapshot state is
+                    // deliberately frozen at attach time, so ask the log instead.
+                    let delta_seq = self.last_seq(&state.id);
                     let queue = shared.deltas.entry(state.id.clone()).or_default();
                     queue
                         .drain(..)
-                        .enumerate()
-                        .map(|(index, (turn, step, text))| {
-                            (turn, step, last_delta_seq + index as u64 + 1, text)
-                        })
+                        .map(|(turn, step, text)| (turn, step, delta_seq, text))
                         .collect()
                 };
                 for (turn, step, seq, text) in pending {
-                    last_delta_seq = seq;
                     let frame = DeltaFrame {
                         kind: kind::DELTA.to_string(),
                         protocol: VERSION,
@@ -2486,14 +2486,16 @@ impl Server {
 
             if last_ping.elapsed() >= ping {
                 if missed_pongs >= 2 {
-                    close_ws(stream, 1011, "client did not answer pings");
+                    // A missed keepalive is a clean drop, not a server failure:
+                    // api.md §4.8 pins 1000 for this case. 1011 is for a real
+                    // server failure or a client too slow to read.
+                    close_ws(stream, 1000, "client did not answer pings");
                     return;
                 }
                 missed_pongs += 1;
-                let frame = PingFrame {
-                    kind: kind::PING.to_string(),
-                };
-                if send_ws_json(stream, &frame).is_err() {
+                // The server's 30 s liveness probe is an RFC 6455 control ping,
+                // not a JSON text frame. Control pongs arrive as ClientFrame::Pong.
+                if write_ws_frame(stream, OP_PING, &[]).is_err() {
                     return;
                 }
                 last_ping = Instant::now();

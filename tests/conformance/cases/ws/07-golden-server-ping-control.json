@@ -1,0 +1,59 @@
+{
+  "name": "golden_server_ping_control_frame",
+  "description": "Server liveness ping is an RFC 6455 control frame; two pings are answered by the client and the stream stays open.",
+  "sessionId": "ws-golden-0001",
+  "pingIntervalMs": 200,
+  "seedEvents": [
+    {
+      "id": "evt_wsg_0001",
+      "payload": {"cwd": "/workspace/ws-golden", "model": "conformance-model", "workspace": "/workspace/ws-golden"},
+      "seq": 1,
+      "session": "ws-golden-0001",
+      "ts": 1000000000000,
+      "turn": 0,
+      "type": "session/start",
+      "v": 1
+    },
+    {
+      "id": "evt_wsg_0002",
+      "payload": {"text": "seed prompt"},
+      "seq": 2,
+      "session": "ws-golden-0001",
+      "ts": 4000000000001,
+      "turn": 0,
+      "type": "user/message",
+      "v": 1
+    }
+  ],
+  "post": true,
+  "liveEvents": [],
+  "runnerDelta": null,
+  "connections": [
+    {
+      "after": 4,
+      "clientFrames": [],
+      "expectFrames": [
+        {
+          "kind": "snapshot",
+          "protocol": 1,
+          "lastSeq": 4,
+          "session": {
+            "id": "ws-golden-0001",
+            "createdAt": 1000000000000,
+            "updatedAt": 4000000000001,
+            "status": "running",
+            "lastSeq": 4,
+            "turns": 1,
+            "workspace": "/workspace/ws-golden",
+            "model": "conformance-model"
+          }
+        },
+        "$controlPing",
+        "$controlPing"
+      ],
+      "expectControlPing": 2,
+      "expectClose": 1000
+    }
+  ],
+  "expectHTTPStatus": 0
+}

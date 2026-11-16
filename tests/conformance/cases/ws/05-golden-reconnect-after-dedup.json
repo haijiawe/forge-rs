@@ -1,0 +1,143 @@
+{
+  "name": "golden_reconnect_after_dedup",
+  "description": "Reconnecting with a higher ?after= replays only unseen events; no duplicate of seq 5.",
+  "sessionId": "ws-golden-0001",
+  "pingIntervalMs": 30000,
+  "seedEvents": [
+    {
+      "id": "evt_wsg_0001",
+      "payload": {"cwd": "/workspace/ws-golden", "model": "conformance-model", "workspace": "/workspace/ws-golden"},
+      "seq": 1,
+      "session": "ws-golden-0001",
+      "ts": 1000000000000,
+      "turn": 0,
+      "type": "session/start",
+      "v": 1
+    },
+    {
+      "id": "evt_wsg_0002",
+      "payload": {"text": "seed prompt"},
+      "seq": 2,
+      "session": "ws-golden-0001",
+      "ts": 4000000000001,
+      "turn": 0,
+      "type": "user/message",
+      "v": 1
+    }
+  ],
+  "post": true,
+  "liveEvents": [
+    {
+      "id": "evt_wsg_0005",
+      "payload": {"text": "live prompt"},
+      "seq": 5,
+      "session": "ws-golden-0001",
+      "ts": 4000000000010,
+      "turn": 1,
+      "type": "user/message",
+      "v": 1
+    },
+    {
+      "id": "evt_wsg_0006",
+      "payload": {"marker": "passthrough"},
+      "seq": 6,
+      "session": "ws-golden-0001",
+      "ts": 4000000000011,
+      "turn": 0,
+      "type": "vendor/future-event",
+      "v": 1
+    }
+  ],
+  "runnerDelta": null,
+  "connections": [
+    {
+      "after": 4,
+      "clientFrames": [],
+      "expectFrames": [
+        {
+          "kind": "snapshot",
+          "protocol": 1,
+          "lastSeq": 6,
+          "session": {
+            "id": "ws-golden-0001",
+            "createdAt": 1000000000000,
+            "updatedAt": 4000000000011,
+            "status": "running",
+            "lastSeq": 6,
+            "turns": 1,
+            "workspace": "/workspace/ws-golden",
+            "model": "conformance-model"
+          }
+        },
+        {
+          "kind": "event",
+          "protocol": 1,
+          "event": {
+            "id": "evt_wsg_0005",
+            "payload": {"text": "live prompt"},
+            "seq": 5,
+            "session": "ws-golden-0001",
+            "ts": 4000000000010,
+            "turn": 1,
+            "type": "user/message",
+            "v": 1
+          }
+        },
+        {
+          "kind": "event",
+          "protocol": 1,
+          "event": {
+            "id": "evt_wsg_0006",
+            "payload": {"marker": "passthrough"},
+            "seq": 6,
+            "session": "ws-golden-0001",
+            "ts": 4000000000011,
+            "turn": 0,
+            "type": "vendor/future-event",
+            "v": 1
+          }
+        }
+      ],
+      "expectControlPing": 0,
+      "expectClose": 1000
+    },
+    {
+      "after": 5,
+      "clientFrames": [],
+      "expectFrames": [
+        {
+          "kind": "snapshot",
+          "protocol": 1,
+          "lastSeq": 6,
+          "session": {
+            "id": "ws-golden-0001",
+            "createdAt": 1000000000000,
+            "updatedAt": 4000000000011,
+            "status": "running",
+            "lastSeq": 6,
+            "turns": 1,
+            "workspace": "/workspace/ws-golden",
+            "model": "conformance-model"
+          }
+        },
+        {
+          "kind": "event",
+          "protocol": 1,
+          "event": {
+            "id": "evt_wsg_0006",
+            "payload": {"marker": "passthrough"},
+            "seq": 6,
+            "session": "ws-golden-0001",
+            "ts": 4000000000011,
+            "turn": 0,
+            "type": "vendor/future-event",
+            "v": 1
+          }
+        }
+      ],
+      "expectControlPing": 0,
+      "expectClose": 1000
+    }
+  ],
+  "expectHTTPStatus": 0
+}

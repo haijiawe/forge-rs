@@ -19,7 +19,7 @@ right way and is written down.
 | `forge-config` | L0 | config file, home dir, defaults, validation | know about sessions |
 | `forge-exec` | L1 | spawn, stdio, timeouts, process-tree kill, sandbox hook | know about tools or sessions |
 | `forge-sandbox` | L1 | containment: job objects, Landlock, `sandbox-exec` | know about the model |
-| `forge-session` | L2 | append-only log, projection, compaction, decisions, fork | perform I/O outside its log |
+| `forge-session` | L2 | append-only log, projection, decisions, fork | perform I/O outside its log; compaction reader only |
 | `forge-llm` | L2 | provider contract, OpenAI-compatible SSE client | know about sessions |
 | `forge-tool` | L2 | registry, executor, policy, approvals, builtin tools | decide policy itself |
 | `forge-protocol` | L2 | wire types shared by server and UI | depend on the server |
@@ -104,9 +104,11 @@ for them.
 - `archcheck` checks layer direction and the README contract only. It does not
   inspect Rust source, enforce the dependency budget, or check that a crate's
   public API matches its README; those are review and `Cargo.toml` concerns.
-- Benchmarks are ported in `tools/bench` but no baseline has been recorded on
-  this host: a number measured while other agents compiled would be noise.
-  `make bench-record` arms it from a settled tree.
+- Benchmarks are ported in `tools/bench` and a windows/amd64 baseline was recorded
+  from a settled tree; `make bench-check` / `-strict` is now armed on this host.
+- Language-neutral HTTP, event and WebSocket golden corpora are shared with the
+  Go oracle and run in both trees. WS caught three real Rust server bugs (delta
+  seq, control-ping framing, close code 1000) which are fixed.
 - `make check` could not be executed on the authoring host because GNU make is
   not installed. Its component commands were run directly and are the source
   of the expected output above.
