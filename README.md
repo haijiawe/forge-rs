@@ -177,6 +177,15 @@ no `gh`. Both were rehearsed step by step locally instead (see `docs/ci.md`).
 - Linux and macOS containment (Landlock, `sandbox-exec`) is compile-checked only;
   only the Windows job object was measured. `forge doctor` says so in its
   `sandbox` line rather than claiming containment it has not shown.
+- **On Windows the job object contains the process tree and memory, not the
+  filesystem or the network.** A child can still write outside the workspace and
+  open sockets; what it cannot do is escape being killed as a tree, exceed its
+  commit limit, or spawn past the process cap. `forge doctor` reports
+  `filesystem=false` as a WARN and the sandbox section of `docs/contracts/m6-surface.md`
+  states the same. Closing that gap means running children in an AppContainer
+  (or under a restricted token with an explicit SID allow-list), which changes
+  how every tool spawn happens and needs a decision on what a "workspace" means
+  to a low-integrity process — it is not a flag.
 - The web transcript was measured in a real browser: 5,000 messages (10,001
   events, 480,130 px of scrollback) scroll at a flat **60 fps** while mounting 27
   rows, load in ~650 ms, and hold ~18 MB of heap. Numbers, method and the three
