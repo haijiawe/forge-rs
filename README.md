@@ -184,6 +184,11 @@ no `gh`. Both were rehearsed step by step locally instead (see `docs/ci.md`).
   that comes back empty is refused rather than appended (`web_compaction_refuses_an_empty_summary`
   in `crates/cli/src/web.rs`): an empty fold would delete history and record
   nothing in its place.
+- Attachment bodies are stored, not understood: POST /messages writes an upload
+  to <dataDir>/blobs/ and the event keeps a reference, but nothing feeds those
+  bytes to a model. crates/llm/src/contract.rs declares message content as a
+  plain String, so an image is recorded and downloadable and still invisible to
+  the model. Feeding pixels needs a content-part type in the provider contract.
 - Cross-target release builds from this host are compile checks only; see the
   toolchain section and `docs/release.md`. CI uses native runners for the
   artifacts it claims.
