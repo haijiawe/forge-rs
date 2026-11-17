@@ -88,6 +88,10 @@ pub struct BuildOptions<'a> {
     pub limits: Limits,
     pub system: String,
     pub parent_session: String,
+    /// Whether this turn is one round of an open goal. It decides whether
+    /// `goal_end` exists at all: the tool is how the model talks to the loop,
+    /// and there is no loop to talk to in a one-shot turn.
+    pub goal: bool,
 }
 
 /// The result of wiring: a registry the loop reads specs from, the policy that
@@ -669,6 +673,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
     // surfacing as a failing `web_fetch` in the middle of a conversation.
     let mut tool_options = forge_tool::Options::new(options.limits);
     tool_options.data_dir = options.data_dir.clone();
+    tool_options.goal = options.goal;
     match forge_net::Client::new(forge_net::ClientOptions {
         ca_file: options.cfg.ca_file.as_deref().map(PathBuf::from),
         ..forge_net::ClientOptions::default()

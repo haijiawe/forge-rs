@@ -23,6 +23,7 @@ use forge_tool::{ApprovalRequest, Approver, Call as ToolCall};
 use serde_json::{json, Value};
 
 use crate::reorder_flags;
+use crate::{goalcmd, one_line};
 
 const EXIT_OK: i32 = 0;
 const EXIT_FAILURE: i32 = 1;
@@ -46,7 +47,9 @@ Run one agent turn and stream the answer to stdout. With no prompt argument the 
   --no-tools         run with no tools\n\
   --sandbox <mode>   read-only, workspace-write or full-access\n\
   --json             emit one JSON report instead of the answer\n\
-  --no-compact       do not compact the log at 200 events\n\n\
+  --no-compact       do not compact the log at 200 events\n\
+  --goal <text>      pursue a goal: keep opening turns until it ends\n\
+  --max-rounds <n>   how many turns a goal may spend (default 10)\n\n\
 exit: 0 turn completed, 1 error, 2 usage error, 130 cancelled\n";
 
 const CHAT_STDIN_HINT: &str =
@@ -54,7 +57,15 @@ const CHAT_STDIN_HINT: &str =
 const NO_APPROVER_HINT: &str = "forge chat: a tool call was denied because --approve=never: rerun with --approve=always to allow every call, or --approve=prompt to answer each one (the turn itself succeeded)\n";
 
 const CHAT_VALUE_FLAGS: &[&str] = &[
-    "model", "session", "resume", "fork", "system", "approve", "sandbox",
+    "model",
+    "session",
+    "resume",
+    "fork",
+    "system",
+    "approve",
+    "sandbox",
+    "goal",
+    "max-rounds",
 ];
 
 /// Whether bare `forge` arguments are a prompt (contract §2.5).
@@ -86,6 +97,8 @@ struct ChatOptions {
     system: String,
     approve: String,
     sandbox: String,
+    goal: String,
+    max_rounds: String,
     no_tools: bool,
     json: bool,
     no_compact: bool,
@@ -141,7 +154,8 @@ fn parse_chat_flags(
             None
         };
         match name {
-            "model" | "session" | "resume" | "fork" | "system" | "approve" | "sandbox" => {
+            "model" | "session" | "resume" | "fork" | "system" | "approve" | "sandbox" | "goal"
+            | "max-rounds" => {
                 let val = value.ok_or_else(|| {
                     usage_error(
                         stderr,
@@ -156,6 +170,8 @@ fn parse_chat_flags(
                     "system" => opts.system = val,
                     "approve" => opts.approve = val,
                     "sandbox" => opts.sandbox = val,
+                    "goal" => opts.goal = val,
+                    "max-rounds" => opts.max_rounds = val,
                     _ => unreachable!(),
                 }
             }
@@ -327,7 +343,32 @@ fn run_inner(
     let workspace = workspace_dir()?;
     let workspace_str = workspace.to_string_lossy().to_string();
 
-    execute_turn(
+    if opts.max_rounds.trim().is_empty() {
+        // nothing to validate
+    } else if opts.goal.is_empty() {
+        return Err(usage_error_str(
+            stderr,
+            "--max-rounds only means something together with --goal",
+        ));
+    }
+
+    let goal_rounds = parse_max_rounds(&opts.max_rounds)?;
+    if opts.goal.trim().is_empty() {
+        return execute_turn(
+            &opts,
+            &cfg,
+            &prompt,
+            &model,
+            &session_id,
+            sandbox,
+            &workspace_str,
+            approve,
+            false,
+            stdout,
+            stderr,
+        );
+    }
+    execute_goal(
         &opts,
         &cfg,
         &prompt,
@@ -336,9 +377,182 @@ fn run_inner(
         sandbox,
         &workspace_str,
         approve,
+        goal_rounds,
         stdout,
         stderr,
     )
+}
+
+/// `--max-rounds` as a budget. Absent means `forge_goal::DEFAULT_MAX_ROUNDS`;
+/// zero would be a goal that can never run a turn, so it is refused rather than
+/// silently treated as "one".
+fn parse_max_rounds(raw: &str) -> std::result::Result<u32, i32> {
+    let text = raw.trim();
+    if text.is_empty() {
+        return Ok(forge_goal::DEFAULT_MAX_ROUNDS);
+    }
+    match text.parse::<u32>() {
+        Ok(0) => Err(usage_error_msg("--max-rounds must be at least 1")),
+        Ok(rounds) => Ok(rounds),
+        Err(_) => Err(usage_error_msg(&format!(
+            "--max-rounds {text:?} is not a number"
+        ))),
+    }
+}
+
+/// Run turns until the goal ends.
+///
+/// Each round is a complete turn: the store is opened and closed inside
+/// `execute_turn`, so there is exactly one writer at a time and a crash between
+/// rounds leaves a log that folds correctly (the goal is in it).
+#[allow(clippy::too_many_arguments)]
+fn execute_goal(
+    opts: &ChatOptions,
+    cfg: &Config,
+    prompt: &str,
+    model: &str,
+    session_id: &str,
+    sandbox: SandboxMode,
+    workspace: &str,
+    approve: ApproveMode,
+    max_rounds: u32,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> std::result::Result<i32, i32> {
+    let log = session_log_path(cfg, session_id);
+    let existing = goalcmd::open_goal(&log)
+        .map_err(|e| runtime_error_str(stderr, &format!("read goal: {}", one_line(e.message()))))?;
+    let mut goal = match existing {
+        Some(goal) if goal.is_open() => {
+            if goal.text != opts.goal.trim() {
+                let _ = writeln!(
+                    stderr,
+                    "forge chat: session {session_id} already pursues {:?}; end it with `forge goal end` before starting another",
+                    goal.text
+                );
+                return Ok(EXIT_FAILURE);
+            }
+            let _ = writeln!(
+                stderr,
+                "forge chat: continuing goal {} round {}/{max_rounds}",
+                goal.id,
+                goal.rounds + 1
+            );
+            goal
+        }
+        Some(goal) => {
+            let _ = writeln!(
+                stderr,
+                "forge chat: session {session_id} already finished its goal ({}); start a new session or `forge goal start`",
+                goal.status.as_str()
+            );
+            return Ok(EXIT_FAILURE);
+        }
+        None => {
+            let started = goalcmd::start_goal(&log, session_id, opts.goal.trim(), max_rounds)
+                .map_err(|e| {
+                    runtime_error_str(stderr, &format!("record goal: {}", one_line(e.message())))
+                })?;
+            let _ = writeln!(
+                stderr,
+                "forge chat: goal {} recorded in session {session_id}",
+                started.id
+            );
+            started
+        }
+    };
+
+    let mut round_prompt = prompt.to_string();
+    loop {
+        let before = goalcmd::read_events(&log)
+            .map(|events| events.last().map(|e| e.seq).unwrap_or(0))
+            .unwrap_or(0);
+        let code = execute_turn(
+            opts,
+            cfg,
+            &round_prompt,
+            model,
+            session_id,
+            sandbox,
+            workspace,
+            approve,
+            true,
+            stdout,
+            stderr,
+        )?;
+        // A cancelled or failed turn is not a decision about the goal: the
+        // operator or the provider stopped, and guessing a verdict would write a
+        // conclusion nobody reached.
+        if code != EXIT_OK {
+            return Ok(code);
+        }
+
+        let events = goalcmd::read_events(&log).map_err(|e| {
+            runtime_error_str(stderr, &format!("read goal: {}", one_line(e.message())))
+        })?;
+        let this_round: Vec<forge_core::Event> =
+            events.into_iter().filter(|e| e.seq > before).collect();
+        let verdict = goalcmd::round_verdict(&this_round);
+
+        goal = goalcmd::open_goal(&log)
+            .map_err(|e| {
+                runtime_error_str(stderr, &format!("read goal: {}", one_line(e.message())))
+            })?
+            .unwrap_or(goal);
+
+        if let Some((reason, note)) = verdict {
+            goalcmd::end_goal(&log, session_id, &goal, reason, note.as_deref()).map_err(|e| {
+                runtime_error_str(stderr, &format!("record goal: {}", one_line(e.message())))
+            })?;
+            let _ = writeln!(
+                stderr,
+                "forge chat: goal {} ended as {} after {} round(s)",
+                goal.id,
+                reason.as_str(),
+                goal.rounds + 1
+            );
+            return Ok(EXIT_OK);
+        }
+
+        match goal.next_action() {
+            forge_goal::Action::Continue { round } => {
+                goalcmd::continue_goal(&log, session_id, &goal, round).map_err(|e| {
+                    runtime_error_str(stderr, &format!("record goal: {}", one_line(e.message())))
+                })?;
+                goal.rounds = round;
+                let _ = writeln!(
+                    stderr,
+                    "forge chat: goal {} round {}/{max_rounds}",
+                    goal.id,
+                    round + 1
+                );
+                round_prompt = forge_goal::continuation_prompt(&goal);
+            }
+            forge_goal::Action::Stop { reason } => {
+                goalcmd::end_goal(&log, session_id, &goal, reason, None).map_err(|e| {
+                    runtime_error_str(stderr, &format!("record goal: {}", one_line(e.message())))
+                })?;
+                let _ = writeln!(
+                    stderr,
+                    "forge chat: goal {} ended as {} after {} round(s)",
+                    goal.id,
+                    reason.as_str(),
+                    goal.rounds + 1
+                );
+                return Ok(EXIT_OK);
+            }
+        }
+    }
+}
+
+/// Where a session's log lives, from the config's data directory.
+fn session_log_path(cfg: &Config, session_id: &str) -> PathBuf {
+    let base = if cfg.data_dir.trim().is_empty() {
+        PathBuf::from(".")
+    } else {
+        PathBuf::from(cfg.data_dir.trim())
+    };
+    base.join("sessions").join(format!("{session_id}.jsonl"))
 }
 
 fn runtime_error_str(stderr: &mut dyn Write, message: &str) -> i32 {
@@ -709,6 +923,7 @@ fn execute_turn(
     sandbox: SandboxMode,
     workspace: &str,
     approve: ApproveMode,
+    goal_open: bool,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> std::result::Result<i32, i32> {
@@ -881,6 +1096,7 @@ fn execute_turn(
         limits: DefaultLimits,
         system: opts.system.clone(),
         parent_session: session_id.to_string(),
+        goal: goal_open,
     });
     for note in &wired.notes {
         let _ = writeln!(stderr, "forge chat: {note}");

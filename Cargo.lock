@@ -130,12 +130,14 @@ dependencies = [
  "forge-agent",
  "forge-config",
  "forge-core",
+ "forge-goal",
  "forge-import",
  "forge-llm",
  "forge-mcp",
  "forge-net",
  "forge-protocol",
  "forge-sandbox",
+ "forge-schedule",
  "forge-server",
  "forge-session",
  "forge-skill",
@@ -181,6 +183,15 @@ name = "forge-exec"
 version = "0.1.0"
 dependencies = [
  "forge-core",
+]
+
+[[package]]
+name = "forge-goal"
+version = "0.1.0"
+dependencies = [
+ "forge-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -236,6 +247,15 @@ dependencies = [
 
 [[package]]
 name = "forge-sandbox"
+version = "0.1.0"
+dependencies = [
+ "forge-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "forge-schedule"
 version = "0.1.0"
 dependencies = [
  "forge-core",

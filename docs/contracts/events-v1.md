@@ -143,8 +143,7 @@ the condition, and the substring above is what the conformance suite asserts.
 
 ## 4. Event types
 
-The v1 type catalogue is **open**. These fifteen types have producers in `forge`
-today:
+The v1 type catalogue is **open**. These eighteen types have producers in `forge` today:
 
 | `type` | Emitted when | Payload members in current producers |
 | --- | --- | --- |
@@ -163,6 +162,9 @@ today:
 | `approval/decision` | the user answered | `approvalId`, `callId`, `decision` (`allow` \| `deny`), `decidedBy`, optional `note` |
 | `compaction/summary` | history is compacted | `summary`, `replaces` (`{from,to}` seq range) |
 | `error` | the harness failed a step | `message`, optional `code`, `retryable` |
+| `goal/created` | a goal begins: keep working until it is done or blocked | `goalId`, `text`, `maxRounds` |
+| `goal/continued` | a continuation round is opened by the harness, not by a person | `goalId`, `round` |
+| `goal/ended` | the goal stops | `goalId`, `reason` (`complete` | `blocked` | `cancelled` | `exhausted`), optional `note` |
 
 **Exactly one `approval/decision` per `approvalId`, written by whoever decided.** `approval/request` is always written by the agent loop — only it knows the turn and the step the consent belongs to. The decision is written by the surface that produced the answer: the CLI approvers answer inside the loop (`--approve=always`, `--approve=prompt`), so the loop records them; the browser answers over HTTP, so the request handler appends the decision *before* it replies — the consent has to be in the log before a 200 is sent, or a restart between the click and the response would lose the answer the log exists to preserve. An approver that records its own decision declares that with `tool.DecisionRecorder`, and the loop then writes only the request. Two writers would turn one click into two records and leave an audit unable to say how many times a human was asked. A *timeout* is still recorded by the loop as a `deny` with a `note`: "nobody answered" is the loop failing to get an answer, not a decision by anyone.
 

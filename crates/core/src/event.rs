@@ -44,6 +44,9 @@ impl EventType {
     pub const STEP_START: EventType = EventType("step/start");
     pub const STEP_END: EventType = EventType("step/end");
     pub const LLM_CALL: EventType = EventType("llm/call");
+    pub const GOAL_CREATED: EventType = EventType("goal/created");
+    pub const GOAL_CONTINUED: EventType = EventType("goal/continued");
+    pub const GOAL_ENDED: EventType = EventType("goal/ended");
 
     /// Every type this build knows. A test asserts it matches the contract
     /// document, and the reader uses it to decide what it can fold.
@@ -63,6 +66,9 @@ impl EventType {
         EventType::STEP_START,
         EventType::STEP_END,
         EventType::LLM_CALL,
+        EventType::GOAL_CREATED,
+        EventType::GOAL_CONTINUED,
+        EventType::GOAL_ENDED,
     ];
 
     pub fn as_str(self) -> &'static str {

@@ -434,6 +434,10 @@ impl TurnRunner for WebRunner {
             limits: DefaultLimits,
             system: self.env.system.clone(),
             parent_session: session_id.to_string(),
+            // A browser turn is not part of a goal loop: nothing in this server
+            // opens a continuation round, so the tool that only a loop reads has
+            // no business in its registry.
+            goal: false,
         });
         // Diagnostics belong to the operator, but a server must never stall a
         // turn behind a stderr write: when stderr is a pipe whose reader is slow

@@ -1,12 +1,13 @@
 //! The built-in tools and their small helpers.
 //!
-//! Every entry in [`all`] is registered unconditionally; the ones that need
-//! configuration (network access, a data directory, a process runner) are
-//! constructed with it, so a missing capability is a missing tool rather than a
-//! tool that fails at call time.
+//! Eight of them are registered in every turn; the rest depend on what the turn
+//! can actually do — network access, a data directory, a process runner, an open
+//! goal. A missing capability is a missing tool rather than a tool that fails at
+//! call time, so the tool list is a truthful answer to "what can this turn do".
 
 pub mod danger;
 pub mod fs;
+pub mod goal;
 pub mod present;
 pub mod shell;
 pub mod todo;
@@ -23,6 +24,7 @@ use crate::Tool;
 
 pub use danger::{dangerous, Dangerous};
 pub use fs::{FsEdit, FsGlob, FsGrep, FsRead, FsWrite, CODE_AMBIGUOUS, CODE_BINARY};
+pub use goal::{GoalEndTool, GOAL_META_KEY};
 pub use present::PresentTool;
 pub use shell::{
     ShellTool, SHELL_CODE_BLOCKED, SHELL_CODE_EMPTY_COMMAND, SHELL_CODE_EXEC_FAILED,
@@ -49,6 +51,11 @@ pub struct Options {
     /// Process runner and sandbox for tools that shell out (`worktree`).
     pub runner: Option<Arc<dyn Runner + Send + Sync>>,
     pub sandbox: Option<Arc<dyn Sandbox>>,
+    /// Whether this turn belongs to an open goal. `goal_end` exists only then:
+    /// a tool whose only effect is to be read by the loop that opened the round
+    /// has nothing to say in a turn nobody is looping over, and offering it
+    /// would let the model believe a sentence it wrote stopped something.
+    pub goal: bool,
 }
 
 impl Options {
@@ -72,6 +79,11 @@ pub fn all(options: &Options) -> Vec<Arc<dyn Tool>> {
         Arc::new(ShellTool::new(limits)),
         Arc::new(TodoWriteTool::new(limits)),
     ];
+
+    // Only while a loop is open. See `Options::goal`.
+    if options.goal {
+        tools.push(Arc::new(GoalEndTool::new(limits)));
+    }
 
     if let Some(client) = &options.net {
         tools.push(Arc::new(WebFetchTool::new(limits, Arc::clone(client))));

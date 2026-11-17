@@ -1,9 +1,9 @@
 ---
 dir: crates/cli
 layer: L3
-role: the forge binary: argument parsing, chat/web/doctor/index/import/session, usage, version
-public: [run, reorder_flags, VERSION, COMMIT, USAGE]
-may_import: [forge-core, forge-config, forge-sandbox, forge-llm, forge-session, forge-agent, forge-tool, forge-server, forge-protocol, forge-store, forge-import, forge-mcp, forge-skill, forge-subagent]
+role: the forge binary: argument parsing, chat/web/doctor/index/import/session/goal/schedule, usage, version
+public: [run, reorder_flags, VERSION, COMMIT, USAGE, EXIT_OK, EXIT_FAILURE, EXIT_USAGE]
+may_import: [forge-core, forge-config, forge-sandbox, forge-llm, forge-session, forge-agent, forge-tool, forge-server, forge-protocol, forge-store, forge-import, forge-mcp, forge-skill, forge-subagent, forge-net, forge-goal, forge-schedule]
 must_not: []
 gate: make arch
 ---

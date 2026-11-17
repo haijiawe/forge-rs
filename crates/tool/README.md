@@ -2,7 +2,7 @@
 dir: crates/tool
 layer: L2
 role: registry, executor, policy, approvals and the builtin tools
-public: [Tool, Call, Result, Limits, DefaultLimits, Registry, Executor, Policy, Rule, Rules, Decision, Approver, ApprovalRequest, AllowAll, Dangerous, builtin, Options, names, WebFetchTool, WebSearchTool, SearchConfig, WorktreeTool, PresentTool]
+public: [Tool, Call, Result, Limits, DefaultLimits, Registry, Executor, Policy, Rule, Rules, Decision, Approver, ApprovalRequest, AllowAll, Dangerous, builtin, Options, names, WebFetchTool, WebSearchTool, SearchConfig, WorktreeTool, PresentTool, GoalEndTool, GOAL_META_KEY]
 may_import: [forge-core, forge-exec, forge-llm, forge-net]
 must_not:
   - import a crate from a higher layer
@@ -13,7 +13,7 @@ gate: cargo run -q -p archcheck --offline
 
 ## 做什么
 
-The tool system: a `Tool` trait, a registry, an executor that enforces policy and approvals before anything runs, and the builtin tools. Seven are always registered (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`, `shell`, `todo_write`) and `worktree` joins them unconditionally; the platform tools appear only when their capability is configured — `web_fetch` needs a network client, `web_search` additionally needs an endpoint, `present` needs a data directory. The executor never writes events; the loop records the call and result from the `Call` and `Result` values.
+The tool system: a `Tool` trait, a registry, an executor that enforces policy and approvals before anything runs, and the builtin tools. Nine are always registered (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`, `shell`, `todo_write`, `worktree`, `present`); the platform tools appear only when their capability is configured — `web_fetch` needs a network client, `web_search` additionally needs an endpoint. `goal_end` is registered only when `Options.goal` is set, because its only reader is the loop that opened the round. The executor never writes events; the loop records the call and result from the `Call` and `Result` values.
 
 ## 公开面
 

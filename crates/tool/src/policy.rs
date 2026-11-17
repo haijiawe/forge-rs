@@ -203,6 +203,10 @@ pub fn default_rules(mode: &str) -> Rules {
                 Rule::new("fs_glob", "", ACTION_ALLOW),
                 Rule::new("fs_grep", "", ACTION_ALLOW),
                 Rule::new("present", "", ACTION_ALLOW),
+                // A goal's state is bookkeeping the operator already asked
+                // for by starting the goal; ending it cannot touch the
+                // filesystem, so no mode has a reason to ask.
+                Rule::new("goal_end", "", ACTION_ALLOW),
                 // The network tools run inside the harness, not inside the
                 // sandbox, so a confined mode cannot contain them by itself:
                 // the approval prompt is the only gate there is.
@@ -221,6 +225,8 @@ pub fn default_rules(mode: &str) -> Rules {
                 Rule::new("fs_grep", "", ACTION_ALLOW),
                 Rule::new("todo_write", "", ACTION_ALLOW),
                 Rule::new("present", "", ACTION_ALLOW),
+                // Ending a goal cannot touch anything outside the log.
+                Rule::new("goal_end", "", ACTION_ALLOW),
                 Rule::new("fs_write", PATH_ANY, ACTION_ALLOW),
                 Rule::new("fs_edit", PATH_ANY, ACTION_ALLOW),
                 Rule::new("shell", "", ACTION_ASK),
@@ -646,6 +652,9 @@ mod tests {
         assert_eq!(read_only.decide(&call("web_search")).0, Decision::Ask);
         assert_eq!(read_only.decide(&call("worktree")).0, Decision::Deny);
         assert_eq!(read_only.decide(&call("shell")).0, Decision::Deny);
+        // Ending a goal touches nothing on disk; gating it would mean a goal
+        // that cannot be stopped in the mode that can change nothing.
+        assert_eq!(read_only.decide(&call("goal_end")).0, Decision::Allow);
 
         let workspace = default_rules("workspace-write");
         assert_eq!(workspace.decide(&call("present")).0, Decision::Allow);

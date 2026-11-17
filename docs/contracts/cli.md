@@ -65,6 +65,8 @@ a bug, not contract. `forge` does not use exit code `1` for "unknown command".
 | `forge session fork <parentId> [flags]` | — | the new session id (or one JSON object) on stdout, diagnostics on stderr | `0`, `1` or `2` |
 | `forge import <old-dir> [flags]` | — | plan or result on stdout, diagnostics on stderr | `0`, `1` or `2` |
 | `forge index [flags]` | — | stats, hits or JSON on stdout | `0`, `1` or `2` |
+| `forge goal <command>` | — | the goal id, a status block, or JSON on stdout | `0`, `1` or `2` |
+| `forge schedule <command>` | — | a task id, a table, occurrences or JSON on stdout | `0`, `1` or `2` |
 | `forge help` | `-h`, `--help`, no arguments at all | usage text on stdout | `0` |
 | `forge doctor` | — | human-readable check report on stdout | `0` or `1` |
 | `forge doctor --json` | — | JSON report on stdout | `0` or `1` |
@@ -109,6 +111,8 @@ usage:
   forge session <command>      operate on a session log without running a turn
   forge import <old-dir>       import a session tree from the old harness
   forge index [flags]          rebuild or query the search index
+  forge goal <command>         record, inspect or close a goal
+  forge schedule <command>     record recurring prompts and run the ones due
   forge doctor [flags]         check the environment
   forge help                   this message
 
@@ -292,11 +296,11 @@ the session log is opened; if that fails the command exits `1` with
 The same value is passed to the agent (recorded in `session/start`) and to the
 tool executor.
 
-Eight tools are registered unconditionally: the seven file/process tools
-(`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`, `shell`, `todo_write`)
-and `worktree`. The pipeline then adds whatever the M5 bridges and the
+Nine tools are registered unconditionally: the seven file/process tools
+(`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`, `shell`, `todo_write`),
+`worktree`, and `present`. The pipeline then adds whatever the M5 bridges and the
 configured platform capabilities contribute, so `tools={n}` on stderr — the
-count of everything in the registry — is at least eight and grows with
+count of everything in the registry — is at least nine and grows with
 configuration:
 
 - one tool per MCP tool, named `mcp__<server>__<tool>` with `_` escaped to `__`
@@ -316,7 +320,7 @@ model reads the tool list and knows what this turn can do. A bad `caFile` costs
 `--json` `tools` is the sorted name list of everything advertised, bridges
 included. A misconfigured MCP server or skill root is never fatal: that bridge
 contributes nothing and writes one warning to stderr. The table below is the
-policy for the eight unconditional tools.
+policy for the nine unconditional tools.
 
 | Tool | Sandbox policy `read-only` | `workspace-write` | `full-access` |
 | --- | --- | --- | --- |
@@ -327,6 +331,12 @@ policy for the eight unconditional tools.
 | `present` | allow | allow | allow |
 | `web_fetch`, `web_search` | **ask** | **ask** | allow |
 | anything not listed | deny | deny | allow |
+
+A tenth tool, `goal_end`, is registered only when the turn belongs to a goal
+loop (`forge chat --goal`): it records the verdict the loop reads to decide
+whether to open another round. Its policy is `allow` in every mode, because
+ending a goal touches no file — gating it would make a confined turn unable to
+stop the thing it was asked to finish.
 
 The mode comes from `sandbox` in `config.json` (`read-only`, `workspace-write`,
 `full-access`; default `workspace-write`), and `--sandbox` overrides it for one

@@ -35,6 +35,8 @@ right way and is written down.
 | `forge-subagent` | L2 | nested agent runs on their own logs | run without a depth limit |
 | `forge-mcp` | L1 | MCP stdio/HTTP client | know about sessions or tools |
 | `forge-net` | L1 | blocking HTTP(S) client, HTML to text, redirects | know about tools or the model |
+| `forge-goal` | L2 | goal lifecycle as events, folding, the continuation prompt | write events itself |
+| `forge-schedule` | L2 | rrule subset to instants, the task registry, due times | run a turn |
 | `forge-skill` | L1 | skill frontmatter scanner | import any forge crate |
 | `forge-server` | L3 | HTTP/1.1 + WebSocket over the log | contain agent logic |
 | `forge-cli` | L3 | the `forge` binary | hold logic that belongs in a crate |
@@ -92,28 +94,32 @@ checks a tree other than the one above the working directory.
 
 ## Commands
 
-Nine spellings, the same nine the Go oracle froze in `docs/contracts/cli.md`:
+Eleven spellings; the first nine are the ones the Go oracle froze in
+`docs/contracts/cli.md`, and `goal`/`schedule` are the P2 additions:
 
 | Command | What it does |
 | --- | --- |
 | `forge --version` | prints the version without reading config |
-| `forge help` | the nine-line usage block |
+| `forge help` | the usage block |
 | `forge doctor [--json]` | ten read-only checks, in a fixed order |
 | `forge chat [flags] [prompt]` | one turn against the model, streaming to stdout |
 | `forge web [flags]` | the local browser UI on loopback |
 | `forge index [--rebuild] [--stats] [--search TEXT]` | query or rebuild the SQLite index |
 | `forge import <old-dir> [--dry-run]` | read-only import of an old-format session tree |
 | `forge session fork <id> [--at N] [--id NAME]` | open a new session at a given seq |
+| `forge goal start\|status\|end` | record, inspect or close a goal |
+| `forge schedule add\|list\|remove\|next\|run` | recurring prompts, and the tick that opens them |
 | `forge "<prompt>"` | a bare prompt is shorthand for `forge chat "<prompt>"` |
 
 `chat` and `web` both build their tool set through one place (`crates/cli/src/wiring.rs`):
-the eight builtin tools (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`, `shell`,
-`todo_write`, `worktree`), `present` and the two network tools `web_fetch` and `web_search`
-(absent when the capability cannot be built — an absent tool is discoverable, one that
-always fails is not), every tool a configured MCP server advertises (each one with its
-own `ask` rule, because it runs outside forge), a `skill` tool when at least one skill is
-found, and a `subagent` tool when `subagent.maxDepth > 0`. A broken MCP entry is reported
-and skipped rather than stopping the runtime.
+the nine always-present tools (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`,
+`shell`, `todo_write`, `worktree`, `present`) and the two network tools `web_fetch` and
+`web_search` (absent when the capability cannot be built — an absent tool is discoverable,
+one that always fails is not), every tool a configured MCP server advertises (each one with
+its own `ask` rule, because it runs outside forge), a `skill` tool when at least one skill is
+found, and a `subagent` tool when `subagent.maxDepth > 0`. A `goal_end` tool joins them only
+inside a goal loop (`forge chat --goal`), because a verdict nobody reads is not a tool. A
+broken MCP entry is reported and skipped rather than stopping the runtime.
 
 `web_search` needs an endpoint, because there is no search provider that works without
 one. `config.json`:

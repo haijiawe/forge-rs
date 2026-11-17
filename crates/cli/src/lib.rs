@@ -21,12 +21,20 @@ use std::path::PathBuf;
 
 pub mod chat;
 pub mod doctor;
+pub mod goalcmd;
 pub mod grants;
 pub mod importcmd;
 pub mod indexcmd;
+pub mod schedulecmd;
 pub mod sessioncmd;
 pub mod web;
 pub mod wiring;
+
+/// The four exit codes of the frozen contract (`docs/contracts/cli.md` §2.1):
+/// success, runtime failure, usage mistake, and interrupted.
+pub const EXIT_OK: i32 = 0;
+pub const EXIT_FAILURE: i32 = 1;
+pub const EXIT_USAGE: i32 = 2;
 
 /// Prints `value` as one JSON document with two-space indent and a trailing
 /// newline, the shape `docs/contracts/cli.md` §4.2 fixes for `--json`.
@@ -170,6 +178,8 @@ usage:
   forge session <command>      operate on a session log without running a turn
   forge import <old-dir>       import a session tree from the old harness
   forge index [flags]          rebuild or query the search index
+  forge goal <command>         record, inspect or close a goal
+  forge schedule <command>     record recurring prompts and run the ones due
   forge doctor [flags]         check the environment
   forge help                   this message
 
@@ -241,6 +251,8 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         "chat" => chat::run(&args[1..], stdout, stderr),
         "web" => web::run(&args[1..], stdout, stderr),
         "index" => indexcmd::run(&args[1..], stdout, stderr),
+        "goal" => goalcmd::run(&args[1..], stdout, stderr),
+        "schedule" => schedulecmd::run(&args[1..], stdout, stderr),
         "import" => importcmd::run(&args[1..], stdout, stderr),
         "session" => sessioncmd::run(&args[1..], stdout, stderr),
         other => {

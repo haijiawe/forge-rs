@@ -1,0 +1,85 @@
+{
+  "name": "ok_goal_lifecycle",
+  "description": "The three goal event types, as the harness writes them: a goal is created, a continuation round is opened, and the goal ends. Adds no envelope members and no version bump — a v1 reader that has never heard of goals keeps reading the log, which is exactly what AGENTS.md rule 2 promises.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "goal/created",
+      "payload": {
+        "goalId": "b1b2c3d4e5f60718293a4b5c6d7e8f91",
+        "text": "make the release workflow run on a real runner",
+        "maxRounds": 10
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "a1b2c3d4e5f60718293a4b5c6d7e8f92",
+      "ts": 1794787260000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "goal/continued",
+      "payload": {
+        "goalId": "b1b2c3d4e5f60718293a4b5c6d7e8f91",
+        "round": 2
+      }
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "id": "a1b2c3d4e5f60718293a4b5c6d7e8f93",
+      "ts": 1794787320000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "goal/ended",
+      "payload": {
+        "goalId": "b1b2c3d4e5f60718293a4b5c6d7e8f91",
+        "reason": "complete",
+        "note": "the workflow ran green on ubuntu and windows"
+      }
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "goal/created",
+      "payload": {
+        "goalId": "b1b2c3d4e5f60718293a4b5c6d7e8f91",
+        "text": "make the release workflow run on a real runner",
+        "maxRounds": 10
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "a1b2c3d4e5f60718293a4b5c6d7e8f92",
+      "ts": 1794787260000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "goal/continued",
+      "payload": {
+        "goalId": "b1b2c3d4e5f60718293a4b5c6d7e8f91",
+        "round": 2
+      }
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "id": "a1b2c3d4e5f60718293a4b5c6d7e8f93",
+      "ts": 1794787320000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "goal/ended",
+      "payload": {
+        "goalId": "b1b2c3d4e5f60718293a4b5c6d7e8f91",
+        "reason": "complete",
+        "note": "the workflow ran green on ubuntu and windows"
+      }
+    }
+  ]
+}

@@ -18,10 +18,10 @@ pub use approval::{
     AllowAll, ApprovalRequest, Approver, Decision, DecisionRecorder, Policy, PolicyFunc,
 };
 pub use builtin::{
-    all, dangerous, names, Dangerous, FsEdit, FsGlob, FsGrep, FsRead, FsWrite, Options,
-    PresentTool, SearchConfig, ShellTool, TodoWriteTool, WebFetchTool, WebSearchTool, WorktreeTool,
-    CODE_AMBIGUOUS, CODE_BINARY, SHELL_CODE_BLOCKED, SHELL_CODE_EMPTY_COMMAND,
-    SHELL_CODE_EXEC_FAILED, SHELL_CODE_SANDBOX, WEB_CODE_BAD_CONTENT,
+    all, dangerous, names, Dangerous, FsEdit, FsGlob, FsGrep, FsRead, FsWrite, GoalEndTool,
+    Options, PresentTool, SearchConfig, ShellTool, TodoWriteTool, WebFetchTool, WebSearchTool,
+    WorktreeTool, CODE_AMBIGUOUS, CODE_BINARY, GOAL_META_KEY, SHELL_CODE_BLOCKED,
+    SHELL_CODE_EMPTY_COMMAND, SHELL_CODE_EXEC_FAILED, SHELL_CODE_SANDBOX, WEB_CODE_BAD_CONTENT,
 };
 pub use contract::{
     decode_args, Call, Meta, Result, Tool, CODE_CANCELLED, CODE_DENIED, CODE_IO_ERROR,
@@ -98,11 +98,12 @@ mod tests {
     }
 
     #[test]
-    fn all_builtins_have_unique_sorted_specs() {
+    fn every_turn_gets_the_same_eight_tools_and_goals_add_a_ninth() {
+        // "A turn" means no goal, no network, no process runner. The list is
+        // sorted so a reviewer can diff it against the document.
         let registry = Registry::new(all(&Options::new(DefaultLimits)));
-        let names = registry.names();
         assert_eq!(
-            names,
+            registry.names(),
             vec![
                 "fs_edit",
                 "fs_glob",
@@ -115,6 +116,36 @@ mod tests {
                 "worktree"
             ]
         );
+
+        let mut options = Options::new(DefaultLimits);
+        options.goal = true;
+        assert_eq!(
+            Registry::new(all(&options)).names(),
+            vec![
+                "fs_edit",
+                "fs_glob",
+                "fs_grep",
+                "fs_read",
+                "fs_write",
+                "goal_end",
+                "present",
+                "shell",
+                "todo_write",
+                "worktree"
+            ]
+        );
+    }
+
+    /// `goal_end` is the model's half of a conversation with the turn loop. With
+    /// no loop there is nobody to hear it, so the tool is not offered — a tool
+    /// that cannot have its effect must not be able to claim it did.
+    #[test]
+    fn goal_end_is_absent_without_an_open_goal() {
+        let options = Options::new(DefaultLimits);
+        assert!(!names(&options).contains(&"goal_end".to_string()));
+        assert!(!Registry::new(all(&options))
+            .names()
+            .contains(&"goal_end".to_string()));
     }
 
     /// The platform tools appear only when their capability is configured, so a
