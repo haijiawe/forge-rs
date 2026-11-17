@@ -220,13 +220,34 @@ was built from, so storing it twice would double the log for no gain.
 
 **Payload schemas are descriptive, not yet enforced.** No v1 reader validates a
 payload; a writer that adds a member is compatible, and a reader MUST NOT reject
-an event because its payload is unexpected. This table records what the current
-Go producers emit so a reimplementation can render them; it becomes normative
-only when a schema registry lands (`internal/codec`, M0+).
+an event because its payload is unexpected. This table records what the writers
+emit so a reimplementation can render them; it becomes normative only when a
+schema registry lands.
 
 Tool output and subprocess output are capped (64 KB tool result, 1 MiB exec) and
 oversized payload text is truncated before it is appended, with `truncated: true`
 recorded. A reader must not assume payloads are small.
+
+### 4.0.1 `user/message` attachments
+
+An element of `attachments` is a **reference**, never a body:
+
+| member | type | when |
+| --- | --- | --- |
+| `kind` | `file` \| `image` \| `diff` | always |
+| `id` | 32 hex characters | when the sender uploaded bytes; names a file in `<dataDir>/blobs/` |
+| `mediaType` | string | when the sender declared one |
+| `name` | string | when the sender named the file |
+| `path` | string | for `kind:"file"`: a workspace-relative path |
+| `bytes` | number | always; the decoded size, `0` for `kind:"file"` |
+
+A body is fetched with `GET /api/sessions/{id}/attachments/{id}` (api.md §4.11).
+It is not in the log, and this is deliberate: every reader of the log pays for
+its size — projection, fork, the index, and every `GET /events` page, which
+returns whole event lines — the log is append-only so a mistake could never be
+deleted, and a fork copies events verbatim so one screenshot costs twice its
+bytes. A reader that needs pixels must ask the server, and may assume `id` is
+absent (a `kind:"file"` attachment has no body at all).
 
 ### 4.1 Forked logs
 

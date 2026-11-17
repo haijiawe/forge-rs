@@ -111,10 +111,20 @@ export interface LLMCallPayload {
   maxTokens?: number;
 }
 
+/**
+ * What a `user/message` event records about an attachment.
+ *
+ * The body is not in the event: `id` names a file in the data directory's blob
+ * store, served by `GET /api/sessions/{id}/attachments/{id}`. A `kind: "file"`
+ * attachment names a workspace path and carries no body at all.
+ */
 export interface AttachmentRef {
   kind?: 'file' | 'image' | 'diff' | string;
+  id?: string;
   path?: string;
-  data?: string;
+  mediaType?: string;
+  name?: string;
+  bytes?: number;
 }
 
 export interface UserMessagePayload {

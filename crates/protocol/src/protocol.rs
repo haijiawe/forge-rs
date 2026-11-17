@@ -183,6 +183,12 @@ pub struct Attachment {
     pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<String>,
+    /// What the client calls the file. Optional: a client that only sends
+    /// bytes is still understood.
+    #[serde(rename = "mediaType", skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 /// `POST /api/sessions/{id}/messages`.
@@ -191,6 +197,31 @@ pub struct PostMessageRequest {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attachments: Option<Vec<Attachment>>,
+}
+
+/// What a `user/message` event records about an attachment.
+///
+/// The body is not in the event: it lives under a name in the data
+/// directory's blob store, and `GET /api/sessions/{id}/attachments/{id}`
+/// serves it. A log line that carried a base64 body would be paid for by
+/// every reader of the log — projection, fork, the index, the browser — and
+/// could never be deleted, because the log is append-only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttachmentRef {
+    pub kind: String,
+    /// 32 hex characters, the name in the data directory's blob store. Absent
+    /// when the attachment names a path instead of carrying a body.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(rename = "mediaType", skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
+    /// What the file was called, for a human reading the transcript.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub bytes: u64,
+    /// The workspace-relative path a `kind: "file"` attachment referred to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 /// 202 (accepted) or 200 (replay of the same `Idempotency-Key`).

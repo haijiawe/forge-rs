@@ -33,7 +33,7 @@ done from the outside.
 | `read_image` | yes (`read_image`, `acp_read_original_image`) | **missing** | `crates/llm/src/contract.rs` `Message.content` is `String`, so no image part can be sent |
 | `worktree` | yes (`create_worktree`) | **missing** | no `git worktree` call anywhere |
 | `present` (deliver a file) | yes | **missing** | no such tool |
-| attachments on `POST /messages` | yes | **declared, dropped** | `crates/server/src/server.rs:1770-1786` validates `kind`/size, then `accept_message` uses only `body.text` |
+| attachments on `POST /messages` | yes | **declared, worse than dropped** | the server validates `kind`/size, then writes the **whole base64 body into the `user/message` event**: every log reader pays for it, `GET /events` returns it, a fork copies it verbatim, and an append-only log can never forget it — while nothing projects it, so no model ever saw a byte. Fixed in P1: bodies go to `<dataDir>/blobs/`, the event keeps `{kind,id,mediaType,name,bytes,path}` |
 
 ### 1.2 Runtime gaps (a subsystem, new crate)
 
@@ -85,7 +85,7 @@ none of them put a compiler into our build:
 | `read_image` | **Rust**, plus a protocol change | The blocker is `Message.content: String`. Needs a content-parts shape (`text` \| `image_url`) in `crates/llm/src/contract.rs`, the OpenAI request builder, and the event payload |
 | `worktree` | **Rust**, shell out to `git` | `crates/tool/src/builtin/shell.rs` already spawns through `forge-exec`, so tree-kill and the sandbox apply for free |
 | `present` | **Rust**, small | Writes a manifest the web UI reads; no new dependency |
-| attachments (file/image) | **Rust**, finish the declared surface | Either implement or delete the constant; §1.1 shows the current state | 
+| attachments (file/image) | **Rust**, done in P1 | Bodies live in `<dataDir>/blobs/` (`crates/session/src/blobs.rs`), the event keeps a reference, and `GET /api/sessions/{id}/attachments/{id}` serves the bytes. *Still missing:* feeding pixels to a model — `crates/llm/src/contract.rs` has `content: String`, so an image attachment is recorded and downloadable but not understood | 
 | `schedule` | **Rust**, new L2 crate `forge-schedule` | rrule is parsing, not compute. Write a **subset** (FREQ/INTERVAL/BYDAY/BYHOUR/BYMINUTE/COUNT/UNTIL) — no dependency. *Lost:* pulling a full rrule crate (new dep, new edge) |
 | `goal` | **Rust**, new L2 crate `forge-goal` | A state machine plus a continuation loop; persisted as events, so restart keeps it |
 | plugin runtime | **Rust host + out-of-process plugins over stdio JSON-RPC** | The MCP client (`crates/mcp`, L1) already does exactly this, and §2.3 measured the round trip at 80 µs empty / 118 µs for 4 KB against a 1,203 ms model call. A plugin = MCP-shaped server plus lifecycle hooks. Language-agnostic *by construction*, zero new deps, and the sandbox already contains children. *Lost:* wasmtime (adds a large dependency and a second compile step), V8/deno_core (an order of magnitude larger than the whole binary), `cdylib` loading (ABI and version hell, and breaks `panic = "abort"`) |
@@ -191,7 +191,8 @@ before the previous one's gates are green.
 
 **P1 — tools (smallest useful step, ~1 week).**
 `forge-net`; `web_fetch`; `web_search` behind a configured endpoint; `worktree`;
-`present`; finish or delete attachments. *Acceptance:* a real fetch of a real URL
+`present`; attachments finished the way §1.1 describes (bodies out of the log).
+*Acceptance:* a real fetch of a real URL
 through `forge-net` in a test with a local fixture server; `web_search` refuses
 with a named reason when unconfigured; `git worktree list` shows the new tree;
 `cargo test --workspace` + `check.ps1` green; no new dependency line in

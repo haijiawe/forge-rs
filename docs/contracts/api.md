@@ -290,7 +290,21 @@ failed attempt landed, so the retry opens the next turn and runs.
 ```
 
 `text` is required and non-empty (max 256 KiB); `attachments` is optional, max 10
-entries, each `{kind:"file"|"image"|"diff", path?, data?}`.
+entries, each `{kind:"file"|"image"|"diff", path?, data?, mediaType?, name?}`.
+
+An attachment's body is **not** part of the turn's event. `data` (standard base64,
+max 1 MiB each, 8 MiB for all of them together) is decoded and written to a file
+under `<dataDir>/blobs/`, and the `user/message` event records only
+`{kind, id, mediaType, name, bytes, path}`. Three reasons, all of them measured
+rather than assumed: every reader of the log would pay for the base64 (projection,
+fork, the index, and every `GET /events` page, which returns whole event lines);
+the log is append-only, so an uploaded body could never be deleted; and a fork
+copies events verbatim, so one 6 MiB screenshot becomes 12 MiB.
+
+* `kind:"file"` names a workspace path and carries no body. `path` is required.
+* `kind:"image"` and `kind:"diff"` require `data`.
+
+Body bytes are fetched with `GET /api/sessions/{id}/attachments/{id}` (§4.11).
 
 Response `202`:
 
@@ -457,6 +471,24 @@ Header: `Idempotency-Key` required, same rule as §4.6.
 - Delivery is at most once per turn: the text is queued and the loop takes it
   between steps. Text still queued when the turn ends is dropped from the queue
   (its event stays in the log); it is not replayed into the next turn.
+
+### 4.11 `GET /api/sessions/{id}/attachments/{attachmentId}`
+
+Returns the body of one attachment, byte for byte as it was uploaded.
+
+`Content-Type` is the `mediaType` the sender declared, or
+`application/octet-stream`. The response is always
+`Content-Disposition: attachment` with `X-Content-Type-Options: nosniff`: these
+bytes came from a client, and a browser must not render them as a document in
+the origin that holds the token. `Cache-Control` is `private, max-age=31536000,
+immutable` — a name refers to one body forever.
+
+- `attachmentId` must be 32 hexadecimal characters; anything else is `404` before
+  the filesystem is touched, so a name cannot be a path.
+- The id must appear in **this** session's log. A blob reached through another
+  session's URL is `404`, not a hit: the difference between "not in this session"
+  and "never existed" describes somebody else's data.
+- `404 not_found` — no such session, no such reference, or no such file.
 
 ---
 

@@ -40,7 +40,11 @@ export const UserRowView = memo(function UserRowView({ row }: { row: UserRow }) 
         <div className="row-meta">
           <span>you</span>
           <span>{formatTime(row.ts)}</span>
-          {row.attachments > 0 && <span>{String(row.attachments)} attachment(s)</span>}
+          {row.attachments > 0 && (
+            <span title={row.attachmentLabels.join('\n')}>
+              {row.attachmentLabels.join(', ')}
+            </span>
+          )}
         </div>
         <p className="user-text">{row.text}</p>
       </div>

@@ -27,6 +27,8 @@ export interface UserRow extends RowBase {
   kind: 'user';
   text: string;
   attachments: number;
+  /** What the operator attached, as the log recorded it: a name and a size. */
+  attachmentLabels: string[];
 }
 
 export interface AssistantRow extends RowBase {
@@ -124,6 +126,27 @@ function num(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+/** `name (12 KB)`, or `image (12 KB)` when the client sent no name. */
+function attachmentLabel(entry: unknown): string {
+  if (typeof entry !== 'object' || entry === null) {
+    return 'attachment';
+  }
+  const record = entry as Record<string, unknown>;
+  const name = str(record['name']) ?? str(record['path']) ?? str(record['kind']) ?? 'attachment';
+  const bytes = num(record['bytes']);
+  return bytes === undefined ? name : `${name} (${formatBytes(bytes)})`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${String(bytes)} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function seqOf(event: EventEnvelope): number {
   return typeof event.seq === 'number' ? event.seq : 0;
 }
@@ -155,13 +178,21 @@ export function rowFromEvent(event: EventEnvelope, options: ProjectionOptions = 
   const verbose = options.verbose === true;
 
   switch (event.type) {
-    case 'user/message':
+    case 'user/message': {
+      // The log records metadata, not bodies: `id` names a file in the data
+      // directory's blob store. A row therefore shows what was attached, never
+      // the bytes themselves — those would be a base64 copy of every upload in
+      // every reader's memory.
+      const refs = Array.isArray(payload['attachments']) ? (payload['attachments'] as unknown[]) : [];
+      const labels = refs.map((entry) => attachmentLabel(entry));
       return {
         ...base,
         kind: 'user',
         text: str(payload['text']) ?? '',
-        attachments: Array.isArray(payload['attachments']) ? payload['attachments'].length : 0,
+        attachments: refs.length,
+        attachmentLabels: labels,
       };
+    }
     case 'assistant/message':
       return {
         ...base,

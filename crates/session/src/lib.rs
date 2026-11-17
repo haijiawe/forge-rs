@@ -9,12 +9,14 @@
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+pub mod blobs;
 pub mod compact;
 pub mod decision;
 pub mod fork;
 pub mod projection;
 pub mod store;
 
+pub use blobs::{is_valid_name, Blobs};
 pub use compact::{
     compact, compact_log, is_already_compacted, is_empty_summary, is_invalid_log, is_invalid_plan,
     last_compacted_span, plan_compaction, CompactPlan, Summarizer, TruncatingSummarizer,

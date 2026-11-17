@@ -22,7 +22,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use forge_core::{Error, ErrorKind, Event, EventType, Result};
 use forge_protocol::*;
 use forge_session::projection::is_abort_reason;
-use forge_session::Store;
+use forge_session::{Blobs, Store};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -47,11 +47,17 @@ const TOKEN_COOKIE: &str = "forge_token";
 pub const WS_SUBPROTOCOL: &str = "forge.v1";
 const TOKEN_FILE: &str = "token";
 const SESSIONS_DIR: &str = "sessions";
+/// Attachment bodies, beside the log rather than inside it.
+const BLOB_DIR: &str = "blobs";
 const MAX_BODY: usize = 8 << 20;
 const MAX_TEXT: usize = 256 << 10;
 const MAX_NOTE: usize = 4 << 10;
 const MAX_ATTACHMENTS: usize = 10;
 const MAX_ATTACHMENT_DATA: usize = 1 << 20;
+/// Every body in one message together. The per-attachment cap alone would let
+/// ten attachments fill the request budget with base64, and a turn that big is
+/// a mistake worth reporting rather than a turn to run.
+const MAX_ATTACHMENTS_TOTAL: usize = 8 << 20;
 const MAX_KEY: usize = 200;
 const MAX_CURSOR: usize = 512;
 const MAX_HEADER_BYTES: usize = 64 << 10;
@@ -77,6 +83,50 @@ fn base64_encode_padded(data: &[u8]) -> String {
         out.push('=');
     }
     out
+}
+
+/// Strict standard base64, for an attachment body a client sent.
+///
+/// `None` for anything that is not exactly base64: a wrong character, a bad
+/// length, padding in the middle, or whitespace. Being lenient here would mean
+/// storing bytes that are not the ones the client thought it sent.
+fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let bytes = text.as_bytes();
+    if !bytes.len().is_multiple_of(4) {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    let last_chunk = bytes.len() / 4;
+    for (chunk_index, chunk) in bytes.chunks(4).enumerate() {
+        let padding = chunk.iter().filter(|byte| **byte == b'=').count();
+        if padding > 2 {
+            return None;
+        }
+        if padding > 0 && chunk_index + 1 != last_chunk {
+            return None; // padding is only ever at the end
+        }
+        let mut word = 0u32;
+        for (index, byte) in chunk.iter().enumerate() {
+            let value = match byte {
+                b'A'..=b'Z' => byte - b'A',
+                b'a'..=b'z' => byte - b'a' + 26,
+                b'0'..=b'9' => byte - b'0' + 52,
+                b'+' => 62,
+                b'/' => 63,
+                b'=' if index >= 4 - padding => 0,
+                _ => return None,
+            };
+            word = (word << 6) | u32::from(value);
+        }
+        out.push((word >> 16) as u8);
+        if padding < 2 {
+            out.push((word >> 8) as u8);
+        }
+        if padding < 1 {
+            out.push(word as u8);
+        }
+    }
+    Some(out)
 }
 
 fn base64_encode(data: &[u8], url_safe: bool) -> String {
@@ -1129,6 +1179,11 @@ enum FoldError {
     Read,
 }
 
+/// A failure the caller cannot fix: the server's own storage broke.
+fn internal(error: forge_core::Error) -> ApiFailure {
+    ApiFailure::new(500, code::INTERNAL, format!("storage: {}", error.message()))
+}
+
 fn fold_failure(error: FoldError) -> ApiFailure {
     match error {
         FoldError::NotFound => ApiFailure::new(404, code::NOT_FOUND, "no such session"),
@@ -1442,8 +1497,81 @@ impl Server {
                 }
                 self.handle_approval(request, segments[1], segments[3])
             }
+            4 if segments[2] == "attachments" => {
+                if request.method != "GET" {
+                    return Err(method_not_allowed("GET"));
+                }
+                self.handle_attachment(segments[1], segments[3])
+            }
             _ => Err(ApiFailure::new(404, code::NOT_FOUND, "no such endpoint")),
         }
+    }
+
+    fn handle_attachment(&self, id: &str, name: &str) -> ApiResult<Response> {
+        let path = self.session_path(id);
+        if !path.is_file() {
+            return Err(ApiFailure::new(404, code::NOT_FOUND, "no such session"));
+        }
+        // The name must appear in *this* session's log. Serving any blob that
+        // exists would make every session's URL a key to every other session's
+        // files, which is not a property anyone asked for.
+        let content = fs::read_to_string(&path).map_err(|_| {
+            ApiFailure::new(
+                500,
+                code::LOG_READ_FAILED,
+                "the session log could not be read",
+            )
+        })?;
+        let mut media_type = None;
+        let mut found = false;
+        for line in content.lines() {
+            let Ok(value) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            let Some(refs) = value
+                .get("payload")
+                .and_then(|payload| payload.get("attachments"))
+                .and_then(Value::as_array)
+            else {
+                continue;
+            };
+            for reference in refs {
+                if reference.get("id").and_then(Value::as_str) == Some(name) {
+                    found = true;
+                    media_type = reference
+                        .get("mediaType")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    break;
+                }
+            }
+            if found {
+                break;
+            }
+        }
+        if !found {
+            // One answer for "not in this session" and "never existed": the
+            // difference describes somebody else's data.
+            return Err(ApiFailure::new(404, code::NOT_FOUND, "no such attachment"));
+        }
+        let blobs = Blobs::new(self.blob_dir());
+        let bytes = blobs
+            .get(name)
+            .map_err(|_| ApiFailure::new(404, code::NOT_FOUND, "no such attachment"))?;
+        let response = Response::new(200, bytes)
+            .header(
+                "Content-Type",
+                media_type
+                    .unwrap_or_else(|| "application/octet-stream".to_string())
+                    .as_str(),
+            )
+            // These bytes were uploaded by the operator's own client; running
+            // them as a document in the origin that holds the token would be a
+            // hole.
+            .header("X-Content-Type-Options", "nosniff")
+            .header("Content-Disposition", "attachment")
+            .header("Cache-Control", "private, max-age=31536000, immutable");
+        Ok(response)
     }
 
     fn handle_list(&self, request: &Request) -> ApiResult<Response> {
@@ -1794,6 +1922,65 @@ impl Server {
         Ok(Response::json(status, &result))
     }
 
+    /// Decode and store every attachment body, returning what the event records.
+    ///
+    /// The declared `kind` decides what a body may be: an `image` is bytes in
+    /// the request, a `file` names a path in the workspace and carries no
+    /// bytes. A shape that is neither is refused before anything is written,
+    /// so a rejected request leaves the data directory exactly as it was.
+    fn prepare_attachments(&self, body: &PostMessageRequest) -> ApiResult<Vec<AttachmentRef>> {
+        let Some(attachments) = &body.attachments else {
+            return Ok(Vec::new());
+        };
+        let blobs = Blobs::new(self.blob_dir());
+        let mut refs = Vec::with_capacity(attachments.len());
+        let mut total = 0usize;
+        for attachment in attachments {
+            let bytes = match attachment.kind.as_str() {
+                "image" | "diff" => {
+                    let Some(encoded) = attachment.data.as_deref() else {
+                        return Err(ApiFailure::bad(format!(
+                            "a {} attachment must carry `data`",
+                            attachment.kind
+                        )));
+                    };
+                    let decoded = base64_decode(encoded).ok_or_else(|| {
+                        ApiFailure::bad("an attachment's `data` is not valid base64")
+                            .with_details(json!({ "kind": attachment.kind }))
+                    })?;
+                    total = total.saturating_add(decoded.len());
+                    if total > MAX_ATTACHMENTS_TOTAL {
+                        return Err(ApiFailure::new(
+                            422,
+                            code::UNPROCESSABLE,
+                            "the attachments are too large together",
+                        ));
+                    }
+                    decoded
+                }
+                _ => Vec::new(),
+            };
+            let name = if bytes.is_empty() && attachment.data.is_none() {
+                None
+            } else {
+                Some(blobs.put(&bytes).map_err(internal)?)
+            };
+            refs.push(AttachmentRef {
+                kind: attachment.kind.clone(),
+                id: name,
+                media_type: attachment.media_type.clone(),
+                name: attachment.name.clone(),
+                bytes: bytes.len() as u64,
+                path: attachment.path.clone(),
+            });
+        }
+        Ok(refs)
+    }
+
+    fn blob_dir(&self) -> PathBuf {
+        self.shared.options.data_dir.join(BLOB_DIR)
+    }
+
     fn accept_message(
         &self,
         id: &str,
@@ -1856,13 +2043,21 @@ impl Server {
             })));
         }
 
+        // Bodies are stored before the turn is recorded: a log line naming a body
+        // that was never written would be a promise the data directory cannot keep.
+        // Nothing has been appended yet, so a failure here leaves no torn turn.
+        let attachments = self.prepare_attachments(body)?;
+
         let turn = state.max_turn.max(state.turns) + 1;
         let mut turn_start = Event::new(id, EventType::TURN_START, Some(json!({ "number": turn })));
         turn_start.turn = turn;
         let _ = self.append_locked(id, &turn_start);
         let mut payload = json!({ "text": body.text, "idempotencyKey": key });
-        if let Some(attachments) = &body.attachments {
-            payload["attachments"] = serde_json::to_value(attachments).unwrap_or(Value::Null);
+        if !attachments.is_empty() {
+            // Metadata only: the body is in the blob store, and a log line
+            // every reader pays for is the one thing an append-only log cannot
+            // take back.
+            payload["attachments"] = serde_json::to_value(&attachments).unwrap_or(Value::Null);
         }
         let mut prompt = Event::new(id, EventType::USER_MESSAGE, Some(payload));
         prompt.turn = turn;

@@ -743,3 +743,290 @@ fn a_burst_of_turns_is_refused_with_429_and_retry_after() {
     assert_eq!(before, after, "a refused request must not append anything");
     assert!(!after.contains("one too many"));
 }
+
+// ---------------------------------------------------------------------------
+// Attachments: the body goes to the blob store, the event keeps a reference
+// ---------------------------------------------------------------------------
+
+fn attachment_fixture(label: &str) -> Fixture {
+    let options = Options {
+        addr: "127.0.0.1:0".to_string(),
+        data_dir: unique_dir(label),
+        new_runner: Some(Arc::new(|_| Arc::new(QuickRunner) as Arc<dyn TurnRunner>)),
+        rate_limit: RateLimit::disabled(),
+        ..Options::default()
+    };
+    Fixture::start(options)
+}
+
+fn post_message(fixture: &Fixture, session: &str, body: &Value, key: &str) -> (u16, Vec<u8>) {
+    let (status, _, bytes) = fixture.api(
+        "POST",
+        &format!("/api/sessions/{session}/messages"),
+        Some(body),
+        &[("Idempotency-Key", key)],
+    );
+    (status, bytes)
+}
+
+#[test]
+fn an_attachment_body_goes_to_the_blob_store_and_the_event_names_it() {
+    let fixture = attachment_fixture("attach-store");
+    let workspace = std::env::temp_dir().join(format!("forge-attach-ws-{}", std::process::id()));
+    let session = fixture.create_session(&workspace);
+
+    let payload = b"the bytes of a small image";
+    let body = json!({
+        "text": "look at this",
+        "attachments": [{
+            "kind": "image",
+            "name": "shot.png",
+            "mediaType": "image/png",
+            "data": base64_for(payload),
+        }],
+    });
+    let (status, bytes) = post_message(&fixture, &session, &body, "attach-1");
+    assert_eq!(
+        status,
+        202,
+        "post with attachment: {}",
+        String::from_utf8_lossy(&bytes)
+    );
+
+    let log = fs::read_to_string(fixture.server.path(&session)).expect("session log");
+    let user_line = log
+        .lines()
+        .find(|line| line.contains("user/message"))
+        .expect("the message is in the log");
+    // The base64 body must not be in the log: it would be re-read by every
+    // reader, copied by every fork, and returned by every GET /events page.
+    assert!(
+        !user_line.contains("data"),
+        "the event must not carry the body: {user_line}"
+    );
+    assert!(
+        user_line.contains("\"bytes\":26"),
+        "size recorded: {user_line}"
+    );
+    assert!(user_line.contains("shot.png"), "name recorded: {user_line}");
+    assert!(
+        user_line.contains("\"mediaType\":\"image/png\""),
+        "media type recorded: {user_line}"
+    );
+
+    let event: Value = serde_json::from_str(user_line).expect("event json");
+    let reference = &event["payload"]["attachments"][0];
+    let id = reference["id"]
+        .as_str()
+        .expect("an attachment with a body must carry an id");
+    assert_eq!(id.len(), 32);
+    assert!(
+        id.chars().all(|c| c.is_ascii_hexdigit()),
+        "id is a hex name: {id}"
+    );
+    assert!(reference.get("data").is_none(), "no body in the reference");
+
+    // The bytes are on disk, unchanged, under the name the event gave.
+    let blob = fixture._temp.0.join("blobs").join(id);
+    let stored = fs::read(&blob).expect("blob file");
+    assert_eq!(stored, payload, "the blob is byte-for-byte what was sent");
+
+    // And they come back out of the documented endpoint.
+    let (status, headers, body) = fixture.api(
+        "GET",
+        &format!("/api/sessions/{session}/attachments/{id}"),
+        None,
+        &[],
+    );
+    assert_eq!(status, 200, "download: {}", String::from_utf8_lossy(&body));
+    assert_eq!(body, payload, "the download returns the same bytes");
+    let header = |name: &str| {
+        headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.clone())
+    };
+    assert_eq!(header("Content-Type").as_deref(), Some("image/png"));
+    assert_eq!(header("Content-Length").as_deref(), Some("26"));
+    // These bytes were uploaded by a client; a browser must not run them as a
+    // document in the origin that holds the token.
+    assert_eq!(header("X-Content-Type-Options").as_deref(), Some("nosniff"));
+    assert_eq!(header("Content-Disposition").as_deref(), Some("attachment"));
+}
+
+#[test]
+fn an_attachment_name_is_never_a_path() {
+    let fixture = attachment_fixture("attach-names");
+    let workspace =
+        std::env::temp_dir().join(format!("forge-attach-name-ws-{}", std::process::id()));
+    let session = fixture.create_session(&workspace);
+
+    for name in [
+        "../../token",
+        "abc",
+        "0123456789abcdef0123456789abcde",
+        &"z".repeat(32),
+    ] {
+        let (status, _, bytes) = fixture.api(
+            "GET",
+            &format!("/api/sessions/{session}/attachments/{name}"),
+            None,
+            &[],
+        );
+        assert_eq!(
+            status,
+            404,
+            "{name} must not be served: {}",
+            String::from_utf8_lossy(&bytes)
+        );
+    }
+}
+
+#[test]
+fn an_attachment_from_another_session_is_not_served_here() {
+    let fixture = attachment_fixture("attach-cross");
+    let one = std::env::temp_dir().join(format!("forge-attach-own-{}", std::process::id()));
+    let two = std::env::temp_dir().join(format!("forge-attach-other-{}", std::process::id()));
+    let owner = fixture.create_session(&one);
+    let stranger = fixture.create_session(&two);
+
+    let body = json!({
+        "text": "mine",
+        "attachments": [{ "kind": "image", "data": base64_for(b"private") }],
+    });
+    let (status, _) = post_message(&fixture, &owner, &body, "attach-own");
+    assert_eq!(status, 202);
+
+    let log = fs::read_to_string(fixture.server.path(&owner)).expect("session log");
+    let event: Value = serde_json::from_str(
+        log.lines()
+            .find(|line| line.contains("user/message"))
+            .expect("user line"),
+    )
+    .expect("event json");
+    let id = event["payload"]["attachments"][0]["id"]
+        .as_str()
+        .expect("id")
+        .to_string();
+
+    let (status, _, bytes) = fixture.api(
+        "GET",
+        &format!("/api/sessions/{stranger}/attachments/{id}"),
+        None,
+        &[],
+    );
+    assert_eq!(
+        status,
+        404,
+        "another session's attachment must not be served: {}",
+        String::from_utf8_lossy(&bytes)
+    );
+}
+
+#[test]
+fn a_body_that_is_not_base64_is_refused_and_leaves_no_turn() {
+    let fixture = attachment_fixture("attach-bad64");
+    let workspace =
+        std::env::temp_dir().join(format!("forge-attach-bad-ws-{}", std::process::id()));
+    let session = fixture.create_session(&workspace);
+    let before = fs::read_to_string(fixture.server.path(&session)).expect("session log");
+
+    for bad in ["not base64!", "abc", "AAAAAAAAA", "AA=A"] {
+        let body = json!({
+            "text": "broken",
+            "attachments": [{ "kind": "image", "data": bad }],
+        });
+        let (status, bytes) = post_message(&fixture, &session, &body, "attach-bad");
+        assert_eq!(
+            status,
+            400,
+            "{bad} must be refused: {}",
+            String::from_utf8_lossy(&bytes)
+        );
+        let error: Value = serde_json::from_slice(&bytes).expect("error body");
+        assert_eq!(error["error"]["code"], "bad_request");
+    }
+
+    // A refused upload must not read as an accepted turn.
+    let after = fs::read_to_string(fixture.server.path(&session)).expect("session log");
+    assert_eq!(before, after, "a refused attachment must append nothing");
+}
+
+#[test]
+fn an_image_without_a_body_is_refused() {
+    let fixture = attachment_fixture("attach-nobody");
+    let workspace =
+        std::env::temp_dir().join(format!("forge-attach-nobody-ws-{}", std::process::id()));
+    let session = fixture.create_session(&workspace);
+
+    let body = json!({
+        "text": "empty",
+        "attachments": [{ "kind": "image" }],
+    });
+    let (status, bytes) = post_message(&fixture, &session, &body, "attach-none");
+    assert_eq!(
+        status,
+        400,
+        "an image without bytes: {}",
+        String::from_utf8_lossy(&bytes)
+    );
+}
+
+#[test]
+fn a_file_attachment_names_a_workspace_path_and_carries_no_body() {
+    let fixture = attachment_fixture("attach-file");
+    let workspace =
+        std::env::temp_dir().join(format!("forge-attach-file-ws-{}", std::process::id()));
+    let session = fixture.create_session(&workspace);
+
+    let body = json!({
+        "text": "read that",
+        "attachments": [{ "kind": "file", "path": "src/main.rs", "name": "main.rs" }],
+    });
+    let (status, bytes) = post_message(&fixture, &session, &body, "attach-file");
+    assert_eq!(
+        status,
+        202,
+        "a path attachment needs no body: {}",
+        String::from_utf8_lossy(&bytes)
+    );
+
+    let log = fs::read_to_string(fixture.server.path(&session)).expect("session log");
+    let user_line = log
+        .lines()
+        .find(|line| line.contains("user/message"))
+        .expect("user line");
+    assert!(user_line.contains("src/main.rs"), "path recorded");
+    let event: Value = serde_json::from_str(user_line).expect("event json");
+    let reference = &event["payload"]["attachments"][0];
+    assert!(
+        reference.get("id").is_none(),
+        "a path attachment has no blob: {reference}"
+    );
+    assert_eq!(reference["bytes"], 0, "a path names bytes it did not read");
+}
+
+/// Standard base64, so the test sends what a real client sends.
+fn base64_for(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let b0 = u32::from(chunk[0]);
+        let b1 = u32::from(chunk.get(1).copied().unwrap_or(0));
+        let b2 = u32::from(chunk.get(2).copied().unwrap_or(0));
+        let word = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[((word >> 18) & 63) as usize] as char);
+        out.push(ALPHABET[((word >> 12) & 63) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHABET[((word >> 6) & 63) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHABET[(word & 63) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
