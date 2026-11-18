@@ -19,14 +19,19 @@
 use std::io::Write;
 use std::path::PathBuf;
 
+pub mod bridges;
 pub mod chat;
 pub mod doctor;
+pub mod expertcmd;
 pub mod goalcmd;
 pub mod grants;
 pub mod importcmd;
 pub mod indexcmd;
+pub mod marketcmd;
+pub mod plugincmd;
 pub mod schedulecmd;
 pub mod sessioncmd;
+pub mod teamcmd;
 pub mod web;
 pub mod wiring;
 
@@ -180,6 +185,10 @@ usage:
   forge index [flags]          rebuild or query the search index
   forge goal <command>         record, inspect or close a goal
   forge schedule <command>     record recurring prompts and run the ones due
+  forge plugin <command>       inspect the installed plugin set
+  forge expert <command>       list or show the expert roster
+  forge team <command>         list teams, or run one over a shared board
+  forge market <command>       install or remove plugin bundles
   forge doctor [flags]         check the environment
   forge help                   this message
 
@@ -253,6 +262,10 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         "index" => indexcmd::run(&args[1..], stdout, stderr),
         "goal" => goalcmd::run(&args[1..], stdout, stderr),
         "schedule" => schedulecmd::run(&args[1..], stdout, stderr),
+        "plugin" => plugincmd::run(&args[1..], stdout, stderr),
+        "expert" => expertcmd::run(&args[1..], stdout, stderr),
+        "team" => teamcmd::run(&args[1..], stdout, stderr),
+        "market" => marketcmd::run(&args[1..], stdout, stderr),
         "import" => importcmd::run(&args[1..], stdout, stderr),
         "session" => sessioncmd::run(&args[1..], stdout, stderr),
         other => {
@@ -312,4 +325,35 @@ pub fn reorder_flags(args: &[String], value_flags: &[&str]) -> Vec<String> {
     }
     flags.extend(positional);
     flags
+}
+
+/// The first token that is a positional rather than a flag *or a flag's value*.
+///
+/// `reorder_flags` moves flags to the front, so the first token without a dash
+/// in the reordered list is usually the value of `--root`/`--dir`, not the
+/// subcommand. Reading the subcommand with a bare `!arg.starts_with('-')` test
+/// turns `forge plugin list --dir /plugins` into a call whose subcommand is
+/// `/plugins`, which then fails as an unknown command — a usage exit for a
+/// correct invocation.
+pub fn command_after_flags(args: &[String], value_flags: &[&str]) -> Option<String> {
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--" {
+            return args.get(i + 1).cloned();
+        }
+        if arg.len() >= 2 && arg.starts_with('-') {
+            let name = arg.trim_start_matches('-');
+            if !name.contains('=') && value_flags.contains(&name) {
+                // The next token is this flag's value even if it starts with
+                // `-`, exactly as in `reorder_flags`.
+                i += 2;
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+        return Some(arg.clone());
+    }
+    None
 }

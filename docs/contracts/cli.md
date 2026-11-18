@@ -67,6 +67,10 @@ a bug, not contract. `forge` does not use exit code `1` for "unknown command".
 | `forge index [flags]` | — | stats, hits or JSON on stdout | `0`, `1` or `2` |
 | `forge goal <command>` | — | the goal id, a status block, or JSON on stdout | `0`, `1` or `2` |
 | `forge schedule <command>` | — | a task id, a table, occurrences or JSON on stdout | `0`, `1` or `2` |
+| `forge plugin <command>` | — | a manifest listing, a handshake, tool output or a doctor report on stdout | `0`, `1` or `2` |
+| `forge expert <command>` | — | a roster table, one prompt, or JSON on stdout | `0`, `1` or `2` |
+| `forge team <command>` | — | team listings or a worker report on stdout | `0`, `1` or `2` |
+| `forge market <command>` | — | installed bundles, search hits, an install result or drift on stdout | `0`, `1` or `2` |
 | `forge help` | `-h`, `--help`, no arguments at all | usage text on stdout | `0` |
 | `forge doctor` | — | human-readable check report on stdout | `0` or `1` |
 | `forge doctor --json` | — | JSON report on stdout | `0` or `1` |
@@ -311,7 +315,12 @@ configuration:
 - `web_fetch` when a network client could be built, and `web_search` as well when
   `search.endpoint` is set (§2.5);
 - `present` always, because every command has a data directory to log a
-  presented file in.
+  presented file in;
+- one tool per plugin tool, named `<plugin>.<tool>`, when `plugins.enabled` lists
+  a plugin that loads; policy `ask` in every mode;
+- `expert` when the expert roster holds at least one summonable expert;
+- `team` when `team.maxParallel` is greater than zero and the roster holds a
+  team; policy `ask` in every mode, because every worker it starts spends money.
 
 A capability that cannot be built is an **absent** tool, not one that fails: the
 model reads the tool list and knows what this turn can do. A bad `caFile` costs

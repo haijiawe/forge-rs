@@ -137,6 +137,45 @@ pub struct SandboxAccessConfig {
     pub write: Option<Vec<String>>,
 }
 
+/// The `"plugins"` object: which plugins in `<dataDir>/plugins` a session may
+/// start.
+///
+/// Off by default. A plugin is a process this harness spawns, so its existence
+/// is a decision the operator makes in the file rather than something discovered
+/// by walking a directory: a stray `plugin.json` in a data directory must not be
+/// able to put a new tool in front of the model.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PluginsConfig {
+    /// Plugin names to load. Empty means none, which is the default.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub enabled: Vec<String>,
+    /// Overrides `<dataDir>/plugins`; `~` is expanded by [`Config::plugin_root`].
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub dir: String,
+}
+
+/// The `"experts"` object: directories the expert scanner walks.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ExpertsConfig {
+    /// Roots, most trusted first. A leading `~` is expanded by
+    /// [`Config::expert_roots`], never stored expanded.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub roots: Vec<String>,
+}
+
+/// The `"team"` object: parallel workers over a shared board.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TeamConfig {
+    /// Workers allowed to run at once. Zero means the `team` tool is not
+    /// registered at all, because a team that cannot overlap is a subagent with
+    /// extra steps.
+    #[serde(skip_serializing_if = "is_zero_i32")]
+    pub max_parallel: i32,
+}
+
 /// User-level configuration stored in `$FORGE_HOME/config.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -165,6 +204,12 @@ pub struct Config {
     pub sandbox_access: SandboxAccessConfig,
     /// Web search endpoint. Absent means `web_search` is not registered at all.
     pub search: SearchConfig,
+    /// Plugins this session may start.
+    pub plugins: PluginsConfig,
+    /// Expert roster roots.
+    pub experts: ExpertsConfig,
+    /// Team concurrency.
+    pub team: TeamConfig,
 }
 
 /// The search endpoint `web_search` posts to.
@@ -215,6 +260,9 @@ impl Config {
             subagent: SubagentConfig::default(),
             sandbox_access: SandboxAccessConfig::default(),
             search: SearchConfig::default(),
+            plugins: PluginsConfig::default(),
+            experts: ExpertsConfig::default(),
+            team: TeamConfig::default(),
         }
     }
 
@@ -308,6 +356,24 @@ impl Config {
         if let Some(search) = raw.search {
             self.search = search;
         }
+        if let Some(plugins) = raw.plugins {
+            if let Some(enabled) = plugins.enabled {
+                self.plugins.enabled = enabled;
+            }
+            if let Some(dir) = plugins.dir {
+                self.plugins.dir = dir;
+            }
+        }
+        if let Some(experts) = raw.experts {
+            if let Some(roots) = experts.roots {
+                self.experts.roots = roots;
+            }
+        }
+        if let Some(team) = raw.team {
+            if let Some(max_parallel) = team.max_parallel {
+                self.team.max_parallel = max_parallel;
+            }
+        }
     }
 
     /// Check the values other packages assume are sound.
@@ -344,6 +410,15 @@ impl Config {
                 format!(
                     "config: subagent.maxDepth {} is negative (0 means the subagent package default)",
                     self.subagent.max_depth
+                ),
+            ));
+        }
+        if self.team.max_parallel < 0 {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                format!(
+                    "config: team.maxParallel {} is negative (0 means the team tool is not registered)",
+                    self.team.max_parallel
                 ),
             ));
         }
@@ -397,6 +472,32 @@ impl Config {
     /// than reporting a missing root.
     pub fn skill_roots(&self) -> Vec<String> {
         self.skills
+            .roots
+            .iter()
+            .map(|root| expand_tilde(root))
+            .collect()
+    }
+
+    /// Where plugins live: `plugins.dir` when set, else `<dataDir>/plugins`.
+    ///
+    /// A relative `dir` is resolved against nothing — it is returned as written,
+    /// because turning it into an absolute path here would make the value depend
+    /// on the process's working directory, and a plugin root that moves when you
+    /// `cd` is a plugin root that loads different code in different terminals.
+    pub fn plugin_root(&self) -> String {
+        if !self.plugins.dir.trim().is_empty() {
+            return expand_tilde(self.plugins.dir.trim());
+        }
+        Path::new(&self.data_dir)
+            .join("plugins")
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    /// Configured expert roots with a leading `~` expanded, same rule as
+    /// [`Config::skill_roots`].
+    pub fn expert_roots(&self) -> Vec<String> {
+        self.experts
             .roots
             .iter()
             .map(|root| expand_tilde(root))
@@ -610,6 +711,9 @@ struct RawConfig {
     subagent: Option<RawSubagentConfig>,
     sandbox_access: Option<RawSandboxAccessConfig>,
     search: Option<SearchConfig>,
+    plugins: Option<RawPluginsConfig>,
+    experts: Option<RawExpertsConfig>,
+    team: Option<RawTeamConfig>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -635,4 +739,23 @@ struct RawSubagentConfig {
 struct RawSandboxAccessConfig {
     read: Option<Vec<String>>,
     write: Option<Vec<String>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct RawPluginsConfig {
+    enabled: Option<Vec<String>>,
+    dir: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct RawExpertsConfig {
+    roots: Option<Vec<String>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct RawTeamConfig {
+    max_parallel: Option<i32>,
 }

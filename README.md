@@ -94,8 +94,9 @@ checks a tree other than the one above the working directory.
 
 ## Commands
 
-Eleven spellings; the first nine are the ones the Go oracle froze in
-`docs/contracts/cli.md`, and `goal`/`schedule` are the P2 additions:
+Thirteen spellings; the first nine are the ones the Go oracle froze in
+`docs/contracts/cli.md`, `goal`/`schedule` are the P2 additions, and
+`plugin`/`expert`/`team`/`market` are the P3 additions:
 
 | Command | What it does |
 | --- | --- |
@@ -109,6 +110,10 @@ Eleven spellings; the first nine are the ones the Go oracle froze in
 | `forge session fork <id> [--at N] [--id NAME]` | open a new session at a given seq |
 | `forge goal start\|status\|end` | record, inspect or close a goal |
 | `forge schedule add\|list\|remove\|next\|run` | recurring prompts, and the tick that opens them |
+| `forge plugin list\|start\|stop\|call\|doctor` | inspect and drive out-of-process plugins |
+| `forge expert list\|show` | the Markdown expert and team roster |
+| `forge team list\|run` | run a roster team over a shared task board |
+| `forge market list\|search\|install\|remove\|verify` | install plugin bundles, verified by SHA-256 |
 | `forge "<prompt>"` | a bare prompt is shorthand for `forge chat "<prompt>"` |
 
 `chat` and `web` both build their tool set through one place (`crates/cli/src/wiring.rs`):
@@ -116,10 +121,14 @@ the nine always-present tools (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_
 `shell`, `todo_write`, `worktree`, `present`) and the two network tools `web_fetch` and
 `web_search` (absent when the capability cannot be built — an absent tool is discoverable,
 one that always fails is not), every tool a configured MCP server advertises (each one with
-its own `ask` rule, because it runs outside forge), a `skill` tool when at least one skill is
+its own `ask` rule, because it runs outside forge), one `<plugin>.<tool>` per tool a loaded
+plugin advertises (also `ask`: it leaves this process), an `expert` tool when the roster has
+a summonable expert, a `team` tool when `team.maxParallel > 0` and the roster has a team
+(`ask`, because every worker spends money), a `skill` tool when at least one skill is
 found, and a `subagent` tool when `subagent.maxDepth > 0`. A `goal_end` tool joins them only
 inside a goal loop (`forge chat --goal`), because a verdict nobody reads is not a tool. A
-broken MCP entry is reported and skipped rather than stopping the runtime.
+broken MCP entry or a plugin that fails to load is reported and skipped rather than stopping
+the runtime.
 
 `web_search` needs an endpoint, because there is no search provider that works without
 one. `config.json`:

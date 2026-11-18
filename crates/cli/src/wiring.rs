@@ -39,6 +39,8 @@ use forge_tool::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::bridges;
+
 /// Prefix of every bridged MCP tool name.
 pub const MCP_NAME_PREFIX: &str = "mcp__";
 
@@ -104,6 +106,10 @@ pub struct WiredTools {
     limits: Limits,
     workspace: String,
     clients: Vec<Arc<Mutex<Box<dyn Client>>>>,
+    /// Kept alive for the life of the turn: dropping a `Host` unloads every
+    /// plugin, and a plugin tool that outlived its host would fail on its first
+    /// call with "not loaded".
+    plugins: Option<Arc<forge_plugin::Host>>,
 }
 
 impl WiredTools {
@@ -125,6 +131,16 @@ impl WiredTools {
     /// Names in registry order, for the `tools=N` diagnostic line.
     pub fn names(&self) -> Vec<String> {
         self.registry.names()
+    }
+
+    /// The plugin host, if any plugin was loaded.
+    ///
+    /// The field exists to keep the host alive: dropping it unloads every plugin
+    /// (its `Drop` does that), and a `PluginTool` that outlived its host would
+    /// fail on its first call. Reading it is therefore only for callers that want
+    /// to ask a plugin something out of band — the tools hold their own `Arc`.
+    pub fn plugins(&self) -> Option<&Arc<forge_plugin::Host>> {
+        self.plugins.as_ref()
     }
 
     /// Close every MCP client. Idempotent; children are killed here, so it must
@@ -782,6 +798,143 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
         }
     }
 
+    // --- Plugins -----------------------------------------------------------
+    // A plugin is a child process the operator named in `plugins.enabled`. The
+    // host is started here but spawns nothing until a plugin is loaded, and a
+    // plugin that fails to load is a note rather than a failed turn: one broken
+    // third-party process must not cost the operator their session.
+    let mut plugin_host: Option<Arc<forge_plugin::Host>> = None;
+    if !options.cfg.plugins.enabled.is_empty() {
+        let host = Arc::new(forge_plugin::Host::start(options.cfg.plugin_root()));
+        for name in &options.cfg.plugins.enabled {
+            let name = name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            match host.load(name) {
+                Ok(loaded) => {
+                    let version = &loaded.handshake.version;
+                    let capabilities = &loaded.handshake.capabilities;
+                    let mut parts: Vec<String> = Vec::new();
+                    if capabilities.tools {
+                        parts.push("tools".to_string());
+                    }
+                    if capabilities.prompts {
+                        parts.push("prompts".to_string());
+                    }
+                    if !capabilities.hooks.is_empty() {
+                        parts.push(format!("hooks={}", capabilities.hooks.join(",")));
+                    }
+                    notes.push(format!(
+                        "plugin {name} {version} loaded ({})",
+                        if parts.is_empty() {
+                            "no capabilities".to_string()
+                        } else {
+                            parts.join(", ")
+                        }
+                    ));
+                }
+                Err(err) => notes.push(format!("plugin {name} skipped: {err}")),
+            }
+        }
+        for (plugin, spec) in host.all_tools() {
+            let remote = spec.name.clone();
+            let name = format!("{plugin}{}{remote}", bridges::PLUGIN_NAME_SEPARATOR);
+            if !contributed.insert(name.clone()) {
+                // Two plugins cannot share a tool name once namespaced, so a
+                // duplicate here means the same plugin was listed twice.
+                continue;
+            }
+            // `forge_plugin::ToolSpec` is the plugin's own copy of the shape (the
+            // plugin crate does not depend on the LLM crate), so the host's answer
+            // is translated here rather than made to share a type.
+            let spec = ToolSpec {
+                name: name.clone(),
+                description: spec.description.clone(),
+                schema: if spec.schema.is_object() {
+                    spec.schema.clone()
+                } else {
+                    serde_json::from_str(EMPTY_OBJECT_SCHEMA)
+                        .expect("the empty schema is a constant")
+                },
+            };
+            let tool = bridges::PluginTool::new(
+                Arc::clone(&host),
+                plugin.clone(),
+                remote,
+                spec,
+                options.limits,
+            );
+            registry.register_arc(Arc::new(tool));
+            // Plugin tools ask every time, for the reason MCP tools do: the call
+            // leaves this process and the operator should see it first.
+            ask_rules.push(forge_tool::Rule::new(name, "", ACTION_ASK));
+        }
+        plugin_host = Some(host);
+    }
+
+    // --- Experts -----------------------------------------------------------
+    // One `expert` tool for the whole roster, registered only when the roster
+    // holds at least one summonable expert: an always-present tool that can only
+    // say "the roster is empty" costs tokens on every request.
+    let mut expert_set: Option<forge_experts::Set> = None;
+    let expert_roots: Vec<PathBuf> = options
+        .cfg
+        .expert_roots()
+        .iter()
+        .map(|root| PathBuf::from(root.trim()))
+        .filter(|root| !root.as_os_str().is_empty())
+        .collect();
+    if !expert_roots.is_empty() {
+        for root in &expert_roots {
+            match forge_experts::scan(root) {
+                Ok(set) => {
+                    if set.is_empty() {
+                        continue;
+                    }
+                    if let Some(existing) = &mut expert_set {
+                        notes.push(format!(
+                            "expert root {} ignored: the first roster with experts wins",
+                            root.display()
+                        ));
+                        let _ = existing;
+                    } else {
+                        expert_set = Some(set);
+                    }
+                }
+                Err(err) => notes.push(format!("expert roster {}: {err}", root.display())),
+            }
+        }
+    }
+    if let Some(set) = &expert_set {
+        if !bridges::expert_slugs(set).is_empty() {
+            registry.register_arc(Arc::new(bridges::ExpertTool::new(
+                set.clone(),
+                options.limits,
+            )));
+        }
+    }
+
+    // --- Teams -------------------------------------------------------------
+    // `team` spends money per worker, so it exists only when the operator asked
+    // for it (`team.maxParallel > 0`) and there is a roster with a team in it.
+    // The runner needs the finished policy (workers run tools through it), so the
+    // tool itself is registered after the policy is built — the `ask` rule has to
+    // exist first, and rules are a list, not a callback.
+    let mut team_wanted = false;
+    if options.cfg.team.max_parallel > 0 {
+        if let Some(set) = &expert_set {
+            if !set.teams().is_empty() {
+                team_wanted = true;
+                ask_rules.push(forge_tool::Rule::new(
+                    bridges::TEAM_TOOL_NAME,
+                    "",
+                    ACTION_ASK,
+                ));
+            }
+        }
+    }
+
     // --- Skills ------------------------------------------------------------
     let roots: Vec<PathBuf> = options
         .cfg
@@ -815,6 +968,31 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
         Some(Rules::from_rules(ask_rules))
     };
     let policy: Arc<dyn Policy> = Arc::new(merge(Some(&base), extra.as_ref()));
+
+    // --- Team tool (registered now that the policy exists) -------------------
+    if team_wanted {
+        match build_worker_runner(
+            &options,
+            Arc::clone(&registry),
+            Arc::clone(&policy),
+            logger.clone(),
+        ) {
+            Ok(runner) => {
+                let workers = Arc::new(bridges::SubagentWorkers::new(
+                    Arc::clone(&runner),
+                    options.workspace.clone(),
+                ));
+                let tool = bridges::TeamTool::new(
+                    workers,
+                    bridges::team_root(&options.data_dir),
+                    options.cfg.team.max_parallel as usize,
+                    options.limits,
+                );
+                registry.register_arc(Arc::new(tool));
+            }
+            Err(err) => notes.push(format!("team tool skipped: {}", err.message())),
+        }
+    }
 
     // --- Subagent ----------------------------------------------------------
     // Only when the operator asked for it: `maxDepth` defaults to zero, and a
@@ -865,7 +1043,47 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
         limits: options.limits,
         workspace: options.workspace,
         clients,
+        plugins: plugin_host,
     }
+}
+
+/// A subagent runner for team workers.
+///
+/// Separate from the `subagent` tool's runner on purpose: a team worker is not a
+/// delegated turn of this session (it has no parent session, and its transcript
+/// belongs to the board), so the two runs differ in exactly the fields that make
+/// the difference and agree on everything else.
+fn build_worker_runner(
+    options: &BuildOptions<'_>,
+    registry: Arc<Registry>,
+    policy: Arc<dyn Policy>,
+    logger: NoteLogger,
+) -> forge_core::Result<Arc<forge_subagent::Runner>> {
+    let parent_runner: Arc<dyn forge_agent::ToolRunner> = Arc::new(ExecutorRunner {
+        executor: Executor::new(
+            registry,
+            ExecutorOptions {
+                policy: Some(policy),
+                approver: None,
+                limits: options.limits,
+                workspace: options.workspace.clone(),
+            },
+        ),
+    });
+    let mut sub = forge_subagent::Options::new(
+        Arc::clone(&options.provider),
+        options.data_dir.clone(),
+        options.workspace.clone(),
+        options.model.clone(),
+    );
+    sub.system = options.system.clone();
+    sub.tools = Some(parent_runner);
+    // A worker is one level deep, whatever `subagent.maxDepth` says: the roster
+    // said how many workers, not how many generations of workers.
+    sub.max_depth = 1;
+    sub.logger = Arc::new(logger);
+    sub.limits = options.limits;
+    Ok(Arc::new(forge_subagent::Runner::new(sub)?))
 }
 
 /// Maps the config's transport spelling onto the client's enum. Anything that

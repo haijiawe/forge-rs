@@ -28,6 +28,10 @@ forge-skill = { path = "../skill" }
 forge-subagent = { path = "../subagent" }
 forge-goal = { path = "../goal" }
 forge-schedule = { path = "../schedule" }
+forge-plugin = { path = "../plugin" }
+forge-experts = { path = "../experts" }
+forge-team = { path = "../team" }
+forge-market = { path = "../market" }
 getrandom.workspace = true
 ctrlc = "3.4"
 serde.workspace = true

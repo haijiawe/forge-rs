@@ -197,12 +197,21 @@ through `forge-net` in a test with a local fixture server; `web_search` refuses
 with a named reason when unconfigured; `git worktree list` shows the new tree;
 `cargo test --workspace` + `check.ps1` green; no new dependency line in
 `Cargo.toml`.
+*Status: delivered (`a02e61f`, `abeb8cc`, `d218b03`). `forge-net` parses, fetches
+and renders HTML with no new dependency; eight end-to-end tests run against a real
+loopback listener; attachment bodies lease `<dataDir>/blobs/` and the event keeps
+only the reference.*
 
 **P2 — time and memory (~2 weeks).**
 `forge-schedule` + `forge goal` + the continuation loop. *Acceptance:* a
 next-occurrence table for a fixed rrule corpus (the rrule subset is the oracle);
 a goal survives a restart because it is in the log; a continuation round is
 bounded and stops on `blocked`.
+*Status: delivered (`608ce96`). 59 schedule tests, the rrule table in
+`crates/schedule/tests/oracle.rs`; `goal/created|continued|ended` are in
+`EventType::ALL` so a restart reads the same budget; `--max-rounds` counts turns,
+not continuations (a bug found by the acceptance run: the first round is the one
+that created the goal).*
 
 **P3 — platform layer (1–2 months).**
 `forge-plugin` (protocol doc + lifecycle + a reference plugin written in a
@@ -214,6 +223,12 @@ protocol — two full reference plugins would be two maintenance surfaces bought
 re-prove one property; a market install verifies a checksum and refuses a tampered
 tarball; an expert team dispatches two members and writes their results to a shared
 board.
+*Status: the four crates are delivered and green (plugin 30+12, market 110,
+experts 77, team 48), and `forge plugin|expert|team|market` are CLI commands.
+The acceptance evidence is the reference Node plugin plus the ten-line
+`tests/reference-node/smoke.py` under `crates/plugin`; the market refusal path was
+run against a real `python -m http.server` with a tampered tarball (digest
+mismatch named both digests, nothing landed in `bundles/`).*
 
 **P4 — context and content (optional).**
 `forge-context` (addressable compression), Office skills, pure-Rust document

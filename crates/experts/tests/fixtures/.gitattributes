@@ -1,0 +1,7 @@
+# Fixtures are compared byte for byte, so git must not rewrite them.
+#
+# The root .gitattributes forces `eol=lf` on everything, which is right for
+# source and wrong here: one fixture carries a `\r\n` body on purpose, to prove
+# that this loader keeps a body exactly as written. `-text` on the whole
+# directory stops git from touching any fixture's line endings.
+* -text

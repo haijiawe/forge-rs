@@ -2,7 +2,7 @@
 dir: crates/config
 layer: L0
 role: config file, home directory, defaults, and MCP entry validation warnings
-public: [Config, MCPServerConfig, MCPConfig, MCPConfigError, SkillsConfig, SubagentConfig, load, home_dir, default_path, SANDBOX_READ_ONLY, SANDBOX_WORKSPACE_WRITE, SANDBOX_FULL_ACCESS]
+public: [Config, MCPServerConfig, MCPConfig, MCPConfigError, SkillsConfig, SubagentConfig, PluginsConfig, ExpertsConfig, TeamConfig, load, home_dir, default_path, plugin_root, expert_roots, SANDBOX_READ_ONLY, SANDBOX_WORKSPACE_WRITE, SANDBOX_FULL_ACCESS]
 may_import: [forge-core]
 must_not: [forge-exec, forge-sandbox, forge-session, forge-llm, forge-tool, forge-protocol, forge-server, forge-cli]
 gate: make arch

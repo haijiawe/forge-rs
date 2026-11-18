@@ -1,0 +1,7 @@
+{
+  "name": "reference",
+  "version": "1.0.0",
+  "description": "The reference plugin: the whole protocol in plain Node, no dependencies.",
+  "runtime": "node",
+  "entry": "index.js"
+}

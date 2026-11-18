@@ -130,11 +130,14 @@ dependencies = [
  "forge-agent",
  "forge-config",
  "forge-core",
+ "forge-experts",
  "forge-goal",
  "forge-import",
  "forge-llm",
+ "forge-market",
  "forge-mcp",
  "forge-net",
+ "forge-plugin",
  "forge-protocol",
  "forge-sandbox",
  "forge-schedule",
@@ -143,6 +146,7 @@ dependencies = [
  "forge-skill",
  "forge-store",
  "forge-subagent",
+ "forge-team",
  "forge-tool",
  "getrandom 0.3.4",
  "rustls",
@@ -186,6 +190,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "forge-experts"
+version = "0.1.0"
+
+[[package]]
 name = "forge-goal"
 version = "0.1.0"
 dependencies = [
@@ -217,6 +225,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "forge-market"
+version = "0.1.0"
+dependencies = [
+ "forge-core",
+ "forge-net",
+ "ring",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "forge-mcp"
 version = "0.1.0"
 dependencies = [
@@ -235,6 +254,15 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "webpki-roots",
+]
+
+[[package]]
+name = "forge-plugin"
+version = "0.1.0"
+dependencies = [
+ "forge-mcp",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -308,6 +336,16 @@ dependencies = [
  "forge-llm",
  "forge-session",
  "forge-tool",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "forge-team"
+version = "0.1.0"
+dependencies = [
+ "forge-core",
+ "forge-exec",
  "serde",
  "serde_json",
 ]

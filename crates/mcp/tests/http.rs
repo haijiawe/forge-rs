@@ -121,6 +121,15 @@ fn write_chunked(stream: &mut TcpStream, chunks: &[Vec<u8>]) {
 }
 
 fn handle(mut stream: TcpStream, mode: Mode, state: &Captured) {
+    // The listener is non-blocking so the accept loop can be stopped, and on
+    // Windows an accepted socket *inherits* that flag. Without this line the
+    // fixture's writes fail with `WouldBlock` once the send buffer fills (~320 KiB),
+    // the handler returns early and closes, and the client then reports a short
+    // body instead of the cap it was asked to enforce — the test would be reporting
+    // the fixture's failure, not the client's behaviour.
+    stream
+        .set_nonblocking(false)
+        .expect("blocking accepted stream");
     let mut reader = BufReader::new(stream.try_clone().expect("clone"));
     let mut request_line = String::new();
     if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
@@ -245,6 +254,10 @@ data: {"jsonrpc":"2.0","method":"notifications/message","params":{"data":"hello"
                 oversized.len()
             );
             let _ = stream.write_all(header.as_bytes());
+            // Hand the whole body over: the client stops reading at the cap, so this
+            // write legitimately ends in a reset once its receive buffer is full.
+            // That reset is part of what an oversized body looks like on the wire;
+            // it must not turn into a write error that aborts the handler first.
             let _ = stream.write_all(&oversized);
             let _ = stream.flush();
             return;

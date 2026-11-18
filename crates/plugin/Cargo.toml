@@ -1,0 +1,16 @@
+[package]
+name = "forge-plugin"
+description = "plugin host: out-of-process plugins over newline-delimited JSON-RPC 2.0 on stdio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# The MCP client already owns the stdio child, the stderr pump and the JSON-RPC
+# framing, and this crate sits one layer above it. It is imported for `Logger`
+# and `NoopLogger` — the log sink a host has to accept from its caller — not for
+# a transport this crate would have to reshape into a non-MCP protocol.
+forge-mcp = { path = "../mcp" }
+serde.workspace = true
+serde_json.workspace = true
