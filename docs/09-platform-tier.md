@@ -90,7 +90,7 @@ none of them put a compiler into our build:
 | attachments (file/image) | **Rust**, done in P1 | Bodies live in `<dataDir>/blobs/` (`crates/session/src/blobs.rs`), the event keeps a reference, and `GET /api/sessions/{id}/attachments/{id}` serves the bytes. Pixels reached the model in P4: the same `Attachment` list is read back through `crates/cli/src/attachments.rs` and handed to `forge_llm` as `ContentPart::Image` | 
 | `schedule` | **Rust**, new L2 crate `forge-schedule` | rrule is parsing, not compute. Write a **subset** (FREQ/INTERVAL/BYDAY/BYHOUR/BYMINUTE/COUNT/UNTIL) — no dependency. *Lost:* pulling a full rrule crate (new dep, new edge) |
 | `goal` | **Rust**, new L2 crate `forge-goal` | A state machine plus a continuation loop; persisted as events, so restart keeps it |
-| plugin runtime | **Rust host + out-of-process plugins over stdio JSON-RPC** | The MCP client (`crates/mcp`, L1) already does exactly this, and §2.3 measured the round trip at 80 µs empty / 118 µs for 4 KB against a 1,203 ms model call. A plugin = MCP-shaped server plus lifecycle hooks. Language-agnostic *by construction*, zero new deps, and the sandbox already contains children. *Lost:* wasmtime (adds a large dependency and a second compile step), V8/deno_core (an order of magnitude larger than the whole binary), `cdylib` loading (ABI and version hell, and breaks `panic = "abort"`) |
+| plugin runtime | **Rust host + out-of-process plugins over stdio JSON-RPC** | The MCP client (`crates/mcp`, L1) already does exactly this, and §2.3 measured the round trip on this stack at 37 µs empty / 56 µs for 4 KiB against a 1,203 ms model call. A plugin = MCP-shaped server plus lifecycle hooks. Language-agnostic *by construction*, zero new deps, and the sandbox already contains children. *Lost:* wasmtime (adds a large dependency and a second compile step), V8/deno_core (an order of magnitude larger than the whole binary), `cdylib` loading (ABI and version hell, and breaks `panic = "abort"`) |
 | plugin market | **Rust**, L2 `forge-market` | HTTP index + tarball + checksums; `ring` is already there for hashing |
 | experts, expert teams | **Rust loader** (`forge-experts`, L1) over **Markdown + YAML frontmatter** | Same shape as skills (`crates/skill` reads frontmatter today), so the format is already proven. Prompts are content, not code |
 | agent teams | **Rust**, extend `forge-subagent` into `forge-team` | Serial delegation already exists; teams add parallel workers, a shared task board and an inbox |
@@ -98,33 +98,75 @@ none of them put a compiler into our build:
 | ACP-style compression | **Rust**, new L2 `forge-context` | The interesting part is the addressing model (block ids, restore, search) and the cache ledger, not throughput |
 | image generation | **MCP**, nothing in-tree | Already possible today |
 
-### 2.3 What the round trip costs (measured)
+### 2.3 What the round trip costs (measured on this stack)
 
 The obvious objection to a process boundary is latency, so it was measured before
-it was chosen. Two Node processes (parent client, child server), 2,000 sequential
-JSON-RPC calls, same machine, `process.hrtime.bigint()` around the loop:
+it was chosen — and then measured again properly, because the first measurement
+was a proxy.
 
-| Result payload | Per call |
-| --- | --- |
-| empty | **80.6 µs** |
-| 4 KB | **118.3 µs** |
-| 64 KB | **343.7 µs** |
+**Superseded:** the original numbers here (80.6 µs empty / 118.3 µs at 4 KB /
+343.7 µs at 64 KB) came from two *Node* processes talking to each other. That
+measures Node's pipes, not this host's. The `durationMs` field on a tool result is
+no substitute either: `crates/tool/src/executor.rs:74` records `as_millis()`, so
+every sub-millisecond call reads as 0 or 1.
 
-For scale: one model round trip to the endpoint this project measures against is
-**1,203 ms**. A plugin call is therefore 0.007% of one model call; a thousand of
-them cost 80 ms. Node's JSON path is also the slow end of the range this host will
-see — a Rust plugin skips an interpreter start and a parse of its own.
+The real measurement is `crates/plugin/examples/ipc_cost.rs`: the Rust host
+starts one Node plugin, then makes 2,000 sequential `tools/call` round trips per
+payload size after discarding 100 warm-up calls, timed with `Instant`. The
+in-process rows are the control — the same `serde_json` encode/decode with no
+boundary — so the pipe rows read as *floor + boundary*.
 
-So "which language is fastest" is the wrong question at this boundary: the host
-already pays microseconds, and the reason to let the plugin author choose is that
-the choice does not show up in the profile. The costs that do show up are
-distribution (can it be installed), authoring (can it be written), and containment
-(can it be stopped) — and a child process wins all three.
+```text
+cargo run --release -p forge-plugin --example ipc_cost --offline
+```
 
-**What this does not settle.** 80 µs is Node-to-Node with no tool work. A plugin
-doing real I/O costs whatever the I/O costs. If a future plugin needs to sit in a
-hot loop of small calls, the answer is to write it in Rust or batch the calls, not
-to move the host.
+Windows, node v24.21.0, two consecutive runs (p50 / p95, µs):
+
+| Measurement | Run 1 | Run 2 |
+| --- | --- | --- |
+| pipe: empty result | 37.5 / 71.2 | 36.3 / 71.8 |
+| pipe: 4 KiB result | 56.0 / 96.1 | 51.7 / 92.8 |
+| pipe: 64 KiB result | 230.7 / 400.0 | 240.8 / 428.2 |
+| in-process: empty result | 1.2 / 2.1 | 1.1 / 1.2 |
+| in-process: 4 KiB result | 2.8 / 5.8 | 2.8 / 3.5 |
+| in-process: 64 KiB result | 24.3 / 59.9 | 24.1 / 61.0 |
+
+Two conclusions, and they point in opposite directions:
+
+1. **Relative to an in-process call, the boundary is expensive.** ~31× on an empty
+   result, ~20× at 4 KiB, ~9.5× at 64 KiB. Anyone claiming a process boundary is
+   "as fast as a function call" is wrong, and the ratio gets worse as payloads
+   get smaller.
+2. **Relative to what a turn actually spends, it is invisible.** One model round
+   trip on this project measured **1,203 ms** = 1,203,000 µs. A 37 µs plugin call
+   is **0.003%** of that. A thousand of them cost 37 ms — still 3% of one model
+   call.
+
+The second is the one that decides, because a turn is one model call plus a
+handful of tool calls, not a hot loop of IPC.
+
+**The cost that does matter is startup, not the call.** Spawn + handshake measured
+**44.9 ms** and **36.5 ms** on the two runs — roughly **1,000× a single call**.
+`node --version` alone is 17.8 ms p50 on this host, so about half of that is the
+interpreter's own startup and the rest is module load plus our handshake. This is
+why `chat` holds one `Host` for the whole turn and `Host::load` is the only thing
+that spawns: a design that started a child per call would turn a 1,000-call turn
+from 37 ms into 45 seconds. **Keeping the child alive is the decision that
+protects performance here; the transport choice is not.**
+
+It also makes "write it in Rust if you want it fast" a precise claim rather than a
+slogan: a `runtime: "exec"` plugin skips the interpreter start, so it changes the
+*cold* cost by roughly an order of magnitude and the per-call cost barely at all.
+
+**What this does not settle.** These are round trips with no tool work. A plugin
+doing real I/O costs whatever the I/O costs. If a future plugin needs a hot loop
+of small calls, the answer is to batch the calls or write that plugin natively —
+not to move the host.
+
+So "which language is fastest" is the wrong question at this boundary. The costs
+that show up in a profile are distribution (can it be installed), authoring (can
+it be written), and containment (can it be stopped) — and a child process wins all
+three.
 
 ### 2.4 Rejected outright
 
@@ -138,6 +180,51 @@ to move the host.
   a licensing question.
 - **Rewriting the web UI in Rust/WASM.** The UI is 265 kB gzipped and its gates
   are green; a WASM rewrite buys nothing measurable.
+
+### 2.5 How to make a choice like this
+
+The question "which architecture is best, and fastest without losing much" has no
+answer until it is turned into four measurements. This is the order that worked
+here, and the order that would have saved time if it had been followed from the
+start.
+
+**1. Find the denominator before optimising the numerator.** A turn is one model
+round trip plus a handful of tool calls. On this project that is 1,203 ms against
+37 µs. Any optimization of the 37 µs is rounding error, however impressive the
+ratio looks. Write the denominator down first; it disqualifies most candidates
+without a benchmark.
+
+**2. Measure the cold path separately from the warm path.** They differ by 1,000×
+here (36–45 ms spawn versus 37 µs call). An architecture that looks slow per-call
+can be the right one, and an architecture that looks fast per-call can be ruinous
+if it pays startup every time. The decision that protected performance in this
+design was *keeping the child alive*, not the transport.
+
+**3. Price what the choice removes, not only what it adds.** An embedded engine
+would remove the process boundary and add: tens of megabytes, a second build
+chain, a second cross-compile matrix, the loss of `panic = "abort"`, and the loss
+of "kill the child" as a containment story. Those are not microseconds, and they
+are paid on every build and every incident rather than once per call.
+
+**4. Ask which property is actually scarce.** For a plugin system the scarce
+properties are *can a stranger write one*, *can it be installed*, and *can it be
+stopped*. Latency is abundant — there is a 1,203 ms budget sitting right there.
+Choose the design that spends the abundant resource to buy the scarce one.
+
+Two failure modes this project hit, worth naming because both looked like
+progress:
+
+| Mistake | What it looked like | What fixed it |
+| --- | --- | --- |
+| Measuring a proxy | "80 µs round trip" from two Node processes, quoted as if it were our host | measure the real pair; keep the script in the repo so the claim is re-runnable |
+| Reading a coarse field as a fine one | `durationMs: 2` treated as evidence about microseconds | check the resolution at the source (`as_millis()`) before quoting it |
+
+And the honest cost of the choice that was made: Rust's iteration loop is slower
+than Go's or TypeScript's — a full workspace test run is ~30 s here and the borrow
+checker sends designs back for rework. That is a real tax on *authoring* speed,
+it is not visible in any runtime number above, and it was accepted in exchange
+for the runtime properties in §2.1. Pretending it does not exist would make this
+document a sales pitch instead of a decision record.
 
 ## 3. Crate plan and the layer graph
 
