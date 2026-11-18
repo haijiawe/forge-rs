@@ -454,3 +454,128 @@ fn resume_rebuilds_history_from_log() {
         .count();
     assert_eq!(starts, 1, "resume must not start a new session");
 }
+
+/// Attachments reach the model: the hook turns the references in the log into
+/// image parts, and the provider sees them in the message it is asked to answer.
+///
+/// The two halves of this claim are tested together on purpose. A hook that fires
+/// but whose parts never leave `to_llm_messages_with_parts` would look
+/// implemented from the outside, and so would a request whose array form came
+/// from somewhere else.
+#[test]
+fn attachment_parts_reach_the_provider_request() {
+    let path = temp_log("attachments");
+    let blob_root = std::env::temp_dir().join(format!("forge-agent-blobs-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&blob_root);
+    let blobs = forge_session::Blobs::new(blob_root.join("blobs"));
+    let id = blobs.put(&[0x89, 0x50, 0x4E, 0x47]).expect("write blob");
+
+    let store = open_store(&path);
+    // The HTTP layer wrote the prompt, including the reference. History is
+    // rebuilt from this, never from a cached message list.
+    {
+        let ev = forge_core::Event::new(
+            SESSION,
+            forge_core::EventType::SESSION_START,
+            Some(json!({
+                "workspace": WORKSPACE,
+                "model": MODEL,
+                "startedBy": "http",
+                "system": SYSTEM,
+            })),
+        );
+        store.append(&ev).expect("append session/start");
+        let mut ts = forge_core::Event::new(
+            SESSION,
+            forge_core::EventType::TURN_START,
+            Some(json!({"number": 1})),
+        );
+        ts.turn = 1;
+        store.append(&ts).expect("append turn/start");
+        let mut um = forge_core::Event::new(
+            SESSION,
+            forge_core::EventType::USER_MESSAGE,
+            Some(json!({
+                "text": "what is in this picture?",
+                "attachments": [{
+                    "kind": "image",
+                    "id": id,
+                    "mediaType": "image/png",
+                    "name": "shot.png",
+                    "bytes": 4,
+                }],
+            })),
+        );
+        um.turn = 1;
+        store.append(&um).expect("append user/message");
+    }
+
+    let provider = Arc::new(ScriptedProvider::new(vec![Response::Deltas(vec![
+        Delta {
+            text: "a four byte png".into(),
+            ..Default::default()
+        },
+        Delta {
+            stop_reason: Some("stop".into()),
+            ..Default::default()
+        },
+    ])]));
+    let mut opt = Options::new(provider.clone(), Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.system = SYSTEM.into();
+    opt.prompt_recorded = true;
+    opt.clock = fixed_clock();
+    opt.attachments = Some(Arc::new(forge_cli_like_hook(blob_root.clone())));
+    let agent = Agent::new(opt).expect("new agent");
+    let (result, error) = agent.run("what is in this picture?");
+    assert!(error.is_none(), "turn failed: {:?}", error);
+    assert_eq!(result.text, "a four byte png");
+
+    let reqs = provider.requests();
+    assert_eq!(reqs.len(), 1);
+    let user = reqs[0]
+        .messages
+        .iter()
+        .find(|m| m.role == forge_llm::Role::User)
+        .expect("a user message");
+    assert!(
+        user.has_parts(),
+        "the image never reached the request: {user:?}"
+    );
+    assert_eq!(user.content, "what is in this picture?");
+    assert_eq!(user.parts.len(), 1);
+    match &user.parts[0] {
+        forge_llm::ContentPart::Image { media_type, data } => {
+            assert_eq!(media_type, "image/png");
+            assert_eq!(data, &[0x89, 0x50, 0x4E, 0x47]);
+        }
+        other => panic!("expected an image part, got {other:?}"),
+    }
+
+    let _ = std::fs::remove_dir_all(&blob_root);
+}
+
+/// The same lookup the CLI wires into `Options::attachments`, spelled here so the
+/// test does not depend on `forge-cli` (which would be a cycle: the CLI is a
+/// consumer of this crate).
+fn forge_cli_like_hook(
+    data_dir: std::path::PathBuf,
+) -> impl Fn(&forge_session::projection::Message) -> Vec<forge_llm::ContentPart> + Send + Sync {
+    let blobs = forge_session::Blobs::new(data_dir.join("blobs"));
+    move |message: &forge_session::projection::Message| {
+        message
+            .attachments
+            .iter()
+            .filter(|a| a.kind == "image" || a.media_type.starts_with("image/"))
+            .filter(|a| !a.id.trim().is_empty())
+            .filter_map(|a| {
+                let data = blobs.get(&a.id).ok()?;
+                let media_type = if a.media_type.trim().is_empty() {
+                    "image/png".to_string()
+                } else {
+                    a.media_type.clone()
+                };
+                Some(forge_llm::ContentPart::image(media_type, data))
+            })
+            .collect()
+    }
+}

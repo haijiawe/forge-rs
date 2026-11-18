@@ -1,6 +1,8 @@
 # ADR-0003 — the platform tier: what is missing, and in which language
 
-- **Status:** proposed (2026-11-17). Nothing in this document is implemented.
+- **Status:** proposed (2026-11-17); waves P1–P3 plus one follow-up wave are
+  delivered, and each wave's status line below says what was measured and what was
+  not. P4 is not started.
 - **Decision owner:** the user. This records the gap inventory, the language
   decisions, and the wave plan; it does not authorise the work.
 - **Supersedes nothing.** [08-rust-port.md](08-rust-port.md) (ADR-0002) still
@@ -82,10 +84,10 @@ none of them put a compiler into our build:
 | --- | --- | --- |
 | `web_fetch`, `web_search`, market fetches | **Rust**, new L1 crate `forge-net` | TLS is already in the budget (`rustls`+`ring`+`webpki-roots`). Extract the generic part of `crates/llm/src/openai.rs`'s blocking HTTP client. *Lost:* a separate Go helper — no throughput argument, and it would double the toolchain |
 | `web_search` backend | **configurable endpoint**, no built-in scraping | Search needs a service; a keyless HTML scrape breaks silently. Config key `search.endpoint`/`search.key`, absent ⇒ tool refuses with a clear message (fail closed) |
-| `read_image` | **Rust**, plus a protocol change | The blocker is `Message.content: String`. Needs a content-parts shape (`text` \| `image_url`) in `crates/llm/src/contract.rs`, the OpenAI request builder, and the event payload |
+| `read_image` | **Rust**, done in P4 | `Message` gained `parts: Vec<ContentPart>` (`serde(skip)`, so the frozen contract JSON is byte-identical), the OpenAI builder emits `{"type":"image_url"}` with a `data:` URI, and `read_image` returns the bytes through `Result.parts` — never through the log, which keeps `meta.imagePath`/`mediaType`/`bytes` and re-reads the file on later turns. Measured end to end: the second request body contains `data:image/png;base64,…`, the 21-line log contains no `iVBOR`, and deleting the file makes the next turn report no image |
 | `worktree` | **Rust**, shell out to `git` | `crates/tool/src/builtin/shell.rs` already spawns through `forge-exec`, so tree-kill and the sandbox apply for free |
 | `present` | **Rust**, small | Writes a manifest the web UI reads; no new dependency |
-| attachments (file/image) | **Rust**, done in P1 | Bodies live in `<dataDir>/blobs/` (`crates/session/src/blobs.rs`), the event keeps a reference, and `GET /api/sessions/{id}/attachments/{id}` serves the bytes. *Still missing:* feeding pixels to a model — `crates/llm/src/contract.rs` has `content: String`, so an image attachment is recorded and downloadable but not understood | 
+| attachments (file/image) | **Rust**, done in P1 | Bodies live in `<dataDir>/blobs/` (`crates/session/src/blobs.rs`), the event keeps a reference, and `GET /api/sessions/{id}/attachments/{id}` serves the bytes. Pixels reached the model in P4: the same `Attachment` list is read back through `crates/cli/src/attachments.rs` and handed to `forge_llm` as `ContentPart::Image` | 
 | `schedule` | **Rust**, new L2 crate `forge-schedule` | rrule is parsing, not compute. Write a **subset** (FREQ/INTERVAL/BYDAY/BYHOUR/BYMINUTE/COUNT/UNTIL) — no dependency. *Lost:* pulling a full rrule crate (new dep, new edge) |
 | `goal` | **Rust**, new L2 crate `forge-goal` | A state machine plus a continuation loop; persisted as events, so restart keeps it |
 | plugin runtime | **Rust host + out-of-process plugins over stdio JSON-RPC** | The MCP client (`crates/mcp`, L1) already does exactly this, and §2.3 measured the round trip at 80 µs empty / 118 µs for 4 KB against a 1,203 ms model call. A plugin = MCP-shaped server plus lifecycle hooks. Language-agnostic *by construction*, zero new deps, and the sandbox already contains children. *Lost:* wasmtime (adds a large dependency and a second compile step), V8/deno_core (an order of magnitude larger than the whole binary), `cdylib` loading (ABI and version hell, and breaks `panic = "abort"`) |
@@ -256,6 +258,32 @@ Why this is last rather than first, in three lines:
 **Revisit trigger.** If long sessions lose detail before the model's window is
 full, `forge-context` moves ahead of P2 — the loss is in the context window, not
 in rendering (10,001 events already scroll at 60 fps, measured in `docs/web-ui.md`).
+
+**A wave between P3 and P4, done first because the browser was blind.** Four
+items from §1.1 that P1 did not cover turned out to be one job: the harness could
+not show the model a picture, and the UI could not show the operator what the
+model had been offered.
+
+| Item | What was actually wrong | What changed |
+| --- | --- | --- |
+| `read_image` | absent, and its blocker was the transport: a tool result is a text message | `Message.parts` (`ContentPart::{Text, Image}`, `serde(skip)` so the frozen contract JSON does not move), an OpenAI array-form encoder, `Result.parts`, and one follow-up user message per batch of images |
+| attachments reaching the model | recorded and downloadable, never seen | `crates/cli/src/attachments.rs` reads the blob store for the projected messages and for `tool/result` `meta.imagePath` |
+| the browser knowing the tool set | no endpoint, no reading of the log | `web/src/state/capabilities.ts` reads the newest `llm/call`'s `tools` and groups it; no route added, no dependency added |
+| `sandboxAccess.network` | `Spec.allow_net` existed and was never set | honours `sandboxAccess.network`, measured both directions on Windows |
+
+*Status: delivered. 97 CLI lib tests (six of them new bridge tests that found a
+real defect: the `expert` tool was registered without a policy rule, so the mode
+fallback denied it in two of three modes), 74 tool tests, 97 web tests across 14
+files, `check.ps1` green. End-to-end: the second provider request carries
+`data:image/png;base64,…`, the 21-line session log carries no `iVBOR`, and
+deleting the file makes the next turn report no image — which is what "re-read
+from disk, not stored in the log" means when it is true.*
+
+**Still not done, and named rather than implied:** the browser cannot list
+installed plugins, the roster, or a team board, because the server publishes no
+route for them (the panel says so on screen instead of guessing); `GET
+/api/capabilities` is the one field that would unlock it, and it is not
+implemented.
 
 ## 6. What this does not buy
 

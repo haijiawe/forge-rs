@@ -7,7 +7,7 @@
 //! truth (invariant I1) because history is always re-projected from it.
 
 use forge_core::Event;
-use forge_llm::{ToolCall, ToolSpec};
+use forge_llm::{ContentPart, ToolCall, ToolSpec};
 
 /// One tool invocation's outcome, in the loop's own vocabulary.
 #[derive(Debug, Clone, Default)]
@@ -22,6 +22,10 @@ pub struct ToolResult {
     pub truncated: bool,
     /// Optional structured details (recorded on `tool/result.meta`).
     pub meta: Option<serde_json::Value>,
+    /// Bytes that cannot travel in a tool message. The chat-completions
+    /// protocol only accepts text there, so the loop forwards these on the
+    /// next user turn; nothing here is ever written to the event log.
+    pub parts: Vec<ContentPart>,
 }
 
 /// Runs the tools advertised by `specs`. Implemented later by the W3 tool

@@ -14,13 +14,15 @@ pub mod payload;
 pub mod summarizer;
 pub mod tool;
 
-pub use agent::{Agent, Clock, DeltaHook, Options, RunResult, SteeringHook, TextHook};
+pub use agent::{
+    Agent, AttachmentHook, Clock, DeltaHook, Options, RunResult, SteeringHook, TextHook,
+};
 pub use cancel::Cancel;
 pub use err::{
     cancelled_error, code_of, is_cancelled, provider_error, refusal_error, retry_after_of,
     retryable_of, ProviderFailure,
 };
-pub use history::{next_turn, open_turn, to_llm_messages};
+pub use history::{next_turn, open_turn, to_llm_messages, to_llm_messages_with_parts};
 pub use payload::{
     clip_system, error_event, llm_call, normalize_stop, step_end, step_start, stop_with_calls,
     turn_end, turn_reason, turn_start, usage_payload, user_message, CODE_CANCELLED,

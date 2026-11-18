@@ -117,18 +117,25 @@ Thirteen spellings; the first nine are the ones the Go oracle froze in
 | `forge "<prompt>"` | a bare prompt is shorthand for `forge chat "<prompt>"` |
 
 `chat` and `web` both build their tool set through one place (`crates/cli/src/wiring.rs`):
-the nine always-present tools (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`,
-`shell`, `todo_write`, `worktree`, `present`) and the two network tools `web_fetch` and
-`web_search` (absent when the capability cannot be built — an absent tool is discoverable,
-one that always fails is not), every tool a configured MCP server advertises (each one with
-its own `ask` rule, because it runs outside forge), one `<plugin>.<tool>` per tool a loaded
-plugin advertises (also `ask`: it leaves this process), an `expert` tool when the roster has
-a summonable expert, a `team` tool when `team.maxParallel > 0` and the roster has a team
-(`ask`, because every worker spends money), a `skill` tool when at least one skill is
-found, and a `subagent` tool when `subagent.maxDepth > 0`. A `goal_end` tool joins them only
+the ten always-present tools (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`,
+`read_image`, `shell`, `todo_write`, `worktree`, `present`) and the two network tools
+`web_fetch` and `web_search` (absent when the capability cannot be built — an absent tool is
+discoverable, one that always fails is not), every tool a configured MCP server advertises
+(each one with its own `ask` rule, because it runs outside forge), one `<plugin>.<tool>` per
+tool a loaded plugin advertises (also `ask`: it leaves this process), an `expert` tool when
+the roster has a summonable expert, a `team` tool when `team.maxParallel > 0` and the roster
+has a team (`ask`, because every worker spends money), a `skill` tool when at least one skill
+is found, and a `subagent` tool when `subagent.maxDepth > 0`. A `goal_end` tool joins them only
 inside a goal loop (`forge chat --goal`), because a verdict nobody reads is not a tool. A
 broken MCP entry or a plugin that fails to load is reported and skipped rather than stopping
 the runtime.
+
+`read_image` shows the model a file that happens to be a picture. The bytes never enter the
+event log: the tool returns them once, the loop forwards them as a follow-up user message, and
+the log keeps only `meta.imagePath` / `meta.mediaType` / `meta.bytes` — so a later turn re-reads
+the file from the workspace instead of the whole session carrying a base64 copy. That is also
+why deleting the file makes the model forget the picture. An image attached in the browser takes
+the same road from the other side: `<dataDir>/blobs/` holds the body, the log holds the reference.
 
 `web_search` needs an endpoint, because there is no search provider that works without
 one. `config.json`:
@@ -236,7 +243,9 @@ no `gh`. Both were rehearsed step by step locally instead (see `docs/ci.md`).
   tool-owned paths a machine actually has (`~/.gitconfig`, `~/.cargo`, `~/.npmrc`,
   `%APPDATA%\npm`, `%APPDATA%\pip`, `~/.config`) and read-write on `%TEMP%`, and
   `sandboxAccess.read` / `sandboxAccess.write` in `config.json` replaces that list
-  (an explicit empty list means "grant nothing extra"). Verified on this host by
+  (an explicit empty list means "grant nothing extra"), and
+  `sandboxAccess.network: true` is the second switch: without it a contained child
+  has no socket at all. Verified on this host by
   reading `~/.gitconfig` from inside a container and failing to read an ungranted
   file next to it (`windows_reads_are_granted_only_where_asked`), and by running a
   real `git config --global --get user.name` inside the container, which printed the

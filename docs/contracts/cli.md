@@ -300,11 +300,11 @@ the session log is opened; if that fails the command exits `1` with
 The same value is passed to the agent (recorded in `session/start`) and to the
 tool executor.
 
-Nine tools are registered unconditionally: the seven file/process tools
+Ten tools are registered unconditionally: the seven file/process tools
 (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`, `shell`, `todo_write`),
-`worktree`, and `present`. The pipeline then adds whatever the M5 bridges and the
-configured platform capabilities contribute, so `tools={n}` on stderr — the
-count of everything in the registry — is at least nine and grows with
+`read_image`, `worktree`, and `present`. The pipeline then adds whatever the M5
+bridges and the configured platform capabilities contribute, so `tools={n}` on
+stderr — the count of everything in the registry — is at least ten and grows with
 configuration:
 
 - one tool per MCP tool, named `mcp__<server>__<tool>` with `_` escaped to `__`
@@ -329,11 +329,11 @@ model reads the tool list and knows what this turn can do. A bad `caFile` costs
 `--json` `tools` is the sorted name list of everything advertised, bridges
 included. A misconfigured MCP server or skill root is never fatal: that bridge
 contributes nothing and writes one warning to stderr. The table below is the
-policy for the nine unconditional tools.
+policy for the ten unconditional tools.
 
 | Tool | Sandbox policy `read-only` | `workspace-write` | `full-access` |
 | --- | --- | --- | --- |
-| `fs_read`, `fs_glob`, `fs_grep` | allow | allow | allow |
+| `fs_read`, `fs_glob`, `fs_grep`, `read_image` | allow | allow | allow |
 | `fs_write`, `fs_edit` | deny | allow inside the workspace | allow |
 | `todo_write` | deny | allow | allow |
 | `shell`, `worktree` | deny | **ask** | allow |

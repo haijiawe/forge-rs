@@ -2,7 +2,7 @@
 dir: crates/tool
 layer: L2
 role: registry, executor, policy, approvals and the builtin tools
-public: [Tool, Call, Result, Limits, DefaultLimits, Registry, Executor, Policy, Rule, Rules, Decision, Approver, ApprovalRequest, AllowAll, Dangerous, builtin, Options, names, WebFetchTool, WebSearchTool, SearchConfig, WorktreeTool, PresentTool, GoalEndTool, GOAL_META_KEY]
+public: [Tool, Call, Result, Limits, DefaultLimits, Registry, Executor, Policy, Rule, Rules, Decision, Approver, ApprovalRequest, AllowAll, Dangerous, builtin, Options, names, WebFetchTool, WebSearchTool, SearchConfig, WorktreeTool, PresentTool, ReadImageTool, GoalEndTool, GOAL_META_KEY, MAX_IMAGE_BYTES, ALLOWED_MEDIA_TYPES]
 may_import: [forge-core, forge-exec, forge-llm, forge-net]
 must_not:
   - import a crate from a higher layer
@@ -13,7 +13,7 @@ gate: cargo run -q -p archcheck --offline
 
 ## 做什么
 
-The tool system: a `Tool` trait, a registry, an executor that enforces policy and approvals before anything runs, and the builtin tools. Nine are always registered (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`, `shell`, `todo_write`, `worktree`, `present`); the platform tools appear only when their capability is configured — `web_fetch` needs a network client, `web_search` additionally needs an endpoint. `goal_end` is registered only when `Options.goal` is set, because its only reader is the loop that opened the round. The executor never writes events; the loop records the call and result from the `Call` and `Result` values.
+The tool system: a `Tool` trait, a registry, an executor that enforces policy and approvals before anything runs, and the builtin tools. Ten are always registered (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`, `read_image`, `shell`, `todo_write`, `worktree`, `present`); the platform tools appear only when their capability is configured — `web_fetch` needs a network client, `web_search` additionally needs an endpoint. `goal_end` is registered only when `Options.goal` is set, because its only reader is the loop that opened the round. The executor never writes events; the loop records the call and result from the `Call` and `Result` values. `Result.parts` is the one field that does not reach the log: a tool result is a text message on every wire, so a tool that produced pixels (`read_image`) returns them there and the loop forwards them as a follow-up user message.
 
 ## 公开面
 

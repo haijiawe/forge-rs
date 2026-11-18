@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use forge_llm::{ToolCall, ToolSpec};
+use forge_llm::{ContentPart, ToolCall, ToolSpec};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -77,6 +77,14 @@ pub struct Result {
     pub code: String,
     #[serde(default, skip_serializing_if = "Meta::is_empty")]
     pub meta: Meta,
+    /// Non-text parts this tool produced (currently images).
+    ///
+    /// A tool result is a text message on every chat-completions wire, so bytes
+    /// cannot ride here — the loop turns them into a follow-up user message.
+    /// Skipped by serde because a result is what gets written to the log, and the
+    /// log records metadata, never bodies (`docs/contracts/events-v1.md` §4.0.1).
+    #[serde(skip)]
+    pub parts: Vec<ContentPart>,
 }
 
 impl Result {
@@ -96,12 +104,27 @@ impl Result {
             code: code.into(),
             meta: Map::new(),
             truncated: false,
+            parts: Vec::new(),
         }
     }
 
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = code.into();
         self
+    }
+
+    /// Attach non-text parts to this result.
+    ///
+    /// The loop, not this crate, decides what to do with them: a tool result is
+    /// a text message on the wire, so bytes that must reach the model travel as
+    /// a follow-up user message carrying exactly these parts.
+    pub fn with_parts(mut self, parts: Vec<ContentPart>) -> Self {
+        self.parts = parts;
+        self
+    }
+
+    pub fn has_parts(&self) -> bool {
+        !self.parts.is_empty()
     }
 
     pub fn with_meta(mut self, key: impl Into<String>, value: Value) -> Self {

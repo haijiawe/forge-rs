@@ -202,6 +202,9 @@ pub fn default_rules(mode: &str) -> Rules {
                 Rule::new("fs_read", "", ACTION_ALLOW),
                 Rule::new("fs_glob", "", ACTION_ALLOW),
                 Rule::new("fs_grep", "", ACTION_ALLOW),
+                // Reading an image is reading a file: it changes nothing, and
+                // the model can only act on it by asking for it explicitly.
+                Rule::new("read_image", "", ACTION_ALLOW),
                 Rule::new("present", "", ACTION_ALLOW),
                 // A goal's state is bookkeeping the operator already asked
                 // for by starting the goal; ending it cannot touch the
@@ -223,6 +226,7 @@ pub fn default_rules(mode: &str) -> Rules {
                 Rule::new("fs_read", "", ACTION_ALLOW),
                 Rule::new("fs_glob", "", ACTION_ALLOW),
                 Rule::new("fs_grep", "", ACTION_ALLOW),
+                Rule::new("read_image", "", ACTION_ALLOW),
                 Rule::new("todo_write", "", ACTION_ALLOW),
                 Rule::new("present", "", ACTION_ALLOW),
                 // Ending a goal cannot touch anything outside the log.
@@ -655,6 +659,9 @@ mod tests {
         // Ending a goal touches nothing on disk; gating it would mean a goal
         // that cannot be stopped in the mode that can change nothing.
         assert_eq!(read_only.decide(&call("goal_end")).0, Decision::Allow);
+        // Reading an image opens a file and writes nothing; if the mode allows
+        // fs_read it has no reason to interrogate read_image.
+        assert_eq!(read_only.decide(&call("read_image")).0, Decision::Allow);
 
         let workspace = default_rules("workspace-write");
         assert_eq!(workspace.decide(&call("present")).0, Decision::Allow);
@@ -663,6 +670,7 @@ mod tests {
         assert_eq!(workspace.decide(&call("worktree")).0, Decision::Ask);
         assert_eq!(workspace.decide(&call("shell")).0, Decision::Ask);
         assert_eq!(workspace.decide(&call("fs_read")).0, Decision::Allow);
+        assert_eq!(workspace.decide(&call("read_image")).0, Decision::Allow);
 
         let full = default_rules("full-access");
         for tool in ["present", "web_fetch", "web_search", "worktree", "shell"] {

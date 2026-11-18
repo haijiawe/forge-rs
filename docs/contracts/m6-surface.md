@@ -261,6 +261,14 @@ bin/forge.exe chat --sandbox=read-only "写一个文件到 /tmp"   # 必须被�
   最严格行为的方式）。本机实测：容器内能读到 `~/.gitconfig`，读同一目录下未授予的文件被拒
   （`windows_reads_are_granted_only_where_asked`）；用真实 `git config --global --get user.name`
   端到端验证过，输出即配置里的名字。
+  网络是第三个开关，同样是 `sandboxAccess` 的成员：`sandboxAccess.network: true` 才给
+  `internetClient` 能力，缺省（以及显式 `false`）是没有 socket 的容器。本机实测
+  （`windows_network_follows_the_spec_switch`，连跑 8 次稳定）：关掉时对 `8.8.8.8:53`、
+  `1.1.1.1:53`、`114.114.114.114:53`、`192.168.1.1:80` 全部 `refused: permission denied`，
+  打开时全部 `connected`。loopback 不做正向用例：AppContainer 要连回环还得
+  `NetworkIsolationSetAppContainerConfig` / `CheckNetIsolation LoopbackExempt`，那需要管理员、
+  进程全局、且影响所有 AppContainer，crate 刻意不创建它；因此 `127.0.0.1:9` 两个方向都是
+  `connection refused`，只用于拒绝方向。
   授权的完整条件是"目标 + 祖先可穿过"：打开 `~/.gitconfig` 要逐组件 stat，缺 `FILE_TRAVERSE`
   的 `git` 直接死在 `failed to stat '...\AppData\Local': Permission denied`，执行前就退出。
   因此授权会连带祖先目录，跳过盘根（重写 `E:\` 的 DACL 实测 160 秒，且盘根本来就放行）。

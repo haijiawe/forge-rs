@@ -118,14 +118,17 @@ pub struct SubagentConfig {
     pub max_depth: i32,
 }
 
-/// The `"sandboxAccess"` object: paths the sandboxed child may touch outside its
-/// workspace.
+/// The `"sandboxAccess"` object: what the sandboxed child may touch outside its
+/// workspace, and whether it may reach the network.
 ///
-/// Absent sections mean "use the built-in defaults", which are what make a
-/// contained `git` or `npm` work at all; an empty list is the explicit way to say
-/// "grant nothing extra". The distinction matters: a caller who found the defaults
-/// too wide must be able to narrow them without editing code, and a casing or key
-/// typo must not silently turn into "everything allowed".
+/// Absent members mean "use the built-in behaviour", which for the path lists is
+/// what makes a contained `git` or `npm` work at all and for the network is "no
+/// outbound sockets"; an empty list is the explicit way to say "grant nothing
+/// extra". The distinction matters: a caller who found the defaults too wide must
+/// be able to narrow them without editing code, a casing or key typo must not
+/// silently turn into "everything allowed", and an explicit `false` must stay
+/// false even if a future default ever says otherwise — which is why `network` is
+/// an `Option<bool>` here and an `Option<bool>` in the raw form.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct SandboxAccessConfig {
@@ -135,6 +138,11 @@ pub struct SandboxAccessConfig {
     /// Read-write grants.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub write: Option<Vec<String>>,
+    /// Whether the sandboxed child may use the network. `Some(false)` is a
+    /// statement the operator made out loud; `None` is "nobody said", which is
+    /// the same answer today but not the same answer as a written default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network: Option<bool>,
 }
 
 /// The `"plugins"` object: which plugins in `<dataDir>/plugins` a session may
@@ -352,6 +360,9 @@ impl Config {
             if access.write.is_some() {
                 self.sandbox_access.write = access.write;
             }
+            if access.network.is_some() {
+                self.sandbox_access.network = access.network;
+            }
         }
         if let Some(search) = raw.search {
             self.search = search;
@@ -502,6 +513,17 @@ impl Config {
             .iter()
             .map(|root| expand_tilde(root))
             .collect()
+    }
+
+    /// Whether a sandboxed child may use the network.
+    ///
+    /// The absent-and-explicit-false distinction lives in the file so a future
+    /// default can tell "the operator wrote false" from "the operator wrote
+    /// nothing"; every reader wants the effective answer, which is this method.
+    /// The default is `false`, matching the sandbox's own `allow_net` default:
+    /// a containment switch nobody asked for must not be the permissive one.
+    pub fn sandbox_allow_net(&self) -> bool {
+        self.sandbox_access.network.unwrap_or(false)
     }
 
     /// Create the data directory and prove it is writable with a probe file.
@@ -739,6 +761,10 @@ struct RawSubagentConfig {
 struct RawSandboxAccessConfig {
     read: Option<Vec<String>>,
     write: Option<Vec<String>>,
+    /// Absent is `None`, an explicit `false` is `Some(false)`. The whole point of
+    /// this type is that the two are distinguishable, so this must not be a bare
+    /// `bool` with `#[serde(default)]`.
+    network: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]

@@ -2,7 +2,7 @@
 dir: crates/config
 layer: L0
 role: config file, home directory, defaults, and MCP entry validation warnings
-public: [Config, MCPServerConfig, MCPConfig, MCPConfigError, SkillsConfig, SubagentConfig, PluginsConfig, ExpertsConfig, TeamConfig, load, home_dir, default_path, plugin_root, expert_roots, SANDBOX_READ_ONLY, SANDBOX_WORKSPACE_WRITE, SANDBOX_FULL_ACCESS]
+public: [Config, SandboxAccessConfig, MCPServerConfig, MCPConfig, MCPConfigError, SkillsConfig, SubagentConfig, PluginsConfig, ExpertsConfig, TeamConfig, load, home_dir, default_path, plugin_root, expert_roots, SANDBOX_READ_ONLY, SANDBOX_WORKSPACE_WRITE, SANDBOX_FULL_ACCESS]
 may_import: [forge-core]
 must_not: [forge-exec, forge-sandbox, forge-session, forge-llm, forge-tool, forge-protocol, forge-server, forge-cli]
 gate: make arch
@@ -20,10 +20,17 @@ MCP 条目的错误不会让整份配置加载失败：坏条目被跳过并记�
 ## 公开面
 
 - `Config`：`defaults()`, `load(&Path)`, `validate()`, `ensure_data_dir()`, `warnings()`,
-  `mcp_warnings()`, `usable_mcp_servers()`, `skill_roots()`；字段 `profile`, `model`,
-  `data_dir`, `sandbox`, `debug`, `mcp`, `skills`, `subagent`。
+  `mcp_warnings()`, `usable_mcp_servers()`, `skill_roots()`, `sandbox_allow_net()`；字段
+  `profile`, `model`, `data_dir`, `sandbox`, `sandbox_access`, `debug`, `mcp`, `skills`,
+  `subagent`。
 - `MCPServerConfig` / `MCPConfig` / `SkillsConfig` / `SubagentConfig`：与 Go 配置相同的
   JSON 形状（`servers`, `roots`, `maxDepth`, `timeoutMs` 等）。
+- `SandboxAccessConfig`：`sandboxAccess` 对象，三个成员 `read`、`write`、`network`。
+  `read`/`write` 是对沙箱默认授权的整体替换（显式空列表表示“什么都不额外授权”）；
+  `network` 是布尔值，决定沙箱子进程能不能用网络，缺省即 `false`。
+  三个成员都是 `Option`，因为“没写”和“写了 false/空列表”必须可区分：
+  前者落到默认值，后者是操作者的明确决定。`sandbox_allow_net()` 是读 `network` 的
+  唯一入口——它把“缺省”和“显式 false”收敛成同一个有效答案 `false`。
 - `home_dir()` 与 `default_path()`：先看 `FORGE_HOME`，否则用户主目录下的 `.forge`。
 - 沙箱模式常量 `SANDBOX_READ_ONLY`、`SANDBOX_WORKSPACE_WRITE`、`SANDBOX_FULL_ACCESS`。
 
@@ -39,3 +46,5 @@ MCP 条目的错误不会让整份配置加载失败：坏条目被跳过并记�
 - 不要让一个坏 MCP 条目阻止整份配置加载。
 - 不要在库代码里对 I/O 或解析结果使用 `unwrap()`/`expect()`。
 - 不要把 `dataDir` 为空当作合法配置（回落到默认目录）。
+- 不要把 `sandboxAccess.network` 写成裸 `bool` + `#[serde(default)]`：那样“没写”和
+  “写了 false”会合并成同一个值，以后想改默认值就没有据可依了。

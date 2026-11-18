@@ -52,6 +52,38 @@ fn empty_object() -> Value {
     Value::Object(serde_json::Map::new())
 }
 
+/// A non-text piece of a message.
+///
+/// The provider wire format is where this matters: an OpenAI-compatible server
+/// wants `{"role":"user","content":[{"type":"text",...},{"type":"image_url",...}]}`
+/// while a plain message wants a bare string. `Message::parts` is therefore
+/// skipped by serde — a message with no parts serializes exactly as it did
+/// before this existed — and only the request builder looks at it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ContentPart {
+    Text(String),
+    /// Bytes rather than a URL: the harness stores attachments in its own blob
+    /// store, so there is no URL to hand over. The request builder turns this
+    /// into a `data:` URI.
+    Image {
+        media_type: String,
+        data: Vec<u8>,
+    },
+}
+
+impl ContentPart {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text(text.into())
+    }
+
+    pub fn image(media_type: impl Into<String>, data: impl Into<Vec<u8>>) -> Self {
+        Self::Image {
+            media_type: media_type.into(),
+            data: data.into(),
+        }
+    }
+}
+
 /// One entry of the conversation.
 ///
 /// `tool_call_id` is set on a `Tool` message; `tool_calls` on an `Assistant`
@@ -67,6 +99,11 @@ pub struct Message {
     pub tool_calls: Vec<ToolCall>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// Images and other non-text pieces. Never serialized here: this is the
+    /// harness's own model of the message, and the JSON this struct produces is
+    /// compared byte for byte against frozen fixtures.
+    #[serde(skip)]
+    pub parts: Vec<ContentPart>,
 }
 
 impl Message {
@@ -76,6 +113,7 @@ impl Message {
             content: text.into(),
             tool_calls: Vec::new(),
             tool_call_id: None,
+            parts: Vec::new(),
         }
     }
 
@@ -85,6 +123,7 @@ impl Message {
             content: text.into(),
             tool_calls: Vec::new(),
             tool_call_id: None,
+            parts: Vec::new(),
         }
     }
 
@@ -94,6 +133,7 @@ impl Message {
             content: text.into(),
             tool_calls: Vec::new(),
             tool_call_id: None,
+            parts: Vec::new(),
         }
     }
 
@@ -103,7 +143,20 @@ impl Message {
             content: text.into(),
             tool_calls: Vec::new(),
             tool_call_id: Some(id.into()),
+            parts: Vec::new(),
         }
+    }
+
+    /// Attach non-text parts to this message. Chainable so a constructor keeps
+    /// reading as one expression.
+    pub fn with_parts(mut self, parts: Vec<ContentPart>) -> Self {
+        self.parts = parts;
+        self
+    }
+
+    /// Whether anything in this message needs the array form on the wire.
+    pub fn has_parts(&self) -> bool {
+        !self.parts.is_empty()
     }
 }
 
@@ -147,7 +200,7 @@ impl Request {
                     format!("llm: message {i} is a tool result without toolCallId"),
                 ));
             }
-            if m.content.is_empty() && m.tool_calls.is_empty() {
+            if m.content.is_empty() && m.tool_calls.is_empty() && !m.has_parts() {
                 return Err(Error::new(
                     ErrorKind::Invalid,
                     format!("llm: message {i} is empty"),

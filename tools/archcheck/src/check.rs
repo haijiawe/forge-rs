@@ -1,11 +1,13 @@
-//! Applies the two judgements Cargo cannot make:
+//! Applies the judgements Cargo cannot make:
 //!   1. every dependency edge points to a lower or equal layer;
-//!   2. every crate has a README that states the boundary the edge crosses.
+//!   2. every crate has a README that states the boundary the edge crosses;
+//!   3. every path the help text promises exists (see `docs`).
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
 use crate::arch::Architecture;
+use crate::docs;
 use crate::manifest::Crate;
 use crate::readme;
 use crate::report::Finding;
@@ -113,6 +115,11 @@ pub fn run(root: &Path, architecture: &Architecture, crates: &[Crate]) -> Vec<Fi
             ));
         }
     }
+
+    // The help text sends a user to the docs index; a path it names and the
+    // tree does not have is the same broken promise as a README that does not
+    // describe its crate.
+    findings.extend(docs::check(root));
 
     findings
 }

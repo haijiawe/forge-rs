@@ -19,9 +19,10 @@ pub use approval::{
 };
 pub use builtin::{
     all, dangerous, names, Dangerous, FsEdit, FsGlob, FsGrep, FsRead, FsWrite, GoalEndTool,
-    Options, PresentTool, SearchConfig, ShellTool, TodoWriteTool, WebFetchTool, WebSearchTool,
-    WorktreeTool, CODE_AMBIGUOUS, CODE_BINARY, GOAL_META_KEY, SHELL_CODE_BLOCKED,
-    SHELL_CODE_EMPTY_COMMAND, SHELL_CODE_EXEC_FAILED, SHELL_CODE_SANDBOX, WEB_CODE_BAD_CONTENT,
+    Options, PresentTool, ReadImageTool, SearchConfig, ShellTool, TodoWriteTool, WebFetchTool,
+    WebSearchTool, WorktreeTool, ALLOWED_MEDIA_TYPES, CODE_AMBIGUOUS, CODE_BINARY, GOAL_META_KEY,
+    MAX_IMAGE_BYTES, SHELL_CODE_BLOCKED, SHELL_CODE_EMPTY_COMMAND, SHELL_CODE_EXEC_FAILED,
+    SHELL_CODE_SANDBOX, WEB_CODE_BAD_CONTENT,
 };
 pub use contract::{
     decode_args, Call, Meta, Result, Tool, CODE_CANCELLED, CODE_DENIED, CODE_IO_ERROR,
@@ -98,7 +99,7 @@ mod tests {
     }
 
     #[test]
-    fn every_turn_gets_the_same_eight_tools_and_goals_add_a_ninth() {
+    fn every_turn_gets_the_same_ten_tools_and_goals_add_an_eleventh() {
         // "A turn" means no goal, no network, no process runner. The list is
         // sorted so a reviewer can diff it against the document.
         let registry = Registry::new(all(&Options::new(DefaultLimits)));
@@ -111,6 +112,7 @@ mod tests {
                 "fs_read",
                 "fs_write",
                 "present",
+                "read_image",
                 "shell",
                 "todo_write",
                 "worktree"
@@ -129,6 +131,7 @@ mod tests {
                 "fs_write",
                 "goal_end",
                 "present",
+                "read_image",
                 "shell",
                 "todo_write",
                 "worktree"

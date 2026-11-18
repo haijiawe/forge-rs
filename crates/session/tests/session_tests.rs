@@ -815,3 +815,93 @@ fn fork_target_must_match_target_id() {
     .expect_err("name mismatch must be refused");
     assert_eq!(error.kind(), ErrorKind::Invalid);
 }
+
+/// An attachment is projected as a reference, and the bytes are never in the
+/// projection: the log holds metadata and the blob store holds the body
+/// (`docs/contracts/events-v1.md` §4.0.1).
+#[test]
+fn attachment_references_survive_projection_without_their_bodies() {
+    let events = vec![
+        event(
+            1,
+            "session/start",
+            0,
+            0,
+            json!({"workspace": "/w", "startedBy": "http"}),
+        ),
+        event(2, "turn/start", 1, 0, json!({"number": 1})),
+        event(
+            3,
+            "user/message",
+            1,
+            0,
+            json!({
+                "text": "look at this",
+                "attachments": [{
+                    "kind": "image",
+                    "id": "0123456789abcdef0123456789abcdef",
+                    "mediaType": "image/png",
+                    "name": "shot.png",
+                    "bytes": 8,
+                }],
+            }),
+        ),
+        event(
+            4,
+            "turn/end",
+            1,
+            0,
+            json!({"reason": "end_turn", "steps": 1}),
+        ),
+    ];
+    let projection = Projection::fold(&events).expect("fold");
+    let snapshot = projection.snapshot();
+    let message = snapshot
+        .messages
+        .iter()
+        .find(|m| m.text == "look at this")
+        .expect("the user message");
+    assert_eq!(message.attachments.len(), 1);
+    let reference = &message.attachments[0];
+    assert_eq!(reference.kind, "image");
+    assert_eq!(reference.id, "0123456789abcdef0123456789abcdef");
+    assert_eq!(reference.media_type, "image/png");
+    assert_eq!(reference.name, "shot.png");
+    assert_eq!(reference.bytes, 8);
+
+    // The claim that matters for storage: nothing in the projected snapshot is
+    // a body. A base64 blob of eight bytes would show up as a long field.
+    let canonical = canonical(&snapshot).expect("canonical");
+    assert!(!canonical.contains("data"), "{canonical}");
+}
+
+/// A log written before attachments existed still projects, with no references.
+#[test]
+fn a_message_without_attachments_projects_with_an_empty_list() {
+    let events = vec![
+        event(
+            1,
+            "session/start",
+            0,
+            0,
+            json!({"workspace": "/w", "startedBy": "http"}),
+        ),
+        event(2, "turn/start", 1, 0, json!({"number": 1})),
+        event(3, "user/message", 1, 0, json!({"text": "hello"})),
+        event(
+            4,
+            "turn/end",
+            1,
+            0,
+            json!({"reason": "end_turn", "steps": 1}),
+        ),
+    ];
+    let projection = Projection::fold(&events).expect("fold");
+    let message = projection
+        .snapshot()
+        .messages
+        .into_iter()
+        .find(|m| m.text == "hello")
+        .expect("the user message");
+    assert!(message.attachments.is_empty());
+}

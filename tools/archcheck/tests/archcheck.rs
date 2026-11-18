@@ -52,6 +52,27 @@ impl Fixture {
             .expect("remove README");
     }
 
+    /// The help text lives in the CLI crate; a fixture that wants the docs rule
+    /// to have something to judge must write that file, exactly as the real
+    /// tree has it.
+    fn write_cli_usage(&self, docs_line: &str) {
+        let src = self.root.join("crates/cli/src");
+        fs::create_dir_all(&src).expect("create cli src");
+        fs::write(
+            src.join("lib.rs"),
+            format!("pub const USAGE: &str = \"forge — an agent harness\n\n{docs_line}\";\n"),
+        )
+        .expect("write cli lib.rs");
+    }
+
+    fn write_file(&self, relative: &str, contents: &str) {
+        let path = self.root.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create parent dir");
+        }
+        fs::write(path, contents).expect("write fixture file");
+    }
+
     fn run(&self, extra: &[&str]) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_archcheck"));
         command.arg("-root").arg(&self.root);
@@ -426,4 +447,60 @@ fn unreadable_readme_is_caught_and_exits_one() {
         .expect("findings")
         .iter()
         .any(|finding| finding["rule"] == "readme.unreadable"));
+}
+
+#[test]
+fn a_docs_path_the_help_text_promises_but_the_tree_lacks_is_caught_and_exits_one() {
+    // The defect: `forge help` ends with `docs: docs/README.md`, and nothing
+    // opened that file, so the index could be absent with every gate green.
+    let fixture = clean_two_crates("missing-docs");
+    fixture.write_cli_usage("docs: docs/README.md\n");
+
+    let output = fixture.run(&["-json"]);
+    assert_eq!(code(&output), 1);
+    let report = json(&output);
+    let missing = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .find(|finding| finding["rule"] == "docs.missing")
+        .expect("docs.missing finding");
+    let message = missing["message"].as_str().unwrap_or("");
+    assert!(message.contains("docs/README.md"), "{message}");
+}
+
+#[test]
+fn a_docs_path_the_help_text_promises_and_the_tree_has_passes() {
+    let fixture = clean_two_crates("present-docs");
+    fixture.write_cli_usage("docs: docs/README.md\n");
+    fixture.write_file("docs/README.md", "# docs\n");
+
+    let output = fixture.run(&["-json"]);
+    assert_eq!(
+        code(&output),
+        0,
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = json(&output);
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["findings"].as_array().map(Vec::len), Some(0));
+}
+
+#[test]
+fn a_docs_directory_is_not_a_docs_file() {
+    // A path in the help text is a promise about a file a reader can open;
+    // pointing at the directory instead is the same promise, kept wrongly.
+    let fixture = clean_two_crates("docs-dir");
+    fixture.write_cli_usage("docs: docs/README.md\n");
+    fs::create_dir_all(fixture.root.join("docs/README.md")).expect("create docs/README.md dir");
+
+    let output = fixture.run(&["-json"]);
+    assert_eq!(code(&output), 1);
+    let report = json(&output);
+    assert!(report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .any(|finding| finding["rule"] == "docs.missing"));
 }

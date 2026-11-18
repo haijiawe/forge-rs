@@ -8,6 +8,7 @@
 pub mod danger;
 pub mod fs;
 pub mod goal;
+pub mod image;
 pub mod present;
 pub mod shell;
 pub mod todo;
@@ -25,6 +26,7 @@ use crate::Tool;
 pub use danger::{dangerous, Dangerous};
 pub use fs::{FsEdit, FsGlob, FsGrep, FsRead, FsWrite, CODE_AMBIGUOUS, CODE_BINARY};
 pub use goal::{GoalEndTool, GOAL_META_KEY};
+pub use image::{ReadImageTool, ALLOWED_MEDIA_TYPES, MAX_IMAGE_BYTES};
 pub use present::PresentTool;
 pub use shell::{
     ShellTool, SHELL_CODE_BLOCKED, SHELL_CODE_EMPTY_COMMAND, SHELL_CODE_EXEC_FAILED,
@@ -76,6 +78,7 @@ pub fn all(options: &Options) -> Vec<Arc<dyn Tool>> {
         Arc::new(FsEdit),
         Arc::new(FsGlob),
         Arc::new(FsGrep),
+        Arc::new(ReadImageTool),
         Arc::new(ShellTool::new(limits)),
         Arc::new(TodoWriteTool::new(limits)),
     ];

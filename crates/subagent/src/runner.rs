@@ -303,6 +303,7 @@ impl Tool for AdaptedTool {
                     .and_then(serde_json::Value::as_object)
                     .cloned()
                     .unwrap_or_default(),
+                parts: r.parts,
             },
             Err(e) => {
                 let code = if forge_agent::is_cancelled(&e) {
@@ -353,6 +354,7 @@ impl ToolRunner for ChildToolRunner {
             } else {
                 Some(serde_json::Value::Object(r.meta))
             },
+            parts: r.parts,
         })
     }
 }

@@ -670,6 +670,7 @@ impl forge_agent::ToolRunner for ExecutorRunner {
             } else {
                 Some(Value::Object(out.meta))
             },
+            parts: out.parts,
         })
     }
 }
@@ -714,7 +715,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
 
     let registry = Arc::new(Registry::new(forge_tool::all(&tool_options)));
     let mut clients: Vec<Arc<Mutex<Box<dyn Client>>>> = Vec::new();
-    let mut ask_rules: Vec<forge_tool::Rule> = Vec::new();
+    let mut bridge_rules: Vec<forge_tool::Rule> = Vec::new();
 
     // --- MCP ---------------------------------------------------------------
     let mut contributed: BTreeSet<String> = BTreeSet::new();
@@ -794,7 +795,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
             // Every remote tool asks, whatever the sandbox mode says: the call
             // leaves this process and the operator should see it first. The
             // rule is prepended by `merge`, so it beats the mode defaults.
-            ask_rules.push(forge_tool::Rule::new(name, "", ACTION_ASK));
+            bridge_rules.push(forge_tool::Rule::new(name, "", ACTION_ASK));
         }
     }
 
@@ -868,7 +869,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
             registry.register_arc(Arc::new(tool));
             // Plugin tools ask every time, for the reason MCP tools do: the call
             // leaves this process and the operator should see it first.
-            ask_rules.push(forge_tool::Rule::new(name, "", ACTION_ASK));
+            bridge_rules.push(forge_tool::Rule::new(name, "", ACTION_ASK));
         }
         plugin_host = Some(host);
     }
@@ -912,6 +913,15 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
                 set.clone(),
                 options.limits,
             )));
+            // Reading a roster touches nothing outside this process, so every
+            // mode may do it. Without a rule the mode fallback decides, and in
+            // `read-only` and `workspace-write` the fallback is `deny`: the tool
+            // would be registered and unusable, which reads as a missing feature.
+            bridge_rules.push(forge_tool::Rule::new(
+                bridges::EXPERT_TOOL_NAME,
+                "",
+                forge_tool::ACTION_ALLOW,
+            ));
         }
     }
 
@@ -926,7 +936,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
         if let Some(set) = &expert_set {
             if !set.teams().is_empty() {
                 team_wanted = true;
-                ask_rules.push(forge_tool::Rule::new(
+                bridge_rules.push(forge_tool::Rule::new(
                     bridges::TEAM_TOOL_NAME,
                     "",
                     ACTION_ASK,
@@ -962,10 +972,10 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
 
     // --- Policy ------------------------------------------------------------
     let base = forge_tool::default_rules(&options.sandbox);
-    let extra = if ask_rules.is_empty() {
+    let extra = if bridge_rules.is_empty() {
         None
     } else {
-        Some(Rules::from_rules(ask_rules))
+        Some(Rules::from_rules(bridge_rules))
     };
     let policy: Arc<dyn Policy> = Arc::new(merge(Some(&base), extra.as_ref()));
 
@@ -1121,8 +1131,11 @@ fn mcp_spec(name: &str, server: &str, remote: &str, def: &ToolDef) -> ToolSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use forge_config::SANDBOX_WORKSPACE_WRITE;
     use forge_mcp::Error as McpError;
     use forge_tool::DefaultLimits;
+
+    use std::path::Path;
 
     /// A client stand-in that records the calls it received.
     struct FakeClient {
@@ -1414,5 +1427,409 @@ mod tests {
         assert!(out.output.contains("alpha"));
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // -----------------------------------------------------------------------
+    // The three bridges: what they add to a turn, and what gates them.
+    //
+    // These exist because `build` is the only place where "the operator's
+    // configuration" and "what the model can actually call" meet, and every
+    // failure mode of that join is silent: a tool registered without a policy
+    // rule is denied at call time, and a tool that never registers looks like a
+    // feature that was never finished.
+    // -----------------------------------------------------------------------
+
+    /// A provider that answers every request without calling anything. The
+    /// team runner needs one, and nothing here runs a turn with it.
+    struct SilentProvider;
+
+    struct SilentStream;
+
+    impl forge_llm::Stream for SilentStream {
+        fn recv(&mut self) -> std::result::Result<Option<forge_llm::Delta>, forge_core::Error> {
+            Ok(Some(forge_llm::Delta {
+                stop_reason: Some("stop".to_string()),
+                ..Default::default()
+            }))
+        }
+        fn close(&mut self) {}
+    }
+
+    impl forge_llm::Provider for SilentProvider {
+        fn stream(
+            &self,
+            _request: &forge_llm::Request,
+        ) -> std::result::Result<Box<dyn forge_llm::Stream>, forge_core::Error> {
+            Ok(Box::new(SilentStream))
+        }
+    }
+
+    fn provider() -> Arc<dyn forge_llm::Provider> {
+        Arc::new(SilentProvider)
+    }
+
+    fn build_options<'a>(cfg: &'a Config, data_dir: &Path, workspace: &str) -> BuildOptions<'a> {
+        BuildOptions {
+            cfg,
+            provider: provider(),
+            model: "fake-model".to_string(),
+            data_dir: data_dir.to_path_buf(),
+            workspace: workspace.to_string(),
+            sandbox: SANDBOX_WORKSPACE_WRITE.to_string(),
+            approver: None,
+            limits: DefaultLimits,
+            system: String::new(),
+            parent_session: String::new(),
+            goal: false,
+        }
+    }
+
+    /// Copy the plugin crate's reference plugin into a scratch root, because
+    /// `forge-plugin` owns the fixture and the CLI must not link its test tree.
+    const REFERENCE_PLUGIN: (&str, &str) = (
+        "plugin.json",
+        r#"{"name":"reference","version":"1.0.0","description":"a reference plugin","runtime":"node","entry":"index.js"}"#,
+    );
+    const REFERENCE_ENTRY: &str = include_str!("../../plugin/tests/reference-node/index.js");
+
+    fn plugin_root(label: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("forge-wiring-{}-{label}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("reference");
+        std::fs::create_dir_all(&dir).expect("create plugin dir");
+        std::fs::write(dir.join(REFERENCE_PLUGIN.0), REFERENCE_PLUGIN.1).expect("write manifest");
+        std::fs::write(dir.join("index.js"), REFERENCE_ENTRY).expect("write entry");
+        root
+    }
+
+    fn node_available() -> bool {
+        std::process::Command::new("node")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok()
+    }
+
+    /// Copy the expert roster fixture into a scratch root.
+    fn roster_root(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "forge-wiring-roster-{}-{label}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../experts/tests/fixtures/good");
+        copy_tree(&source, &root);
+        root
+    }
+
+    fn copy_tree(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).expect("create the fixture directory");
+        for entry in std::fs::read_dir(from).expect("read the fixture directory") {
+            let entry = entry.expect("fixture entry");
+            let path = entry.path();
+            let target = to.join(entry.file_name());
+            if path.is_dir() {
+                copy_tree(&path, &target);
+            } else {
+                std::fs::copy(&path, &target).expect("copy a fixture file");
+            }
+        }
+    }
+
+    /// Every tool the build added, and the decision the configured policy makes
+    /// about it. A tool with no rule falls to the mode's fallback, so a bridge
+    /// that forgot `ask` shows up here as `Deny` (or `Allow`, which is worse).
+    fn decisions(wired: &WiredTools, names: &[&str]) -> Vec<(String, String, String)> {
+        names
+            .iter()
+            .map(|name| {
+                let (decision, reason) =
+                    wired.policy.decide(&Call::new("c1", *name, json!({}), "."));
+                ((*name).to_string(), decision.as_str().to_string(), reason)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_loaded_plugin_contributes_namespaced_ask_tools() {
+        if !node_available() {
+            eprintln!("SKIPPED: node is not on PATH, so no plugin can start");
+            return;
+        }
+        let root = plugin_root("plugins");
+        let data_dir = root.parent().expect("root has a parent").to_path_buf();
+        let mut cfg = Config::defaults();
+        cfg.plugins.enabled = vec!["reference".to_string()];
+        cfg.plugins.dir = root.to_str().expect("utf-8 path").to_string();
+
+        let wired = build(build_options(&cfg, &data_dir, "."));
+
+        // The names are namespaced, so two plugins with an `echo` tool cannot
+        // collide and a model can tell whose tool it called.
+        let names = wired.registry.names();
+        let plugin_tools: Vec<String> = names
+            .iter()
+            .filter(|name| name.starts_with("reference."))
+            .cloned()
+            .collect();
+        assert!(
+            plugin_tools.contains(&"reference.echo".to_string()),
+            "expected a namespaced plugin tool in {names:?}"
+        );
+        assert!(plugin_tools.contains(&"reference.add".to_string()));
+        // The reference plugin advertises four tools (`echo`, `add`, `fail`,
+        // `big`; `greeting` is a prompt, not a tool), and the claim worth
+        // proving is about *every* tool it advertises — not the two this test
+        // happens to call. A bridge that gated the first two and forgot the
+        // rest would pass a narrower assertion.
+        assert_eq!(
+            plugin_tools.len(),
+            4,
+            "the reference plugin advertises four tools: {plugin_tools:?}"
+        );
+
+        // A call that leaves this process must be seen by the operator first,
+        // for every plugin tool rather than for a sample of them.
+        let every: Vec<&str> = plugin_tools.iter().map(String::as_str).collect();
+        let asked = decisions(&wired, &every);
+        assert_eq!(asked.len(), 4);
+        for (name, decision, reason) in &asked {
+            assert_eq!(
+                decision, "ask",
+                "{name} is gated by {reason}, not by a rule from the bridge"
+            );
+        }
+
+        // And it works: the tool reaches the child process and comes back.
+        let out = wired
+            .registry
+            .lookup("reference.echo")
+            .expect("registered")
+            .call(Call::new("c1", "reference.echo", json!({"text":"hi"}), "."));
+        assert!(!out.is_error, "{}", out.output);
+        assert_eq!(out.output, "hi");
+
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn a_plugin_the_operator_did_not_enable_contributes_nothing() {
+        // The plugin exists on disk, but `enabled` is empty. Spawning is a
+        // decision the operator makes in the file, not something a directory
+        // full of manifests can do on its own.
+        let root = plugin_root("disabled");
+        let data_dir = root.parent().expect("root has a parent").to_path_buf();
+        let mut cfg = Config::defaults();
+        cfg.plugins.dir = root.to_str().expect("utf-8 path").to_string();
+
+        let wired = build(build_options(&cfg, &data_dir, "."));
+        assert!(
+            !wired
+                .registry
+                .names()
+                .iter()
+                .any(|n| n.starts_with("reference.")),
+            "a plugin nobody enabled must not register tools: {:?}",
+            wired.registry.names()
+        );
+        assert!(wired.plugins().is_none(), "no host for no enabled plugin");
+
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn a_roster_with_experts_adds_one_expert_tool_that_answers_by_slug() {
+        let root = roster_root("experts");
+        let data_dir = root.parent().expect("root has a parent").to_path_buf();
+        let mut cfg = Config::defaults();
+        cfg.experts.roots = vec![root.to_str().expect("utf-8 path").to_string()];
+        // A team needs a model and a runner; leave the team out of this test.
+        cfg.team.max_parallel = 0;
+
+        let wired = build(build_options(&cfg, &data_dir, "."));
+        assert!(
+            wired.registry.lookup(bridges::EXPERT_TOOL_NAME).is_some(),
+            "expected an `expert` tool: {:?}",
+            wired.registry.names()
+        );
+
+        let tool = wired
+            .registry
+            .lookup(bridges::EXPERT_TOOL_NAME)
+            .expect("registered");
+        // Known slug: the persona comes back. The body is the file's body, so
+        // assert on a line of it rather than on the slug, which lives in the
+        // frontmatter and is deliberately not repeated into the prompt.
+        let out = tool.call(Call::new(
+            "c1",
+            bridges::EXPERT_TOOL_NAME,
+            json!({"name":"rust-concurrency-review"}),
+            ".",
+        ));
+        assert!(out.is_ok(), "{}", out.output);
+        assert!(
+            out.output.contains("You review Rust concurrency changes."),
+            "the expert prompt did not reach the model: {}",
+            out.output
+        );
+        assert!(out
+            .output
+            .contains("[forge-experts] Tool restriction: fs_read, fs_grep."));
+
+        // The description is the only place the model can learn which slugs
+        // exist: if it does not name them, the tool is callable but unusable
+        // (the model has to guess a name it was never told).
+        let description = tool.spec().description;
+        for slug in [
+            "api-reviewer",
+            "bench-owner",
+            "release-lead",
+            "rust-concurrency-review",
+        ] {
+            assert!(
+                description.contains(slug),
+                "the expert description omits {slug}: {description}"
+            );
+        }
+
+        // Unknown slug: absent, and told so with the list of what does exist.
+        let out = tool.call(Call::new(
+            "c1",
+            bridges::EXPERT_TOOL_NAME,
+            json!({"name":"nobody"}),
+            ".",
+        ));
+        assert_eq!(out.code, forge_tool::CODE_NOT_FOUND, "{}", out.output);
+
+        // No rule means the mode fallback decides, and in `read-only` and
+        // `workspace-write` that fallback is `deny`. A roster lookup touches
+        // nothing outside the process, so it must be allowed outright: a tool
+        // that is registered but unusable reads as a missing feature.
+        let (decision, reason) = wired.policy.decide(&Call::new(
+            "c1",
+            bridges::EXPERT_TOOL_NAME,
+            json!({"name":"rust-concurrency-review"}),
+            ".",
+        ));
+        assert_eq!(
+            decision.as_str(),
+            "allow",
+            "a roster read is gated by {reason}"
+        );
+
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn a_roster_without_experts_adds_no_expert_tool() {
+        let empty = std::env::temp_dir().join(format!("forge-wiring-empty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&empty);
+        std::fs::create_dir_all(&empty).expect("create");
+        let mut cfg = Config::defaults();
+        cfg.experts.roots = vec![empty.to_str().expect("utf-8 path").to_string()];
+        cfg.team.max_parallel = 0;
+
+        let wired = build(build_options(&cfg, &empty, "."));
+        assert!(
+            wired.registry.lookup(bridges::EXPERT_TOOL_NAME).is_none(),
+            "an empty roster must not pay for a tool that can only say so"
+        );
+
+        let _ = std::fs::remove_dir_all(&empty);
+    }
+
+    #[test]
+    fn a_team_exists_only_when_both_the_parallelism_and_the_roster_allow_it() {
+        let root = roster_root("teams");
+        let data_dir = root.parent().expect("root has a parent").to_path_buf();
+
+        // Parallelism zero: the roster has a team, but a team that cannot overlap
+        // is a subagent with extra steps.
+        let mut cfg = Config::defaults();
+        cfg.experts.roots = vec![root.to_str().expect("utf-8 path").to_string()];
+        cfg.team.max_parallel = 0;
+        cfg.model = "fake-model".to_string();
+        let wired = build(build_options(&cfg, &data_dir, "."));
+        assert!(
+            wired.registry.lookup(bridges::TEAM_TOOL_NAME).is_none(),
+            "team.maxParallel = 0 must not register the team tool"
+        );
+
+        // Parallelism set: the tool appears and is gated by a rule, because every
+        // worker is a model call the operator pays for.
+        let mut cfg = Config::defaults();
+        cfg.experts.roots = vec![root.to_str().expect("utf-8 path").to_string()];
+        cfg.team.max_parallel = 2;
+        cfg.model = "fake-model".to_string();
+        let wired = build(build_options(&cfg, &data_dir, "."));
+        assert!(
+            wired.registry.lookup(bridges::TEAM_TOOL_NAME).is_some(),
+            "a configured team must appear: {:?}",
+            wired.registry.names()
+        );
+        let asked = decisions(&wired, &[bridges::TEAM_TOOL_NAME]);
+        assert_eq!(
+            asked[0].1, "ask",
+            "the team tool is gated by {}",
+            asked[0].2
+        );
+
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn a_plugin_root_with_nothing_enabled_yields_no_host_and_no_namespaced_tool() {
+        // The claim is the narrow one the body can actually prove: with
+        // `plugins.enabled` empty, `build` never starts a host, so nothing
+        // namespaced can reach the registry. It is *not* a claim about process
+        // counts — `Host::load` is the spawn, and `build` with a non-empty
+        // `enabled` list does spawn (see `a_loaded_plugin_contributes_*`).
+        let root = plugin_root("lazy");
+        let data_dir = root.parent().expect("root has a parent").to_path_buf();
+        let mut cfg = Config::defaults();
+        cfg.plugins.dir = root.to_str().expect("utf-8 path").to_string();
+
+        let wired = build(build_options(&cfg, &data_dir, "."));
+        assert!(wired.plugins().is_none());
+        // Nothing namespaced, and nothing loaded: the two claims are the same
+        // claim, checked from the registry side.
+        assert!(
+            !wired
+                .registry
+                .names()
+                .iter()
+                .any(|name| name.contains(bridges::PLUGIN_NAME_SEPARATOR)),
+            "no plugin tool without a load: {:?}",
+            wired.registry.names()
+        );
+
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn an_enabled_plugin_is_loaded_and_the_host_says_which_one() {
+        // The mirror of the test above: when the operator does name a plugin,
+        // `build` really does spawn it, and the host is the place that can say
+        // so. Asserted through `loaded_names` rather than through a process
+        // count, because a count would be a claim about the OS rather than
+        // about this code.
+        if !node_available() {
+            eprintln!("SKIPPED: node is not on PATH, so no plugin can start");
+            return;
+        }
+        let root = plugin_root("loaded");
+        let data_dir = root.parent().expect("root has a parent").to_path_buf();
+        let mut cfg = Config::defaults();
+        cfg.plugins.enabled = vec!["reference".to_string()];
+        cfg.plugins.dir = root.to_str().expect("utf-8 path").to_string();
+
+        let wired = build(build_options(&cfg, &data_dir, "."));
+        let host = wired.plugins().expect("an enabled plugin starts a host");
+        assert_eq!(host.loaded_names(), vec!["reference".to_string()]);
+        assert!(host.is_loaded("reference"));
+
+        let _ = std::fs::remove_dir_all(&data_dir);
     }
 }

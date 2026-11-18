@@ -131,6 +131,7 @@ impl Tool for ShellTool {
                 is_error: true,
                 code: SHELL_CODE_BLOCKED.to_string(),
                 meta: meta_of([("blocked", json!(reason))]),
+                parts: Vec::new(),
             };
         }
 
@@ -211,6 +212,7 @@ impl Tool for ShellTool {
                     is_error: false,
                     code: String::new(),
                     meta,
+                    parts: Vec::new(),
                 }
             }
             Some(err) => {
@@ -255,6 +257,7 @@ impl Tool for ShellTool {
                     is_error: true,
                     code: code.to_string(),
                     meta,
+                    parts: Vec::new(),
                 }
             }
         }

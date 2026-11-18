@@ -258,3 +258,85 @@ fn ca_file_is_omitted_from_json_when_absent() {
         "an unset caFile must not serialize"
     );
 }
+
+// ---------------------------------------------------------------------------
+// sandboxAccess.network
+// ---------------------------------------------------------------------------
+
+#[test]
+fn sandbox_network_is_absent_by_default_and_reads_as_false() {
+    // Absent must mean "no outbound sockets": the sandbox's own default is
+    // `allow_net = false`, and a config file nobody edited must not widen it.
+    let dir = TempDir::new("net-absent");
+    let config = load(&dir.file("config.json", r#"{"profile": "default"}"#));
+    assert!(
+        config.sandbox_access.network.is_none(),
+        "absent stays absent"
+    );
+    assert!(!config.sandbox_allow_net(), "absent reads as false");
+
+    // And an untouched defaults() object is the same answer.
+    assert!(!Config::defaults().sandbox_allow_net());
+}
+
+#[test]
+fn explicit_false_is_kept_distinct_from_absent() {
+    // The whole reason `network` is an Option in both the struct and the raw
+    // form: an operator who wrote `false` must still be reported as having
+    // written it, so the day a permissive default appears it does not win.
+    let dir = TempDir::new("net-explicit-false");
+    let path = dir.file(
+        "config.json",
+        r#"{"sandboxAccess": {"network": false, "read": ["/tmp"]}}"#,
+    );
+    let config = load(&path);
+    assert_eq!(config.sandbox_access.network, Some(false));
+    assert!(!config.sandbox_allow_net());
+    // The sibling members are unaffected: one member's presence must not reset
+    // the others.
+    assert_eq!(config.sandbox_access.read, Some(vec!["/tmp".to_string()]));
+    assert!(
+        config.sandbox_access.write.is_none(),
+        "write was not mentioned"
+    );
+}
+
+#[test]
+fn explicit_true_turns_the_network_on_and_round_trips() {
+    let dir = TempDir::new("net-explicit-true");
+    let path = dir.file("config.json", r#"{"sandboxAccess": {"network": true}}"#);
+    let config = load(&path);
+    assert_eq!(config.sandbox_access.network, Some(true));
+    assert!(config.sandbox_allow_net());
+    let value = serde_json::to_value(&config).expect("config serializes");
+    assert_eq!(
+        value["sandboxAccess"]["network"], true,
+        "network must round-trip under its camelCase name"
+    );
+}
+
+#[test]
+fn an_absent_network_is_omitted_from_json() {
+    let config = Config::defaults();
+    let value = serde_json::to_value(&config).expect("config serializes");
+    let object = value
+        .get("sandboxAccess")
+        .and_then(|access| access.as_object())
+        .expect("sandboxAccess object");
+    assert!(
+        !object.contains_key("network"),
+        "an unstated network must not serialize as a value: {value}"
+    );
+}
+
+#[test]
+fn an_explicitly_empty_sandbox_access_object_keeps_the_other_members_alone() {
+    // Forward compatibility: `{"sandboxAccess": {}}` is what a fresh file has,
+    // and it must not erase the path defaults or silently enable the network.
+    let dir = TempDir::new("net-empty-object");
+    let config = load(&dir.file("config.json", r#"{"sandboxAccess": {}}"#));
+    assert!(config.sandbox_access.read.is_none());
+    assert!(config.sandbox_access.write.is_none());
+    assert!(config.sandbox_access.network.is_none());
+    assert!(!config.sandbox_allow_net());
+}

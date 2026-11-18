@@ -269,6 +269,10 @@ fn summary_messages(msgs: &[Message]) -> Vec<Message> {
             content: m.content.clone(),
             tool_calls: Vec::new(),
             tool_call_id: m.tool_call_id.clone(),
+            // A summary is text about text. Dropping the parts here is the
+            // point: an image would cost its bytes on every later turn and
+            // buy nothing, because the summary is what the next turn reads.
+            parts: Vec::new(),
         };
         // The frozen role enum is exhaustive, so no unknown-role filter is
         // needed; the Go check existed only for JSON-decoded messages.

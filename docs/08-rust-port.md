@@ -149,7 +149,7 @@ the oracle.
 | `tests/golden/agent/text-turn.json` | 1 | a whole turn's event sequence |
 | `tests/conformance/cases/http/*.json` | 34 | HTTP route/error/stream behavior |
 | `tests/conformance/cases/ws/*.json` | 8 | snapshot/event/delta framing, ping, close codes, upgrade policy |
-| `docs/contracts/*.md` | 6 | field names, status codes, exit codes |
+| `docs/contracts/*.md` | 7 | field names, status codes, exit codes |
 
 Rules that keep the oracle honest:
 

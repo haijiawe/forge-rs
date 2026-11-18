@@ -157,7 +157,7 @@ The v1 type catalogue is **open**. These eighteen types have producers in `forge
 | `user/message` | user input is accepted (at turn start, or mid-turn by a surface that supports steering — the surface writes this row when it takes the input in, and the loop only puts the text in front of the model at the next step boundary, never a second row) | `text`, `attachments` (array) |
 | `assistant/message` | model output for a step | `text`, `stopReason` (`end_turn` \| `tool_use` \| `cancelled` \| `max_tokens` \| `error`), optional `partial`, `usage` (`inputTokens`/`outputTokens`/`cacheReadTokens`/`cacheWriteTokens`), `durationMs` |
 | `tool/call` | a tool is about to run | `callId`, `tool`, `args` (object) |
-| `tool/result` | a tool finished | `callId`, `tool`, `ok` (bool), `output`, optional `code` (when `ok` is false), `truncated`, `meta` (free-form tool facts: `exitCode`, `bytes`, `durationMs`, …) |
+| `tool/result` | a tool finished | `callId`, `tool`, `ok` (bool), `output`, optional `code` (when `ok` is false), `truncated`, `meta` (free-form tool facts: `exitCode`, `bytes`, `durationMs`, …; `read_image` puts `imagePath`/`mediaType`/`bytes` here — §4.0.2) |
 | `approval/request` | a tool needs consent | `approvalId`, `callId`, `tool`, `args`, `reason`, optional `timeoutMs` |
 | `approval/decision` | the user answered | `approvalId`, `callId`, `decision` (`allow` \| `deny`), `decidedBy`, optional `note` |
 | `compaction/summary` | history is compacted | `summary`, `replaces` (`{from,to}` seq range) |
@@ -250,6 +250,25 @@ returns whole event lines — the log is append-only so a mistake could never be
 deleted, and a fork copies events verbatim so one screenshot costs twice its
 bytes. A reader that needs pixels must ask the server, and may assume `id` is
 absent (a `kind:"file"` attachment has no body at all).
+
+### 4.0.2 `tool/result` images
+
+A tool that answers with pixels cannot put them in `output`: a tool message is
+text on every chat-completions wire. `read_image` therefore writes the facts and
+keeps the bytes out of the log, exactly as an attachment does:
+
+| member of `meta` | type | when |
+| --- | --- | --- |
+| `imagePath` | string | a workspace-relative path the tool read |
+| `mediaType` | string | one of `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/bmp`, `image/tiff`, `image/x-icon` |
+| `bytes` | number | the file size at the moment it was read |
+
+The bytes reach the model once, as a follow-up `user` message the loop builds
+from `Result.parts`; they are never in the log. A later turn re-reads the file
+the path names, which means an image stays visible for the rest of the session at
+the cost of one small metadata row per read — and that if the file is deleted or
+replaced by text, the image is simply gone. A reader must tolerate a tool message
+with no `meta` at all: most tools have nothing structured to say.
 
 ### 4.1 Forked logs
 

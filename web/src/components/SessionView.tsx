@@ -8,6 +8,7 @@ import type { ForgeApi } from '../api/client';
 import type { ApprovalDecision } from '../api/types';
 import { SessionStore } from '../state/sessionStore';
 import { ApprovalDialog } from './ApprovalDialog';
+import { CapabilityPanel } from './CapabilityPanel';
 import { Composer } from './Composer';
 import { StatusBar } from './StatusBar';
 import { Transcript } from './Transcript';
@@ -86,6 +87,8 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
       )}
 
       <Transcript rows={state.rows} rowKeys={state.rowKeys} emptyHint="waiting for the first event…" />
+
+      <CapabilityPanel names={state.toolNames} />
 
       {state.pendingApproval !== null && (
         <ApprovalDialog pending={state.pendingApproval} onDecide={decide} />

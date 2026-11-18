@@ -704,3 +704,60 @@ body {
 .status-error.status-item {
   color: var(--bad);
 }
+/* --- capability panel --- */
+/* Sits between the transcript and the composer: the scroller keeps the room it
+   needs, and the panel is capped because it is a reference, not a conversation. */
+
+.capabilities {
+  flex: 0 1 auto;
+  max-height: 34vh;
+  overflow-y: auto;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sunken);
+  font-size: 11px;
+}
+
+.capabilities-head {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.capabilities-empty {
+  margin: 0;
+}
+
+.capability-section {
+  margin-bottom: 6px;
+}
+
+.capability-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.capability-detail {
+  margin: 0 0 2px;
+}
+
+.capability-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.capability-tool {
+  color: var(--text-muted);
+}
+
+.capability-note {
+  margin: 6px 0 0;
+  line-height: 1.35;
+}

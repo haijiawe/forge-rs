@@ -297,15 +297,48 @@ fn windows_abort_apply_releases_the_queued_job() {
     let _ = child.wait();
 }
 
+/// Run the contained helper in `connect` mode against `address` and return what it
+/// wrote into its marker: `connected`, or `refused: <kind>`.
+#[cfg(windows)]
+fn connect_outcome(spec: Spec, workspace: &Path, address: &str, name: &str) -> String {
+    let marker = marker(workspace, name);
+    let enforcer = new(spec, None).expect("install");
+    let mut command = std::process::Command::new(contained_helper(workspace));
+    command.args(["connect", address, marker.to_str().expect("marker path")]);
+    enforcer.apply(&mut command).expect("apply");
+    let mut child = command.spawn().expect("spawn");
+    enforcer.after_start(child.id()).expect("adopt");
+    assert!(
+        wait_for(&marker, Duration::from_secs(30)),
+        "the contained child never reported a connect result"
+    );
+    let outcome = std::fs::read_to_string(&marker).expect("read marker");
+    let _ = enforcer.close();
+    let _ = child.kill();
+    let _ = child.wait();
+    outcome
+}
+
+/// Whether this *host* (outside any sandbox) can open a TCP connection to `address`.
+///
+/// The positive half of [`windows_network_follows_the_spec_switch`] needs a target
+/// that is reachable at all; a machine behind a network that drops it cannot tell a
+/// working capability grant from a dead route, and inventing a pass there would be a
+/// fixture that changes what is asserted.
+#[cfg(windows)]
+fn host_reaches(address: &str) -> bool {
+    std::net::TcpStream::connect_timeout(
+        &address.parse().expect("socket address"),
+        Duration::from_secs(3),
+    )
+    .is_ok()
+}
+
 #[cfg(windows)]
 #[test]
 fn windows_network_is_absent_without_the_capability() {
-    // A listener on loopback is the cheapest reachable target, and an AppContainer
-    // without `internetClient` may not reach it either: Windows treats loopback as
-    // network. `allow_net` is false in every spec this code builds today, so this is
-    // the behaviour users actually get — the test would need a capability grant to
-    // assert the positive direction, and a passing connect proves nothing about the
-    // default.
+    // A listener on loopback is the cheapest target, and an AppContainer without
+    // `internetClient` may not reach it either: Windows treats loopback as network.
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
     let address = listener.local_addr().expect("listener address").to_string();
 
@@ -314,8 +347,9 @@ fn windows_network_is_absent_without_the_capability() {
 
     let enforcer = new(spec_in(Mode::WorkspaceWrite, &workspace), None).expect("install");
     assert!(
-        !enforcer.support().detail.contains("allow_net: true"),
-        "the spec under test must not grant the network"
+        enforcer.support().detail.contains("no capability"),
+        "the spec under test must not grant the network: {}",
+        enforcer.support().detail
     );
     let mut command = std::process::Command::new(contained_helper(&workspace));
     command.args(["connect", &address, marker.to_str().expect("marker path")]);
@@ -337,6 +371,115 @@ fn windows_network_is_absent_without_the_capability() {
     let _ = child.kill();
     let _ = child.wait();
     drop(listener);
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_network_follows_the_spec_switch() {
+    // `Spec::allow_net` has to change behaviour, not only the support string. This
+    // test runs the same contained child against the same targets twice, and the only
+    // difference between the runs is the switch.
+    //
+    // Measured on this host (2026-11-18, Windows 11, job object + AppContainer):
+    //   * loopback 127.0.0.1 with `allow_net: false` → `refused: timed out`
+    //   * 8.8.8.8:53 with `allow_net: false` → `refused: permission denied`
+    //   * 8.8.8.8:53 with `allow_net: true`  → `connected`
+    // Loopback stays refused even with the capability: reaching it also needs a
+    // loopback exemption (`NetworkIsolationSetAppContainerConfig` in Firewallapi.dll,
+    // administrator, process-wide), which this crate deliberately does not create, so
+    // loopback is only usable as the deny direction here.
+    if !forge_sandbox::appcontainer_available() {
+        eprintln!("SKIPPED: no AppContainer identity on this host, so nothing to grant");
+        return;
+    }
+
+    let workspace = scratch("network-switch");
+
+    // First, the two support strings. Cheap, deterministic, and they prove the switch
+    // reached the platform layer rather than being dropped between spec and enforcer.
+    let denied_enforcer = new(spec_in(Mode::WorkspaceWrite, &workspace), None).expect("install");
+    let denied_detail = denied_enforcer.support().detail.clone();
+    assert!(
+        denied_detail.contains("no capability, so no outbound sockets"),
+        "a spec with the network off must say so: {denied_detail}"
+    );
+    let _ = denied_enforcer.close();
+
+    let mut granted_spec = spec_in(Mode::WorkspaceWrite, &workspace);
+    granted_spec.allow_net = true;
+    let granted_enforcer = new(granted_spec, None).expect("install");
+    let granted_detail = granted_enforcer.support().detail.clone();
+    assert!(
+        granted_detail.contains("internetClient capability allows outbound sockets"),
+        "a spec with the network on must say so: {granted_detail}"
+    );
+    let _ = granted_enforcer.close();
+
+    // Loopback, switch off: refused. Windows counts loopback as network, and no
+    // exemption is installed here, so this direction is observable.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let loopback = listener.local_addr().expect("listener address").to_string();
+    let refused = connect_outcome(
+        spec_in(Mode::WorkspaceWrite, &workspace),
+        &workspace,
+        &loopback,
+        "switch-loopback",
+    );
+    assert!(
+        refused.starts_with("refused"),
+        "a contained child with the network off reached {loopback}: {refused}"
+    );
+    drop(listener);
+
+    // Then the discriminating pair: one public target, both directions. A plain DNS
+    // port rather than a named host, so the probe needs no resolver of its own.
+    //
+    // The pair is retried because this test crosses the real network: on this host one
+    // run reported `refused: host unreachable` for the granted case while the plain
+    // host connection to the same address had just succeeded — a transient route, not
+    // a policy decision. `host_reaches` is re-measured per attempt, so a skipped host
+    // is reported as a skip and never mistaken for a denial. The requirement is the
+    // discrimination itself: with the host able to reach the target, the child without
+    // the capability is refused and the child with it connects. A `permission denied`
+    // on the granted run is a real failure and never retried away.
+    const PUBLIC_TARGET: &str = "8.8.8.8:53";
+    let mut attempts: Vec<String> = Vec::new();
+    let mut success = false;
+    for attempt in 1..=3 {
+        if !host_reaches(PUBLIC_TARGET) {
+            eprintln!(
+                "SKIPPED: this host cannot reach {PUBLIC_TARGET}, so a capability \
+                 grant is unobservable"
+            );
+            return;
+        }
+        let denied = connect_outcome(
+            spec_in(Mode::WorkspaceWrite, &workspace),
+            &workspace,
+            PUBLIC_TARGET,
+            "switch-denied",
+        );
+        let mut granted = spec_in(Mode::WorkspaceWrite, &workspace);
+        granted.allow_net = true;
+        let connected = connect_outcome(granted, &workspace, PUBLIC_TARGET, "switch-granted");
+        attempts.push(format!(
+            "attempt {attempt}: deny={denied} grant={connected}"
+        ));
+        if denied.starts_with("refused") && connected == "connected" {
+            success = true;
+            break;
+        }
+        assert!(
+            !connected.contains("permission denied"),
+            "the internetClient capability was not granted to a spec with allow_net: \
+             true: {attempts:?}"
+        );
+    }
+    assert!(
+        success,
+        "with the network on the child never reached {PUBLIC_TARGET} while this host could: \
+         {attempts:?}"
+    );
 }
 
 #[cfg(windows)]

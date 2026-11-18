@@ -802,6 +802,7 @@ impl forge_agent::ToolRunner for ToolRunnerAdapter {
             } else {
                 Some(Value::Object(result.meta))
             },
+            parts: result.parts,
         })
     }
 }
@@ -936,9 +937,10 @@ fn execute_turn(
     // Tools need their own configuration (`~/.gitconfig`, `%APPDATA%`) and a scratch
     // directory, or a contained process is correct and useless. The list lives in
     // `grants.rs` where it can be read and replaced from `config.json`.
-    let (read, write) = crate::grants::effective(cfg);
-    spec.extra_read = read;
-    spec.extra_write = write;
+    let grants = crate::grants::effective(cfg);
+    spec.extra_read = grants.read;
+    spec.extra_write = grants.write;
+    spec.allow_net = grants.allow_net;
     // Hold the enforcer for the turn: its Drop closes the sandbox hook.
     let _enforcer = forge_sandbox::new(spec, None)
         .map_err(|e| runtime_error_str(stderr, &format!("sandbox: {}", e.message())))?;
@@ -1154,6 +1156,13 @@ fn execute_turn(
     );
     agent_opts.system = opts.system.clone();
     agent_opts.tools = tools;
+    // An attachment is stored, not understood, until something reads the blob
+    // back for the model. This is that something; without it the bytes are
+    // recorded and never seen.
+    agent_opts.attachments = Some(Arc::new(crate::attachments::parts_hook(
+        &data_dir,
+        Some(PathBuf::from(workspace)),
+    )));
     if !opts.json {
         agent_opts.on_delta = Some(on_delta);
     }

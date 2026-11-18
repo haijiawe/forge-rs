@@ -21,7 +21,7 @@ use crate::sse::{
     api_error_code, clip, decode_api_error, decode_event, payloads, pe, provider_error_with,
     SseReader, DONE_TOKEN, ERR_CLOSED, ERR_MISSING_DONE,
 };
-use crate::{Delta, Message, Provider, ProviderError, Request, Stream};
+use crate::{ContentPart, Delta, Message, Provider, ProviderError, Request, Stream};
 
 #[allow(unused_imports)]
 pub use crate::sse::{
@@ -1072,12 +1072,83 @@ fn is_zero(value: &i64) -> bool {
 #[derive(Serialize)]
 struct ChatMessage {
     role: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    content: String,
+    /// Either a bare string (the ordinary case) or an array of content parts.
+    /// `encode_message` decides which; the field is `Value` so the plain path
+    /// keeps producing exactly the JSON it produced before.
+    #[serde(skip_serializing_if = "content_is_empty")]
+    content: Value,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tool_calls: Vec<ChatToolCall>,
     #[serde(skip_serializing_if = "String::is_empty")]
     tool_call_id: String,
+}
+
+/// The old `skip_serializing_if = "String::is_empty"` rule, now applied to a
+/// `Value`: skip only when it is the empty string (never when it is an array of
+/// parts, which is how an image-only message stays on the wire).
+fn content_is_empty(value: &Value) -> bool {
+    matches!(value, Value::String(text) if text.is_empty())
+}
+
+/// Base64, standard alphabet, padded.
+///
+/// A twenty-line copy rather than a dependency: the budget is nine crates, and
+/// the server crate already has one of these (`crates/server/src/server.rs`);
+/// importing it would make the provider layer depend on the HTTP layer for a
+/// function with no HTTP in it.
+fn base64_padded(data: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
+        let word = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[((word >> 18) & 63) as usize] as char);
+        out.push(ALPHABET[((word >> 12) & 63) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHABET[((word >> 6) & 63) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHABET[(word & 63) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+/// A `data:` URI for one image, the form an OpenAI-compatible server accepts.
+///
+/// Separated from `encode_parts` so the base64 itself can be checked against
+/// values computed outside this crate: padding is where hand-written encoders go
+/// wrong, and an off-by-one there is invisible in a round-trip test.
+pub(crate) fn encode_message_image_uri(media_type: &str, data: &[u8]) -> String {
+    format!("data:{media_type};base64,{}", base64_padded(data))
+}
+
+/// The OpenAI-compatible array form: a text part followed by one `image_url`
+/// part per image, each carrying the bytes as a `data:` URI.
+///
+/// The text part is emitted first even when it is empty: a message carrying only
+/// an image still needs the array shape, and providers that accept an image-only
+/// message expect the text part to come first.
+fn encode_parts(message: &Message) -> Value {
+    let mut parts: Vec<Value> = vec![json!({"type": "text", "text": message.content})];
+    for part in &message.parts {
+        match part {
+            ContentPart::Text(text) => parts.push(json!({"type": "text", "text": text})),
+            ContentPart::Image { media_type, data } => {
+                parts.push(json!({
+                    "type": "image_url",
+                    "image_url": {"url": encode_message_image_uri(media_type, data)},
+                }));
+            }
+        }
+    }
+    Value::Array(parts)
 }
 
 #[derive(Serialize)]
@@ -1134,7 +1205,13 @@ fn encode_message(message: &Message) -> Result<ChatMessage> {
     }
     Ok(ChatMessage {
         role: message.role.as_str().to_string(),
-        content: message.content.clone(),
+        // A message with parts gets the array form; everything else keeps the
+        // bare string it always had, so no frozen fixture moves.
+        content: if message.has_parts() {
+            encode_parts(message)
+        } else {
+            Value::String(message.content.clone())
+        },
         tool_calls,
         tool_call_id: message.tool_call_id.clone().unwrap_or_default(),
     })

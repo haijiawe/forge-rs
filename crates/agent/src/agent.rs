@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use forge_core::{Error, ErrorKind, Event, EventType, Result};
-use forge_llm::{Aggregator, Message, Provider, Request, Stream, ToolCall, Usage};
+use forge_llm::{Aggregator, ContentPart, Message, Provider, Request, Stream, ToolCall, Usage};
 use forge_session::{Projection, Snapshot};
 use serde_json::{json, Map, Value};
 
@@ -19,7 +19,7 @@ use crate::cancel::Cancel;
 use crate::err::{
     cancelled_error, code_of, is_cancelled, refusal_error, retry_after_of, retryable_of,
 };
-use crate::history::{next_turn, open_turn, to_llm_messages};
+use crate::history::{next_turn, open_turn, to_llm_messages, to_llm_messages_with_parts};
 use crate::payload::{
     clip_system, error_event, llm_call, normalize_stop, step_end, step_start, stop_with_calls,
     turn_end, turn_reason, turn_start, usage_payload, user_message, CODE_CANCELLED,
@@ -33,6 +33,12 @@ pub type TextHook = Arc<dyn Fn(&str) + Send + Sync>;
 pub type DeltaHook = Arc<dyn Fn(u32, u32, &str) + Send + Sync>;
 /// Steering closure, polled before every step after the first.
 pub type SteeringHook = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
+
+/// Supplies image parts for one projected message, or nothing when the caller has
+/// no bytes for it. Named rather than inlined: a closure type written twice is a
+/// type written twice, and the option around it reads as noise either way.
+pub type AttachmentHook =
+    Arc<dyn Fn(&forge_session::projection::Message) -> Vec<ContentPart> + Send + Sync>;
 /// Deterministic clock returning epoch milliseconds (injectable for goldens).
 pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
@@ -54,6 +60,10 @@ pub struct Options {
     pub steering: Option<SteeringHook>,
     pub on_text: Option<TextHook>,
     pub on_delta: Option<DeltaHook>,
+    /// Supplies image parts for one projected message, or nothing when the
+    /// caller has no bytes for it. `None` is the text-only loop this crate
+    /// shipped before attachments could reach the model.
+    pub attachments: Option<AttachmentHook>,
     pub clock: Clock,
     pub cancel: Cancel,
 }
@@ -81,6 +91,7 @@ impl Options {
             steering: None,
             on_text: None,
             on_delta: None,
+            attachments: None,
             clock: Arc::new(wall_clock_ms),
             cancel: Cancel::default(),
         }
@@ -156,7 +167,13 @@ impl Agent {
             Err(e) => return (RunResult::default(), Some(e)),
         };
         let mut turn = next_turn(&snap);
-        let mut history = to_llm_messages(&snap, &self.opt.system);
+        // Attachments arrive as bodies in the caller's blob store, so the loop
+        // only asks for the parts it was told it can supply. With no hook this
+        // is byte for byte the text-only history it has always built.
+        let mut history = match &self.opt.attachments {
+            Some(hook) => to_llm_messages_with_parts(&snap, &self.opt.system, hook.as_ref()),
+            None => to_llm_messages(&snap, &self.opt.system),
+        };
 
         // PromptRecorded: adopt the turn the HTTP layer already opened instead
         // of writing turn/start + user/message a second time.
@@ -632,6 +649,7 @@ impl Agent {
         history: &mut Vec<Message>,
     ) -> Result<()> {
         let mut msgs = Vec::with_capacity(calls.len());
+        let mut parts: Vec<ContentPart> = Vec::new();
         for call in calls {
             if self.opt.cancel.is_cancelled() {
                 return Err(cancelled_error());
@@ -668,8 +686,24 @@ impl Agent {
                 res.output
             };
             msgs.push(Message::tool_result(&call.id, output));
+            if !res.parts.is_empty() {
+                parts.extend(res.parts);
+            }
         }
         history.extend(msgs);
+        // A tool result can only be text in the chat-completions protocol, so
+        // the bytes a tool hands back ride in on the next user turn. The log
+        // recorded the path and the size; the bytes were never written there,
+        // which is why the next turn can re-read them from disk.
+        if !parts.is_empty() {
+            history.push(
+                Message::user(format!(
+                    "[{} image(s) returned by the tool call(s) above]",
+                    parts.len()
+                ))
+                .with_parts(parts),
+            );
+        }
         Ok(())
     }
 }

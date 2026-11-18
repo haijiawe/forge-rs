@@ -10,6 +10,7 @@
 import { ApiError } from '../api/client';
 import type { ForgeApi } from '../api/client';
 import type { Event } from '../api/events';
+import { latestToolNames } from './capabilities';
 import { StreamMachine, type StreamInput, type StreamState } from '../api/stream';
 import { SessionStream, type StreamEvent } from '../api/transport';
 import type { ApprovalDecision, PendingApproval, ServerFrame, SessionDetail } from '../api/types';
@@ -24,6 +25,8 @@ export interface SessionViewState {
   headSeq: number;
   rows: Row[];
   rowKeys: string[];
+  /** Tool names from the newest `llm/call`; empty before the first request. */
+  toolNames: string[];
   pendingApproval: PendingApproval | null;
   streamError: string | null;
   connecting: boolean;
@@ -85,6 +88,7 @@ export class SessionStore {
       headSeq: 0,
       rows: [],
       rowKeys: [],
+      toolNames: [],
       pendingApproval: null,
       streamError: null,
       connecting: false,
@@ -266,6 +270,10 @@ export class SessionStore {
       headSeq: machineState.headSeq,
       rows: this.accumulator.rows,
       rowKeys: this.accumulator.rowKeys(),
+      // Computed per publish rather than stored: it is a read of the last event,
+      // and a stale copy of a list that can change between turns is worse than
+      // walking a few thousand events once per animation frame.
+      toolNames: latestToolNames(events),
       pendingApproval: machineState.session?.pendingApproval ?? null,
       streamError: machineState.streamError,
       connecting: this.state.connecting,

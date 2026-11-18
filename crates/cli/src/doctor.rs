@@ -448,9 +448,10 @@ fn check_sandbox(options: &DoctorOptions<'_>) -> Check {
     spec.workspace = options.workspace.clone();
     // Ask about the spec a turn would actually build: a report on a layout the
     // product never uses would describe a sandbox nobody runs.
-    let (read, write) = crate::grants::effective(config);
-    spec.extra_read = read;
-    spec.extra_write = write;
+    let grants = crate::grants::effective(config);
+    spec.extra_read = grants.read;
+    spec.extra_write = grants.write;
+    spec.allow_net = grants.allow_net;
     match forge_sandbox::new(spec, None) {
         Ok(enforcer) => {
             let support = enforcer.support();

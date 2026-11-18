@@ -62,6 +62,39 @@ pub struct Message {
     pub is_error: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<AssistantCall>,
+    /// Attachments named by this message: metadata only, never the bytes.
+    ///
+    /// The bodies live in the blob store and are fetched on demand. Carrying
+    /// them here would make every log read pay for them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
+    /// Structured details the writer recorded for this message. Only
+    /// `tool/result` currently carries any: the loop needs `meta.imagePath` on
+    /// the next turn to re-read an image a tool already fetched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Value>,
+}
+
+/// One attachment as the projection sees it: what it is called, how big it is,
+/// and — for references the sender named rather than uploaded — where it points.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Attachment {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    #[serde(
+        rename = "mediaType",
+        default,
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub media_type: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub path: String,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub bytes: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -176,6 +209,9 @@ struct MessagePayload {
     content: String,
     model: String,
     usage: Option<UsagePayload>,
+    /// The references the writer put in the payload. A log written before
+    /// attachments existed has none, which is why this is `default`.
+    attachments: Vec<Attachment>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -233,6 +269,10 @@ struct ToolResultPayload {
     #[serde(rename = "error_code")]
     error_code_snake: String,
     code: String,
+    /// Structured details the writer put on the event. Read back so a later
+    /// turn can find, for example, the path a `read_image` call returned
+    /// without re-parsing the whole log line.
+    meta: Option<Value>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -377,6 +417,7 @@ impl Projection {
                     seq: event.seq,
                     ts: event.ts,
                     text: first_non_empty(&[payload.text.as_str(), payload.content.as_str()]),
+                    attachments: payload.attachments,
                     ..Message::default()
                 });
             }
@@ -490,6 +531,7 @@ impl Projection {
                         call_id,
                         name,
                         is_error,
+                        meta: payload.meta,
                         ..Message::default()
                     });
                 } else {
@@ -520,6 +562,7 @@ impl Projection {
                         text: output,
                         call_id,
                         is_error,
+                        meta: payload.meta,
                         ..Message::default()
                     });
                 }

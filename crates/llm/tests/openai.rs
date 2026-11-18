@@ -1119,3 +1119,151 @@ fn ca_file_without_certificates_is_a_typed_invalid_error() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---------------------------------------------------------------------------
+// Non-text message parts
+// ---------------------------------------------------------------------------
+
+/// The bytes 0x89 0x50 0x4E 0x47 are a PNG signature; base64 of a three-byte
+/// payload is what makes padding appear, so the encoder is checked against a
+/// value computed outside this crate.
+const TINY_PNG: [u8; 4] = [0x89, 0x50, 0x4E, 0x47];
+
+#[test]
+fn a_message_without_parts_still_encodes_as_a_bare_string() {
+    // This is the compatibility guarantee: every existing frozen fixture and
+    // every provider that only understands strings must see exactly what it
+    // saw before parts existed.
+    let server =
+        scripted(&[r#"{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}"#]);
+    let client = client(&server.url());
+    let mut req = request("gpt-4o-mini");
+    req.messages = vec![
+        Message::system("sys"),
+        Message::user("question"),
+        Message::assistant("answer"),
+    ];
+    let mut stream = client.stream(&req).unwrap();
+    let _ = drain(&mut *stream);
+
+    let raw = server.request();
+    let split = find_subslice(&raw, b"\r\n\r\n").unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&raw[split + 4..]).unwrap();
+    assert_eq!(body["messages"][0]["content"], "sys");
+    assert_eq!(body["messages"][1]["content"], "question");
+    assert_eq!(body["messages"][2]["content"], "answer");
+    // Array form means the encoder took the parts path; it must not.
+    for message in body["messages"].as_array().unwrap() {
+        assert!(
+            message["content"].is_string(),
+            "a partless message must encode as a string: {message}"
+        );
+    }
+    server.finish();
+}
+
+#[test]
+fn an_image_part_encodes_as_a_data_uri_in_the_array_form() {
+    let server = scripted(&[
+        r#"{"choices":[{"index":0,"delta":{"content":"seen"},"finish_reason":"stop"}]}"#,
+    ]);
+    let client = client(&server.url());
+    let mut req = request("gpt-4o-mini");
+    req.messages = vec![Message::user("what is this?")
+        .with_parts(vec![ContentPart::image("image/png", TINY_PNG.to_vec())])];
+    let mut stream = client.stream(&req).unwrap();
+    let _ = drain(&mut *stream);
+
+    let raw = server.request();
+    let split = find_subslice(&raw, b"\r\n\r\n").unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&raw[split + 4..]).unwrap();
+    let content = &body["messages"][0]["content"];
+    assert!(
+        content.is_array(),
+        "a message with parts must use the array form: {content}"
+    );
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[0]["text"], "what is this?");
+    assert_eq!(content[1]["type"], "image_url");
+    // base64 of 89 50 4E 47 is "iVBORw==": 4 bytes leave one padding character.
+    // The expected string was produced by an outside tool, not by this encoder.
+    assert_eq!(
+        content[1]["image_url"]["url"],
+        "data:image/png;base64,iVBORw=="
+    );
+    server.finish();
+}
+
+#[test]
+fn several_images_and_text_parts_are_ordered_as_given() {
+    let server =
+        scripted(&[r#"{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}"#]);
+    let client = client(&server.url());
+    let mut req = request("gpt-4o-mini");
+    req.messages = vec![Message::user("first").with_parts(vec![
+        ContentPart::text("a caption"),
+        ContentPart::image("image/png", vec![0x89, 0x50]),
+    ])];
+    let mut stream = client.stream(&req).unwrap();
+    let _ = drain(&mut *stream);
+
+    let raw = server.request();
+    let split = find_subslice(&raw, b"\r\n\r\n").unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&raw[split + 4..]).unwrap();
+    let content = body["messages"][0]["content"]
+        .as_array()
+        .expect("array form");
+    assert_eq!(content.len(), 3);
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[0]["text"], "first");
+    assert_eq!(content[1]["type"], "text");
+    assert_eq!(content[1]["text"], "a caption");
+    assert_eq!(content[2]["type"], "image_url");
+    // Two bytes pad once: "iVA=".
+    assert_eq!(content[2]["image_url"]["url"], "data:image/png;base64,iVA=");
+    server.finish();
+}
+
+#[test]
+fn base64_matches_the_standard_alphabet_at_every_padding_length() {
+    // The three remainder cases, each against a value computed elsewhere:
+    // 3 bytes -> no padding, 4 -> one, 5 -> two.
+    assert_eq!(
+        openai::encode_message_image_uri("image/png", b"abc"),
+        "data:image/png;base64,YWJj"
+    );
+    assert_eq!(
+        openai::encode_message_image_uri("image/png", b"abcd"),
+        "data:image/png;base64,YWJjZA=="
+    );
+    assert_eq!(
+        openai::encode_message_image_uri("image/png", b"abcde"),
+        "data:image/png;base64,YWJjZGU="
+    );
+}
+
+#[test]
+fn parts_do_not_appear_in_the_contract_json() {
+    // `Message` is compared byte for byte against frozen fixtures elsewhere; the
+    // parts field is for the wire only and must not leak into that JSON.
+    let message = Message::user("hi").with_parts(vec![ContentPart::image("image/png", vec![1, 2])]);
+    let json = serde_json::to_string(&message).unwrap();
+    assert!(!json.contains("parts"), "{json}");
+    assert!(!json.contains("image/png"), "{json}");
+    assert_eq!(json, r#"{"role":"user","content":"hi"}"#);
+}
+
+#[test]
+fn an_image_only_message_is_not_rejected_as_empty() {
+    let req = Request {
+        model: "gpt-4o".to_string(),
+        messages: vec![
+            Message::user("").with_parts(vec![ContentPart::image("image/png", vec![1, 2, 3])])
+        ],
+        tools: vec![],
+        temperature: None,
+        max_tokens: None,
+        stop: vec![],
+    };
+    req.validate().expect("an image-only message has content");
+}

@@ -28,7 +28,16 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
   `"read-only"` / `"workspace-write"` / `"full-access"`；`mode_from_str()` 只认
   这三个拼写。
 - `Spec { mode, workspace, allow_net, extra_write, extra_read, wrapper }`：workspace 必须是绝对
-  路径、存在且是目录；文件系统根被拒绝（那等于 full-access）。`wrapper` 是“`main`
+  路径、存在且是目录；文件系统根被拒绝（那等于 full-access）。`allow_net` 缺省为
+  `false`，唯一来源是配置里的 `sandboxAccess.network`。它是**真的开关**，不是占位：
+  Windows 上它决定 AppContainer 有没有 `internetClient`（`S-1-15-3-1`）能力，实测
+  `false` 时对 `8.8.8.8:53` 得到 `WSAEACCES`（`permission denied`）、`true` 时得到
+  `connected`；loopback 例外——Windows 把 loopback 也算网络，要在容器里连上它还需要
+  `NetworkIsolationSetAppContainerConfig`（`Firewallapi.dll`，需管理员、进程级、影响所有
+  AppContainer）的豁免，本 crate 刻意不建这种豁免，所以 loopback 只能用作“拒绝”那一半。
+  macOS 对应的是一行 `(allow network*)`，Linux 是 Landlock ABI ≥ 4（更低版本时
+  `Support.network` 为 false 并拒绝非 full-access）。macOS 与 Landlock 的这两句是
+  `unverified on this host`。`wrapper` 是“`main`
   第一句调用 `maybe_exec_helper` 的可执行文件”，默认 `None` 表示本进程（`forge`
   自己）；把本 crate 当库嵌进别的宿主才需要设置它。`extra_read` 是“workspace 之外
   仍可读”的路径，只对默认拒绝读的平台有意义（Windows 的 AppContainer 从零可读开始；

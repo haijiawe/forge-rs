@@ -19,6 +19,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 
+pub mod attachments;
 pub mod bridges;
 pub mod chat;
 pub mod doctor;

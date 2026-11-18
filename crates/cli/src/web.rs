@@ -466,6 +466,12 @@ impl TurnRunner for WebRunner {
         );
         opts.prompt_recorded = true; // the HTTP layer wrote turn/start + user/message
         opts.tools = tools;
+        // The browser can attach images, so this loop has to be able to show
+        // them: the blob store is the same one the HTTP layer wrote to.
+        opts.attachments = Some(Arc::new(crate::attachments::parts_hook(
+            &self.env.data_dir,
+            Some(PathBuf::from(&self.workspace)),
+        )));
         opts.on_delta = Some(on_delta);
         opts.steering = Some(steering);
         opts.cancel = cancel;
@@ -620,9 +626,10 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
     let mut enforcer_spec = SandboxSpec::new(sandbox);
     enforcer_spec.workspace = workspace_str.clone();
     // Same grants as `chat`: a browser session's tools are the same tools.
-    let (read, write) = crate::grants::effective(&cfg);
-    enforcer_spec.extra_read = read;
-    enforcer_spec.extra_write = write;
+    let grants = crate::grants::effective(&cfg);
+    enforcer_spec.extra_read = grants.read;
+    enforcer_spec.extra_write = grants.write;
+    enforcer_spec.allow_net = grants.allow_net;
     let _enforcer = match forge_sandbox::new(enforcer_spec, None) {
         Ok(enforcer) => enforcer,
         Err(e) => return runtime_error(stderr, &format!("sandbox: {}", e.message())),
