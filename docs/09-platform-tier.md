@@ -218,17 +218,22 @@ that created the goal).*
 *non-Rust* language, to prove the claim), `forge-market`, `forge-experts`,
 `forge-team`. *Acceptance:* **one** complete reference plugin in Node (the language
 DSH's plugin authors already use, so its friction is the migration path) plus a
-**ten-line Python smoke test** that only proves a second runtime can join the
-protocol — two full reference plugins would be two maintenance surfaces bought to
-re-prove one property; a market install verifies a checksum and refuses a tampered
-tarball; an expert team dispatches two members and writes their results to a shared
-board.
-*Status: the four crates are delivered and green (plugin 30+12, market 110,
+small Python smoke test that only proves a second runtime can join the protocol —
+two full reference plugins would be two maintenance surfaces bought to re-prove one
+property; a market install verifies a checksum and refuses a tampered tarball; an
+expert team dispatches two members and writes their results to a shared board.
+*Status: delivered (`2b90ab5`). The four crates are green (plugin 30+12, market 110,
 experts 77, team 48), and `forge plugin|expert|team|market` are CLI commands.
-The acceptance evidence is the reference Node plugin plus the ten-line
-`tests/reference-node/smoke.py` under `crates/plugin`; the market refusal path was
-run against a real `python -m http.server` with a tampered tarball (digest
-mismatch named both digests, nothing landed in `bundles/`).*
+Acceptance evidence, all run on this host:* the reference Node plugin answers
+`initialize`, four tools, a prompt and a hook; `tests/reference-node/smoke.py`
+joins the same protocol — **18 lines of code** (31 with its comment block), not the
+ten the acceptance sentence first asked for, and the gap is honest: the closed table
+plus the id echo plus the `shutdown` reply do not fit in ten; the market refusal path
+was run against a real `python -m http.server` with an oversized and then a tampered
+tarball (each refusal named both numbers, nothing landed in `bundles/`);
+`forge team run release-squad --max-parallel 2` dispatched three roster members
+onto one board, each task claimed by the worker of the same name, transcripts under
+`<board>/workers/`.
 
 **P4 — context and content (optional).**
 `forge-context` (addressable compression), Office skills, pure-Rust document
