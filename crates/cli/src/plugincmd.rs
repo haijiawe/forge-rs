@@ -1,4 +1,5 @@
-//! `forge plugin`: list, start, stop and call plugins in `<dataDir>/plugins`.
+//! `forge plugin`: create, list, start, stop and call plugins in
+//! `<dataDir>/plugins`.
 //!
 //! One `Host` per invocation, created and dropped inside this command: a
 //! subcommand is a process, so the lifetime is the process. This is deliberately
@@ -8,7 +9,11 @@
 //! Nothing here spawns a plugin except `start` and `call`. `list` and `doctor`
 //! read manifests and report; a listing that started every installed plugin to
 //! describe it would be a listing that runs code the operator only wanted to
-//! inspect.
+//! inspect. `new` writes files and starts nothing either.
+//!
+//! This module owns the whole command vocabulary. `pluginscaffold` owns the
+//! bytes `new` writes and knows nothing about flags or exit codes, so there is
+//! one flag table for six subcommands rather than one per subcommand.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -31,6 +36,7 @@ crates/plugin/PROTOCOL.md). Nothing is started until `start` or `call` is passed
 listing a directory must never run the code in it.
 
 commands:
+  new <name>           write a working plugin skeleton under the plugin root
   list                 show every installed plugin, its runtime and state
   start <name>         start the plugin and print its handshake
   stop <name>          send shutdown to a plugin started in this process
@@ -44,7 +50,16 @@ flags:
   --dir <dir>          plugin root (default: <dataDir>/plugins)
   --args <json>        JSON arguments for `call` (default: {})
   --timeout <ms>       per-request budget in milliseconds (default: 10000)
+  --runtime <name>     runtime for `new`: node (default), python or exec
+  --description <text> one-line description for `new`
+  --force              let `new` replace a directory that already exists
   -h, --help           this message
+
+`new` writes a plugin that answers the handshake and one tool, so this sequence
+works with no edits:
+
+  forge plugin new hello
+  forge plugin call hello hello --args '{\"name\":\"world\"}'
 
 stdout: the listing, the handshake, the tool output, or the doctor report.
 Diagnostics go to stderr.
@@ -52,7 +67,14 @@ Diagnostics go to stderr.
 exit codes: 0 ok, 1 failure, 2 usage
 ";
 
-const VALUE_FLAGS: &[&str] = &["data-dir", "dir", "args", "timeout"];
+const VALUE_FLAGS: &[&str] = &[
+    "data-dir",
+    "dir",
+    "args",
+    "timeout",
+    "runtime",
+    "description",
+];
 
 #[derive(Debug, Default)]
 struct Options {
@@ -61,6 +83,9 @@ struct Options {
     dir: String,
     args: String,
     timeout: u64,
+    runtime: String,
+    description: String,
+    force: bool,
 }
 
 pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
@@ -79,6 +104,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     };
 
     match command.as_str() {
+        "new" => new_plugin(&opt, &reordered, stdout, stderr),
         "list" => list(&opt, stdout, stderr),
         "start" => start(&opt, &reordered, stdout, stderr),
         "stop" => stop(&opt, &reordered, stdout, stderr),
@@ -130,6 +156,9 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
             "data-dir" => opt.data_dir = take(&mut i)?,
             "dir" => opt.dir = take(&mut i)?,
             "args" => opt.args = take(&mut i)?,
+            "runtime" => opt.runtime = take(&mut i)?,
+            "description" => opt.description = take(&mut i)?,
+            "force" if inline.is_none() => opt.force = true,
             "timeout" => {
                 let raw = take(&mut i)?;
                 match raw.parse::<u64>() {
@@ -212,6 +241,81 @@ fn positional<'a>(args: &'a [String], command: &str) -> Vec<&'a str> {
         i += 1;
     }
     out
+}
+
+/// `new`: write a plugin, then say what to do with it.
+///
+/// The next-step lines are part of the output on purpose. A generated directory
+/// that nobody knows how to run is not a working starting point, and the two
+/// facts a first-time author needs — that `call` works immediately, and that
+/// `chat` needs `plugins.enabled` — are exactly the two that are not obvious
+/// from the files.
+fn new_plugin(
+    opt: &Options,
+    args: &[String],
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    let Some(name) = positional(args, "new")
+        .first()
+        .map(|name| (**name).to_string())
+    else {
+        return usage_error(stderr, "new needs a plugin name");
+    };
+    let kind = match crate::pluginscaffold::kind_of(&opt.runtime) {
+        Ok(kind) => kind,
+        Err(crate::pluginscaffold::Reject::Usage(message)) => return usage_error(stderr, &message),
+        Err(crate::pluginscaffold::Reject::Failed(message)) => {
+            return fail(stderr, &format!("forge plugin: {message}"))
+        }
+    };
+    let root = match root_of(opt) {
+        Ok(root) => root,
+        Err(err) => return fail(stderr, &format!("forge plugin: {}", err.message())),
+    };
+    let outcome =
+        match crate::pluginscaffold::generate(&root, &name, &kind, &opt.description, opt.force) {
+            Ok(outcome) => outcome,
+            Err(crate::pluginscaffold::Reject::Usage(message)) => {
+                return usage_error(stderr, &message)
+            }
+            Err(crate::pluginscaffold::Reject::Failed(message)) => {
+                return fail(stderr, &format!("forge plugin: {message}"))
+            }
+        };
+    if opt.json {
+        return crate::write_json(
+            stdout,
+            stderr,
+            "plugin new",
+            &serde_json::json!({
+                "name": name,
+                "runtime": outcome.runtime,
+                "directory": outcome.directory.to_string_lossy(),
+                "files": outcome.files,
+            }),
+        );
+    }
+    let _ = writeln!(
+        stdout,
+        "created {} plugin {} in {}",
+        outcome.runtime,
+        name,
+        outcome.directory.display()
+    );
+    for file in &outcome.files {
+        let _ = writeln!(stdout, "  {file}");
+    }
+    let _ = writeln!(stdout);
+    let _ = writeln!(
+        stdout,
+        "next: forge plugin call {name} hello --args '{{\"name\":\"world\"}}'"
+    );
+    let _ = writeln!(
+        stdout,
+        "      add {name:?} to plugins.enabled in config.json to let chat use it"
+    );
+    EXIT_OK
 }
 
 fn list(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
@@ -645,9 +749,136 @@ mod tests {
 
     #[test]
     fn the_usage_names_every_command() {
-        for command in ["list", "start", "stop", "call", "doctor"] {
+        for command in ["new", "list", "start", "stop", "call", "doctor"] {
             assert!(USAGE.contains(command), "usage must name {command}");
         }
+        for flag in ["--runtime", "--description", "--force"] {
+            assert!(USAGE.contains(flag), "usage must name {flag}");
+        }
+    }
+
+    /// A scratch plugin root that no other test shares.
+    fn scratch(label: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("forge-plugin-new-{}-{label}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn new_writes_a_plugin_the_same_command_can_then_list() {
+        // The point of folding `new` into this command rather than giving it its
+        // own: the root it writes to is the root `list` reads, resolved by the
+        // same `root_of`. Two resolvers would eventually disagree.
+        let root = scratch("roundtrip");
+        let root_text = root.to_string_lossy().to_string();
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(
+            &args(&["new", "hello", "--dir", &root_text]),
+            &mut out,
+            &mut err,
+        );
+        assert_eq!(code, EXIT_OK, "{}", String::from_utf8_lossy(&err));
+        let text = String::from_utf8_lossy(&out);
+        assert!(text.contains("created node plugin hello"), "{text}");
+        assert!(text.contains("plugins.enabled"), "{text}");
+
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(&args(&["list", "--dir", &root_text]), &mut out, &mut err);
+        assert_eq!(code, EXIT_OK, "{}", String::from_utf8_lossy(&err));
+        assert!(String::from_utf8_lossy(&out).contains("hello"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn new_accepts_json_like_every_other_subcommand() {
+        // This is what the duplicated flag table could not do: `--json` belonged
+        // to `plugincmd` and the scaffold's own parser rejected it.
+        let root = scratch("json");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(
+            &args(&["new", "jsonly", "--json", "--dir", &root.to_string_lossy()]),
+            &mut out,
+            &mut err,
+        );
+        assert_eq!(code, EXIT_OK, "{}", String::from_utf8_lossy(&err));
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&out).expect("new --json must emit JSON");
+        assert_eq!(parsed["name"], "jsonly");
+        assert_eq!(parsed["runtime"], "node");
+        assert_eq!(parsed["files"][0], "README.md");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn new_reads_its_name_past_flags_and_accepts_python() {
+        let root = scratch("flags");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(
+            &args(&[
+                "--dir",
+                &root.to_string_lossy(),
+                "new",
+                "--runtime",
+                "python",
+                "flagless",
+            ]),
+            &mut out,
+            &mut err,
+        );
+        assert_eq!(code, EXIT_OK, "{}", String::from_utf8_lossy(&err));
+        assert!(root.join("flagless/main.py").is_file());
+        assert!(String::from_utf8_lossy(&out).contains("created python plugin flagless"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn new_without_a_name_is_a_usage_error_that_writes_nothing() {
+        let root = scratch("noname");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(
+            &args(&["new", "--dir", &root.to_string_lossy()]),
+            &mut out,
+            &mut err,
+        );
+        assert_eq!(code, EXIT_USAGE);
+        assert!(String::from_utf8_lossy(&err).contains("needs a plugin name"));
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn an_illegal_name_from_the_command_line_creates_nothing() {
+        let root = scratch("illegal");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(
+            &args(&["new", "Bad Name", "--dir", &root.to_string_lossy()]),
+            &mut out,
+            &mut err,
+        );
+        assert_eq!(code, EXIT_USAGE);
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn a_second_new_without_force_fails_and_keeps_the_first() {
+        let root = scratch("twice");
+        let root_text = root.to_string_lossy().to_string();
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let path = args(&["new", "twice", "--dir", &root_text]);
+        assert_eq!(run(&path, &mut out, &mut err), EXIT_OK);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert_eq!(run(&path, &mut out, &mut err), EXIT_FAILURE);
+        assert!(String::from_utf8_lossy(&err).contains("--force"));
+        assert!(root.join("twice/index.js").is_file());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

@@ -67,7 +67,7 @@ a bug, not contract. `forge` does not use exit code `1` for "unknown command".
 | `forge index [flags]` | — | stats, hits or JSON on stdout | `0`, `1` or `2` |
 | `forge goal <command>` | — | the goal id, a status block, or JSON on stdout | `0`, `1` or `2` |
 | `forge schedule <command>` | — | a task id, a table, occurrences or JSON on stdout | `0`, `1` or `2` |
-| `forge plugin <command>` | — | a manifest listing, a handshake, tool output or a doctor report on stdout | `0`, `1` or `2` |
+| `forge plugin <command>` | — | a generated skeleton, a manifest listing, a handshake, tool output or a doctor report on stdout | `0`, `1` or `2` |
 | `forge expert <command>` | — | a roster table, one prompt, or JSON on stdout | `0`, `1` or `2` |
 | `forge team <command>` | — | team listings or a worker report on stdout | `0`, `1` or `2` |
 | `forge market <command>` | — | installed bundles, search hits, an install result or drift on stdout | `0`, `1` or `2` |
@@ -958,3 +958,111 @@ $ forge index --search hello --json
 
 A search that matches nothing prints nothing (text) or `[]` (JSON) and still
 exits `0`: an empty result is an answer, not a failure.
+
+## 7. `forge plugin <command>`
+
+### Usage
+
+```text
+usage: forge plugin <command> [flags]
+
+commands:
+  new <name>           write a working plugin skeleton under the plugin root
+  list                 show every installed plugin, its runtime and state
+  start <name>         start the plugin and print its handshake
+  stop <name>          send shutdown to a plugin started in this process
+  call <name> <tool>   call one of the plugin's tools with JSON arguments
+  doctor               show the plugin root and which runtimes exist
+
+flags:
+  --json               machine-readable output
+  --data-dir <dir>     data directory to read from
+  --dir <dir>          plugin root (default: <dataDir>/plugins)
+  --args <json>        JSON arguments for `call` (default: {})
+  --timeout <ms>       per-request budget in milliseconds (default: 10000)
+  --runtime <name>     runtime for `new`: node (default), python or exec
+  --description <text> one-line description for `new`
+  --force              let `new` replace a directory that already exists
+  -h, --help           this message
+```
+
+One flag table serves all six subcommands. A flag that a subcommand does not use
+is accepted and ignored rather than refused, so `--json` works on `new` exactly
+as it does on `list`.
+
+### Which subcommands start a process
+
+`start` and `call` spawn the plugin. `list`, `doctor` and `new` do not: a listing
+that ran every installed plugin to describe it would be a listing that executes
+code the operator only wanted to inspect. `doctor` probes interpreters with
+`<program> --version`, which is a spawn of the *interpreter*, never of a plugin.
+
+### `new`
+
+Writes `<root>/<name>/` containing exactly three files:
+
+| File | Content |
+| --- | --- |
+| `plugin.json` | `name`, `version` (`0.1.0`), `description`, `runtime`, `entry` |
+| `index.js` or `main.py` | a plugin that answers `initialize`, lists one tool named `hello`, and calls it |
+| `README.md` | the three protocol rules that decide whether a plugin works |
+
+Guarantees, each covered by a test:
+
+- The manifest is one `Host::discover` accepts without a complaint — not merely
+  well-shaped JSON.
+- No `__TOKEN__` placeholder survives in any generated file.
+- An illegal name is refused **before** anything is created. The name must match
+  `^[a-z0-9][a-z0-9._-]{0,63}$`, because it becomes both a directory and a tool
+  prefix.
+- An existing directory is refused without `--force`, and the first generation
+  survives the refusal. With `--force` the whole directory is replaced.
+- `--description` is flattened to one line (newlines and tabs become spaces, the
+  ends are trimmed); runs of spaces are preserved, because they are the
+  operator's own words. An empty description becomes `a <name> plugin`.
+- `--runtime exec` is a usage error, not a generated stub: an `exec` plugin is a
+  program the author already has, and a stub with a shebang for an interpreter
+  nobody installed would write a manifest that cannot start.
+
+The generated plugin is usable with no edits, but it is not enabled for `chat`
+until its name appears in `plugins.enabled` in `config.json`. Both facts are
+printed as next steps, because neither is obvious from the files.
+
+### stdout / stderr
+
+stdout carries the listing, the handshake, the tool output, the doctor report, or
+what `new` wrote. Diagnostics go to stderr. With `--json`, stdout is one JSON
+value; `new` emits `{name, runtime, directory, files}` with `files` sorted.
+
+A broken manifest is never silently skipped by `list`: its path, message and code
+go to stderr, because a plugin that stopped parsing is the reason its tools are
+missing.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The command did what it says. An empty plugin root is `0`, and listing it does not create the directory. |
+| `1` | A plugin failed to start; a tool reported `isError`; the filesystem refused a write; an existing directory was found without `--force`; no readable plugin exists while broken ones do. |
+| `2` | Usage error: unknown command or flag, a missing name, an illegal name, an unknown runtime, `--args` that is not JSON, a non-positive `--timeout`. Usage goes to stderr. |
+
+A tool that ran and failed exits `1` and prints the plugin's own words plus
+`the tool itself reported a failure`. A tool that was never attempted — an
+unknown tool name — exits `1` with the JSON-RPC error code instead. The
+distinction is the protocol's (`crates/plugin/PROTOCOL.md`), not this command's.
+
+### Example
+
+```text
+$ forge plugin new greeter --description "says hello to a name"
+created node plugin greeter in <dataDir>/plugins/greeter
+  README.md
+  index.js
+  plugin.json
+
+next: forge plugin call greeter hello --args '{"name":"world"}'
+      add "greeter" to plugins.enabled in config.json to let chat use it
+
+$ forge plugin call greeter hello --args '{"name":"world"}'
+hello, world
+```

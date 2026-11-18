@@ -30,6 +30,7 @@ pub mod importcmd;
 pub mod indexcmd;
 pub mod marketcmd;
 pub mod plugincmd;
+pub mod pluginscaffold;
 pub mod schedulecmd;
 pub mod sessioncmd;
 pub mod teamcmd;
