@@ -604,10 +604,8 @@ fn doctor(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 
     };
     let root = host.root().to_path_buf();
     let (found, broken) = host.discover();
-    let runtimes = [
-        ("node", interpreter_available("node")),
-        ("python", interpreter_available("python")),
-    ];
+    let probes = runtime_probes(&found);
+    let entries = exec_entries(&found);
     if opt.json {
         return crate::write_json(
             stdout,
@@ -618,9 +616,21 @@ fn doctor(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 
                 "exists": root.is_dir(),
                 "plugins": found.len(),
                 "broken": broken.len(),
-                "runtimes": runtimes
+                "runtimes": probes
                     .iter()
-                    .map(|(name, available)| serde_json::json!({"runtime": name, "available": available}))
+                    .map(|probe| serde_json::json!({
+                        "runtime": probe.runtime,
+                        "available": probe.available,
+                        "plugins": probe.plugins,
+                    }))
+                    .collect::<Vec<_>>(),
+                "entries": entries
+                    .iter()
+                    .map(|entry| serde_json::json!({
+                        "plugin": entry.plugin,
+                        "entry": entry.entry,
+                        "exists": entry.exists,
+                    }))
                     .collect::<Vec<_>>(),
             }),
         );
@@ -637,14 +647,34 @@ fn doctor(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 
     );
     let _ = writeln!(stdout, "plugins:   {}", found.len());
     let _ = writeln!(stdout, "broken:    {}", broken.len());
-    for (name, available) in runtimes {
+    if probes.is_empty() && entries.is_empty() {
+        let _ = writeln!(stdout, "runtimes:  none needed (nothing installed)");
+    }
+    for probe in &probes {
         let _ = writeln!(
             stdout,
-            "runtime:   {name:<8} {}",
-            if available {
+            "runtime:   {:<8} {}",
+            probe.runtime,
+            if probe.available {
+                "found".to_string()
+            } else {
+                format!(
+                    "missing ({}) cannot start",
+                    one_line(&probe.plugins.join(", "))
+                )
+            }
+        );
+    }
+    for entry in &entries {
+        let _ = writeln!(
+            stdout,
+            "entry:     {:<8} {} {}",
+            entry.plugin,
+            entry.entry,
+            if entry.exists {
                 "found"
             } else {
-                "missing (plugins using it cannot start)"
+                "MISSING (this plugin cannot start)"
             }
         );
     }
@@ -652,7 +682,85 @@ fn doctor(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 
         stdout,
         "note:      this command starts nothing; `forge plugin start <name>` does."
     );
+    // Exit 1 when something installed cannot start. A report that counted three
+    // problems and exited 0 would be read as "all good" by every script that
+    // only looks at the status.
+    if !broken.is_empty()
+        || probes.iter().any(|probe| !probe.available)
+        || entries.iter().any(|entry| !entry.exists)
+    {
+        return EXIT_FAILURE;
+    }
     EXIT_OK
+}
+
+/// One interpreter runtime the installed plugins ask for.
+struct RuntimeProbe {
+    runtime: &'static str,
+    available: bool,
+    /// Which plugins need it, so a missing interpreter names its victims.
+    plugins: Vec<String>,
+}
+
+/// The interpreters to probe, derived from the manifests actually installed.
+///
+/// Hardcoding `node` and `python` was wrong in both directions: on a machine with
+/// only native plugins it printed two runtimes nothing needed, and on a machine
+/// without them it reported two failures while saying nothing about the binaries
+/// the install really depends on. `exec` is absent here on purpose — it has no
+/// interpreter, and its risk is a missing entry, which `exec_entries` checks.
+fn runtime_probes(found: &[forge_plugin::Manifest]) -> Vec<RuntimeProbe> {
+    let mut probes: Vec<RuntimeProbe> = Vec::new();
+    for manifest in found {
+        let program = manifest.runtime.command();
+        if program.is_empty() {
+            continue;
+        }
+        if let Some(probe) = probes
+            .iter_mut()
+            .find(|probe| probe.runtime == manifest.runtime.as_str())
+        {
+            probe.plugins.push(manifest.name.clone());
+            continue;
+        }
+        probes.push(RuntimeProbe {
+            runtime: manifest.runtime.as_str(),
+            available: interpreter_available(program),
+            plugins: vec![manifest.name.clone()],
+        });
+    }
+    probes.sort_by(|left, right| left.runtime.cmp(right.runtime));
+    for probe in &mut probes {
+        probe.plugins.sort();
+    }
+    probes
+}
+
+/// One `exec` plugin's entry, and whether the file is there.
+struct ExecEntry {
+    plugin: String,
+    entry: String,
+    exists: bool,
+}
+
+/// Existence, not a spawn.
+///
+/// `--version` is not part of the plugin protocol: a native plugin reads frames
+/// from stdin and would treat that argument as nothing at all, so probing it
+/// would either hang or measure something unrelated. The failure this can
+/// actually catch is an entry that was never copied in, or was deleted.
+fn exec_entries(found: &[forge_plugin::Manifest]) -> Vec<ExecEntry> {
+    let mut entries: Vec<ExecEntry> = found
+        .iter()
+        .filter(|manifest| manifest.runtime == forge_plugin::Runtime::Exec)
+        .map(|manifest| ExecEntry {
+            plugin: manifest.name.clone(),
+            entry: manifest.entry.clone(),
+            exists: manifest.directory.join(&manifest.entry).is_file(),
+        })
+        .collect();
+    entries.sort_by(|left, right| left.plugin.cmp(&right.plugin));
+    entries
 }
 
 /// Whether `program --version` runs at all.
@@ -908,5 +1016,126 @@ mod tests {
         assert_eq!(code, EXIT_OK);
         assert!(String::from_utf8_lossy(&out).contains("no plugins installed"));
         assert!(!dir.exists(), "listing must not create the plugin root");
+    }
+
+    /// Write a plugin directory with an explicit runtime and entry.
+    fn install(root: &std::path::Path, name: &str, runtime: &str, entry: &str, body: Option<&str>) {
+        let dir = root.join(name);
+        std::fs::create_dir_all(&dir).expect("plugin dir");
+        let manifest = serde_json::json!({
+            "name": name,
+            "version": "0.1.0",
+            "description": "a doctor fixture",
+            "runtime": runtime,
+            "entry": entry,
+        });
+        std::fs::write(
+            dir.join("plugin.json"),
+            serde_json::to_vec(&manifest).expect("manifest"),
+        )
+        .expect("manifest write");
+        if let Some(body) = body {
+            std::fs::write(dir.join(entry), body).expect("entry write");
+        }
+    }
+
+    #[test]
+    fn doctor_probes_only_the_runtimes_the_installed_plugins_ask_for() {
+        // A native-only install has no use for a Node probe. Printing "node
+        // missing" here would name a problem that does not exist, and on a
+        // machine without Node it would do that while saying nothing about the
+        // binary the install actually depends on.
+        let root = scratch("doctor-exec");
+        install(
+            &root,
+            "native",
+            "exec",
+            "native.exe",
+            Some("not really a binary"),
+        );
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(
+            &args(&["doctor", "--dir", &root.to_string_lossy()]),
+            &mut out,
+            &mut err,
+        );
+        let text = String::from_utf8_lossy(&out).to_string();
+        assert_eq!(code, EXIT_OK, "{text}");
+        assert!(!text.contains("runtime:   node"), "{text}");
+        assert!(!text.contains("runtime:   python"), "{text}");
+        assert!(text.contains("entry:     native"), "{text}");
+        // The entry is a text file, and doctor still calls it found: it checks
+        // presence, never runs it. Spawning it would execute code the operator
+        // only asked to inspect.
+        assert!(text.contains("native.exe found"), "{text}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn doctor_names_a_missing_exec_entry_and_exits_one() {
+        let root = scratch("doctor-missing-entry");
+        install(&root, "ghost", "exec", "absent.exe", None);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(
+            &args(&["doctor", "--dir", &root.to_string_lossy()]),
+            &mut out,
+            &mut err,
+        );
+        let text = String::from_utf8_lossy(&out).to_string();
+        assert_eq!(
+            code, EXIT_FAILURE,
+            "a plugin that cannot start is a failure"
+        );
+        assert!(text.contains("absent.exe MISSING"), "{text}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn doctor_needs_no_runtime_when_nothing_is_installed() {
+        let root = scratch("doctor-empty");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(
+            &args(&["doctor", "--dir", &root.to_string_lossy()]),
+            &mut out,
+            &mut err,
+        );
+        let text = String::from_utf8_lossy(&out).to_string();
+        assert_eq!(code, EXIT_OK, "{text}");
+        assert!(text.contains("none needed (nothing installed)"), "{text}");
+        assert!(!text.contains("runtime:   node"), "{text}");
+        assert!(!root.exists(), "doctor must not create the plugin root");
+    }
+
+    #[test]
+    fn doctor_lists_an_interpreter_once_with_every_plugin_that_needs_it() {
+        let root = scratch("doctor-shared-runtime");
+        install(&root, "alpha", "node", "index.js", Some("// alpha"));
+        install(&root, "beta", "node", "index.js", Some("// beta"));
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(
+            &args(&["doctor", "--dir", &root.to_string_lossy(), "--json"]),
+            &mut out,
+            &mut err,
+        );
+        let value: serde_json::Value =
+            serde_json::from_slice(&out).expect("doctor --json is one JSON value");
+        let runtimes = value["runtimes"].as_array().expect("runtimes array");
+        assert_eq!(runtimes.len(), 1, "one probe per runtime, not per plugin");
+        assert_eq!(runtimes[0]["runtime"], "node");
+        assert_eq!(
+            runtimes[0]["plugins"],
+            serde_json::json!(["alpha", "beta"]),
+            "a missing interpreter has to name its victims"
+        );
+        assert_eq!(value["entries"], serde_json::json!([]));
+        // Whether Node exists is a property of the machine, not of this code, so
+        // the exit code is asserted against the probe rather than assumed.
+        let available = runtimes[0]["available"].as_bool().expect("available bool");
+        assert_eq!(code, if available { EXIT_OK } else { EXIT_FAILURE });
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

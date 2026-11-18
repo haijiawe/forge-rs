@@ -997,6 +997,40 @@ that ran every installed plugin to describe it would be a listing that executes
 code the operator only wanted to inspect. `doctor` probes interpreters with
 `<program> --version`, which is a spawn of the *interpreter*, never of a plugin.
 
+### `doctor`
+
+The probe set is **derived from the installed manifests**, not fixed. Only
+interpreter runtimes that at least one installed plugin asks for are probed, once
+per runtime, and each reports the plugins that need it. With nothing installed it
+prints `runtimes:  none needed (nothing installed)` and probes nothing.
+
+`runtime: "exec"` has no interpreter, so it is checked differently: one `entry:`
+line per exec plugin reporting whether `<pluginDir>/<entry>` **is a file**. It is
+never spawned — `--version` is not part of the plugin protocol, and a native
+plugin reads frames from stdin, so probing it would either hang or measure
+something unrelated. `found` therefore means *present*, not *valid*; validating a
+binary would require running it, which this subcommand must not do.
+
+```
+root:      <pluginRoot>
+exists:    yes | no (nothing installed yet)
+plugins:   <n>
+broken:    <n>
+runtime:   node     found | missing (<plugin names>) cannot start
+entry:     <plugin>  <entry> found | MISSING (this plugin cannot start)
+note:      this command starts nothing; `forge plugin start <name>` does.
+```
+
+`--json` emits `{root, exists, plugins, broken, runtimes, entries}` where
+`runtimes` is `[{runtime, available, plugins}]` sorted by runtime (plugins sorted)
+and `entries` is `[{plugin, entry, exists}]` sorted by plugin. Both arrays are
+empty when nothing needs them.
+
+Exit `1` when something installed cannot start: a broken manifest, an unavailable
+interpreter, or a missing exec entry. A report that counted three problems and
+exited `0` would be read as "all good" by any script that only checks the status.
+Otherwise exit `0`.
+
 ### `new`
 
 Writes `<root>/<name>/` containing exactly three files:
