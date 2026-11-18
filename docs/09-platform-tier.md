@@ -154,9 +154,31 @@ that spawns: a design that started a child per call would turn a 1,000-call turn
 from 37 ms into 45 seconds. **Keeping the child alive is the decision that
 protects performance here; the transport choice is not.**
 
-It also makes "write it in Rust if you want it fast" a precise claim rather than a
-slogan: a `runtime: "exec"` plugin skips the interpreter start, so it changes the
-*cold* cost by roughly an order of magnitude and the per-call cost barely at all.
+It also makes "write it in Rust if you want it fast" a measurable claim — and the
+measurement corrected it. The first version of this section said a native plugin
+would be faster by "roughly an order of magnitude". That was an inference from
+`node --version` costing 17.8 ms, and it was **too strong by about 2×**. With
+`crates/plugin/src/bin/forge-plugin-native.rs` built and loaded through
+`runtime: "exec"`, three runs give:
+
+| | Node plugin | Native plugin |
+| --- | --- | --- |
+| spawn + handshake, p50 | 45.6 / 44.0 / 43.2 ms | **9.8 / 8.5 / 8.8 ms** |
+| empty result, min | 30.3 / 24.6 / 25.3 µs | **15.7 / 15.8 / 15.8 µs** |
+| 4 KiB result, min | 33.8 / 32.0 / 32.2 µs | 23.3 / 23.6 / 20.5 µs |
+| 64 KiB result, min | 106.6 / 100.3 / 107.9 µs | 72.0 / 75.1 / 74.1 µs |
+
+So native startup is about **5×** faster, not 10×, and the per-call floor is
+roughly halved with a visibly tighter distribution (no JIT, no GC). The `min`
+column is the honest comparator for per-call cost: Node's p50 wandered between
+36 µs and 63 µs across five runs while its min stayed near 25 µs, so a ratio
+computed from p50 alone would have been noise.
+
+**And it still does not decide anything.** 9.8 ms is 0.8% of one model call;
+45 ms is 3.8%. Both are paid *once per plugin per turn*. The largest performance
+difference between plugin languages is therefore under 4% of a single model
+round trip — which is why §2.6 decides the plugin language on distribution and
+authoring instead.
 
 **What this does not settle.** These are round trips with no tool work. A plugin
 doing real I/O costs whatever the I/O costs. If a future plugin needs a hot loop
@@ -225,6 +247,55 @@ checker sends designs back for rework. That is a real tax on *authoring* speed,
 it is not visible in any runtime number above, and it was accepted in exchange
 for the runtime properties in §2.1. Pretending it does not exist would make this
 document a sales pitch instead of a decision record.
+
+### 2.6 Which language a plugin should be written in
+
+§2.2 says "whatever the plugin author uses", which is right when the author is a
+person with a language they already know. It is incomplete when the author is an
+**agent**, because an agent has no familiarity to preserve. Its costs are the
+price of one iteration and the price of shipping one artifact. Those two costs
+point at a specific default.
+
+**Distribution decides it, and the constraint is in the code.**
+`crates/market/src/index.rs:30` describes a bundle as
+`name/version/description/author/keywords/homepage/tarball/sha256/size/engines`.
+There is **no `os`, `arch` or `platform` field** — `engines` records "needs node
+>= 20", not "this tarball is the windows-amd64 build". Worse,
+`crates/market/src/index.rs:122-134` requires `name` + `version` to be unique in
+an index and refuses duplicates with `ERR_DUPLICATE_BUNDLE`, so six platform
+builds of `myplugin 1.0.0` cannot even be listed.
+
+A native plugin therefore **cannot be distributed through this market at all**
+without a contract change: add `os`/`arch` to `Bundle` *and* include them in the
+uniqueness key. A JS or Python plugin is one tarball that installs everywhere the
+interpreter exists. That is not a preference; it is what the shipped schema can
+express.
+
+**Authoring points the same way.** A JS plugin has no build step: write the file,
+`forge plugin call` runs it. A Rust plugin needs a compile per target, and the
+borrow checker sits inside the iteration loop. For an agent paying per round
+trip, that is the difference between one edit and several.
+
+So the default, in order:
+
+| Case | Language | Why |
+| --- | --- | --- |
+| Default for a new plugin | **JavaScript** (or TypeScript compiled to JS) | no build step, one artifact for every platform, `forge plugin new` already emits it, the market can ship it |
+| The work already lives in a library | **Python** | pandas/openpyxl/requests are the reason to be there; same distribution story |
+| CPU-bound, or must run with no interpreter installed | **Rust** via `runtime: "exec"` | ~5× faster cold start, half the per-call floor, no runtime dependency — but needs the market schema change above first |
+
+The third row is real and now tested: `crates/plugin/src/bin/forge-plugin-native.rs`
+is a working native plugin, and three integration cases in
+`crates/plugin/tests/host_it.rs` load it through `exec`. Before it existed,
+`Runtime::Exec` had only ever been tested as a string that parses — every other
+case spawned an interpreter, so a broken no-interpreter argv would have passed
+the suite.
+
+**What does not change: the kernel stays Rust.** The two decisions are
+independent, and §2.3 is why: the boundary costs 0.003% of a turn, so a plugin's
+language cannot move the kernel's 8.4 MB, 5 ms or 6.3 MB idle. Choosing JS for
+plugins is not a partial retreat from Rust — it is the same decision that put the
+web UI in TypeScript.
 
 ## 3. Crate plan and the layer graph
 

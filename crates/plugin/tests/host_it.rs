@@ -692,3 +692,109 @@ fn the_manifest_the_reference_plugin_ships_parses_as_written() {
         manifest["name"].as_str().expect("a name")
     ));
 }
+
+// ---------------------------------------------------------------------------
+// The exec runtime: a native binary, no interpreter in front.
+// ---------------------------------------------------------------------------
+
+/// The native plugin this package builds, at its cargo output path.
+const NATIVE_EXE: &str = env!("CARGO_BIN_EXE_forge-plugin-native");
+
+/// Install the native binary as a plugin. The entry must live inside the plugin
+/// directory (`Manifest::command_line` joins it and refuses absolute paths), so
+/// the executable is copied in — which is also what an installed native bundle
+/// looks like on disk.
+fn install_native(scratch: &Scratch) -> PathBuf {
+    let plugin = scratch.dir.join("native");
+    std::fs::create_dir_all(&plugin).expect("create the plugin directory");
+    let entry = if cfg!(windows) {
+        "native.exe"
+    } else {
+        "native"
+    };
+    std::fs::copy(NATIVE_EXE, plugin.join(entry)).expect("copy the native plugin");
+    let manifest = json!({
+        "name": "native",
+        "version": "0.1.0",
+        "description": "a native plugin, for the exec runtime",
+        "runtime": "exec",
+        "entry": entry,
+    });
+    std::fs::write(
+        plugin.join("plugin.json"),
+        serde_json::to_string_pretty(&manifest).expect("manifest json"),
+    )
+    .expect("write the manifest");
+    plugin
+}
+
+#[test]
+fn a_native_binary_answers_the_whole_handshake_and_calls_a_tool() {
+    // The gap this closes: `exec` had only ever been tested as a string that
+    // parses. Every other case in this file spawns an interpreter, so a bug in
+    // the no-interpreter argv would have passed the suite.
+    let scratch = Scratch::new("native-call");
+    install_native(&scratch);
+    let host = scratch.host();
+    let loaded = host.load("native").expect("load the native plugin");
+    assert_eq!(loaded.handshake.protocol_version, 1);
+    assert_eq!(loaded.handshake.name, "native");
+    assert!(loaded.handshake.capabilities.tools);
+    assert!(!loaded.handshake.capabilities.prompts);
+
+    let tools = host.tools("native").expect("list tools");
+    let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, vec!["echo", "fail", "fill"]);
+
+    let out = host
+        .call_tool("native", "echo", json!({ "text": "hello from rust" }))
+        .expect("call echo");
+    assert_eq!(out.output, "hello from rust");
+    assert!(!out.is_error);
+}
+
+#[test]
+fn a_native_plugin_keeps_the_two_failure_shapes_apart() {
+    let scratch = Scratch::new("native-failures");
+    install_native(&scratch);
+    let host = scratch.host();
+    host.load("native").expect("load");
+
+    // A tool that ran and refused: a result the model must see.
+    let refused = host
+        .call_tool("native", "fail", json!({}))
+        .expect("call fail");
+    assert!(refused.is_error);
+    assert_eq!(refused.output, "this tool always refuses");
+
+    // A call that was never attempted: an error, not a result.
+    let err = host
+        .call_tool("native", "nosuchtool", json!({}))
+        .expect_err("an unknown tool is not a result");
+    assert_eq!(err.code(), "bad_response");
+    assert!(
+        err.message().contains("no tool named"),
+        "the plugin's own words should survive: {}",
+        err.message()
+    );
+}
+
+#[test]
+fn a_native_plugin_is_discovered_without_being_started_and_stops_cleanly() {
+    let scratch = Scratch::new("native-lifecycle");
+    install_native(&scratch);
+    let host = scratch.host();
+    let (found, broken) = host.discover();
+    assert!(broken.is_empty(), "{broken:?}");
+    assert_eq!(found.len(), 1);
+    assert!(host.loaded_names().is_empty(), "discovery must not spawn");
+
+    host.load("native").expect("load");
+    assert_eq!(host.loaded_names(), vec!["native".to_string()]);
+    let stopped = host.unload("native").expect("unload").expect("was loaded");
+    assert!(
+        stopped.clean,
+        "the plugin should answer shutdown: {stopped:?}"
+    );
+    assert!(host.loaded_names().is_empty());
+}

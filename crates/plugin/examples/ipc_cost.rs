@@ -32,6 +32,9 @@ const CALLS: usize = 2000;
 /// Warm-up calls discarded before timing: the first few pay for the child's own
 /// JIT and for pipe buffers that have not reached steady state.
 const WARMUP: usize = 100;
+/// Startup samples for the native comparison. One sample of a 40 ms event is
+/// mostly scheduler noise; the claim being tested is about the distribution.
+const SPAWNS: usize = 20;
 
 const PLUGIN_JS: &str = r#"
 const send = (msg) => process.stdout.write(JSON.stringify(msg) + '\n');
@@ -262,4 +265,127 @@ fn main() {
     println!("For scale: one model round trip on this project measured 1,203,000 us.");
     host.unload_all();
     let _ = std::fs::remove_dir_all(&root);
+
+    native_comparison();
+}
+
+/// The same measurement against a native plugin, so "write it in Rust if you
+/// want it fast" is a number rather than a slogan.
+///
+/// The headline is startup, not the call: an interpreter costs tens of
+/// milliseconds to begin, a native binary does not. Per-call work is dominated by
+/// the pipe both share, so it should barely move — and if it does move, that is
+/// worth seeing rather than assuming.
+fn native_comparison() {
+    let Some(exe) = native_plugin_path() else {
+        println!();
+        println!("native comparison skipped: build it first with");
+        println!("  cargo build --release -p forge-plugin --bin forge-plugin-native");
+        return;
+    };
+    let root = std::env::temp_dir().join(format!("forge-ipc-native-{}", std::process::id()));
+    let plugin = root.join("native");
+    if std::fs::create_dir_all(&plugin).is_err() {
+        return;
+    }
+    let entry = if cfg!(windows) {
+        "native.exe"
+    } else {
+        "native"
+    };
+    if std::fs::copy(&exe, plugin.join(entry)).is_err() {
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+    }
+    let manifest = json!({
+        "name": "native", "version": "0.0.0", "description": "native measurement plugin",
+        "runtime": "exec", "entry": entry,
+    });
+    if std::fs::write(
+        plugin.join("plugin.json"),
+        serde_json::to_string(&manifest).unwrap_or_default(),
+    )
+    .is_err()
+    {
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+    }
+
+    println!();
+    println!("--- native plugin (runtime: exec), same host, same pipe ---");
+
+    // Startup is sampled repeatedly: it is the number that differs, and one
+    // sample of a 40 ms event is mostly scheduler noise.
+    let mut spawns = Vec::new();
+    let mut host = Host::start(&root);
+    host.set_max_bytes(8 << 20);
+    for _ in 0..SPAWNS {
+        let started = Instant::now();
+        if host.load("native").is_err() {
+            eprintln!("ipc_cost: cannot load the native plugin");
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+        spawns.push(started.elapsed().as_secs_f64() * 1e6);
+        host.unload_all();
+    }
+    Row {
+        label: "native: spawn + handshake".to_string(),
+        samples: spawns,
+    }
+    .report();
+
+    if host.load("native").is_err() {
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+    }
+    for (label, bytes) in [
+        ("native: empty result", 0usize),
+        ("native: 4 KiB result", 4 << 10),
+        ("native: 64 KiB result", 64 << 10),
+    ] {
+        let args = json!({ "bytes": bytes });
+        for _ in 0..WARMUP {
+            if host.call_tool("native", "fill", args.clone()).is_err() {
+                let _ = std::fs::remove_dir_all(&root);
+                return;
+            }
+        }
+        let mut samples = Vec::with_capacity(CALLS);
+        for _ in 0..CALLS {
+            let started = Instant::now();
+            let outcome = host.call_tool("native", "fill", args.clone());
+            let elapsed = started.elapsed().as_secs_f64() * 1e6;
+            match outcome {
+                Ok(output) if output.output.len() == bytes => samples.push(elapsed),
+                _ => {
+                    eprintln!("ipc_cost: native call did not return {bytes} bytes");
+                    let _ = std::fs::remove_dir_all(&root);
+                    return;
+                }
+            }
+        }
+        Row {
+            label: label.to_string(),
+            samples,
+        }
+        .report();
+    }
+    host.unload_all();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The native plugin sits beside this example's own executable in the cargo
+/// output directory. `CARGO_BIN_EXE_*` is only set for integration tests, so a
+/// measurement example has to find it the way a person would.
+fn native_plugin_path() -> Option<PathBuf> {
+    let current = std::env::current_exe().ok()?;
+    let profile = current.parent()?.parent()?;
+    let name = if cfg!(windows) {
+        "forge-plugin-native.exe"
+    } else {
+        "forge-plugin-native"
+    };
+    let candidate = profile.join(name);
+    candidate.is_file().then_some(candidate)
 }

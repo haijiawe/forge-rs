@@ -87,6 +87,18 @@ cargo run --release -p forge-plugin --example ipc_cost --offline
 边界的价钱。它不写基线、不让构建失败：这是给人看的测量，不是 `tools/bench` 那六项
 门禁，动它会连带动冻结的基线格式。
 
+先 `cargo build --release -p forge-plugin --bin forge-plugin-native` 的话，它还会
+追加一段**原生插件对照**（`runtime: "exec"`，20 次 spawn 采样）。实测原生启动
+p50 约 8.5–9.8 ms、Node 约 43–46 ms，约 5 倍；per-call 地板约减半。两者都不到一次
+模型调用的 4%，所以语言不是按性能选的——见 ADR-0003 §2.6。
+
+### 三种 runtime 都被真跑过
+
+`node`/`python` 由 `tests/reference-node/` 与十行 Python 冒烟覆盖；`exec` 由
+`src/bin/forge-plugin-native.rs` 覆盖——那是一个能跑的最小原生插件（echo/fail/fill），
+`tests/host_it.rs` 里三个用例走它验证握手、两种失败形状、以及 discover 不 spawn。
+在它存在之前 `exec` 只被测过「字符串能解析」，argv 少一段也不会有测试发现。
+
 ## 依赖与边界
 
 只依赖 `forge-mcp`（`Logger`/`NoopLogger`，宿主必须接受调用方给的日志汇）和
