@@ -11,7 +11,7 @@ members = ["crates/*", "tools/archcheck", "tools/bench", "tests/e2e", "tests/ws"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.89"
-license = "UNLICENSED"
+license = "MIT"
 
 # The dependency budget. Every entry answers "why not the standard library".
 # Adding a line here is a decision; see docs/08-rust-port.md §3.
