@@ -296,23 +296,35 @@ if it pays startup every time. The decision that protected performance in this
 design was *keeping the child alive*, not the transport.
 
 **3. Price what the choice removes, not only what it adds.** An embedded engine
-would remove the process boundary and add: tens of megabytes, a second build
-chain, a second cross-compile matrix, the loss of `panic = "abort"`, and the loss
-of "kill the child" as a containment story. Those are not microseconds, and they
-are paid on every build and every incident rather than once per call.
+would remove the process boundary and add: 1.02 MB of binary (§2.4 measured this;
+an earlier draft of this paragraph said "tens of megabytes" and was wrong by 30×),
+a second build chain, a second cross-compile matrix, the loss of
+`panic = "abort"`, the loss of "kill the child" as a containment story, and a hand-
+built API surface for every capability the runtime used to provide. Those are not
+microseconds, and they are paid on every build and every incident rather than once
+per call.
 
 **4. Ask which property is actually scarce.** For a plugin system the scarce
 properties are *can a stranger write one*, *can it be installed*, and *can it be
 stopped*. Latency is abundant — there is a 1,203 ms budget sitting right there.
 Choose the design that spends the abundant resource to buy the scarce one.
 
-Two failure modes this project hit, worth naming because both looked like
+**5. Check which axis you have not measured at all.** Four measurements of time
+produced a confident language recommendation while memory — the property this
+rewrite was actually sold on — had never been measured once. §2.7 is what happened
+when it was: 19.1 MB private per Node plugin, no sharing between plugins, and a
+multiplexing saving larger than the whole spread between languages. The
+recommendation survived, but its *reasoning* was incomplete, and the next decision
+would have been made on the wrong axis.
+
+Three failure modes this project hit, worth naming because all looked like
 progress:
 
 | Mistake | What it looked like | What fixed it |
 | --- | --- | --- |
 | Measuring a proxy | "80 µs round trip" from two Node processes, quoted as if it were our host | measure the real pair; keep the script in the repo so the claim is re-runnable |
 | Reading a coarse field as a fine one | `durationMs: 2` treated as evidence about microseconds | check the resolution at the source (`as_millis()`) before quoting it |
+| Optimising the axis you happened to measure | four latency numbers, zero memory numbers, a confident recommendation | list the properties the design is sold on and check each has a number (§2.7) |
 
 And the honest cost of the choice that was made: Rust's iteration loop is slower
 than Go's or TypeScript's — a full workspace test run is ~30 s here and the borrow
@@ -403,14 +415,14 @@ Older Node needs `--experimental-strip-types` or a build; that is exactly what
 
 So the recommendation, in order:
 
-| Case | Author writes | Why |
-| --- | --- | --- |
-| **Paved road** | **TypeScript** (`.ts`, no build) | same language as the UI, types an agent can act on, one artifact for every platform, already runs |
-| Plain JS is fine too | `.js` | identical runtime and distribution; use it when types buy nothing |
-| The work already lives in a library | **Python** | pandas/openpyxl/requests are the reason to be there; same distribution story |
-| CPU-bound, or no runtime may be assumed | **Rust** via `runtime: "exec"` | ~5× faster cold start, half the per-call floor, no runtime dependency — **needs the market schema change first** |
-| Untrusted in-process scripting, someday | embedded engine | see §2.4: 1.02 MB, but no `fetch`/`console`/`require` — a different product |
-| One artifact, no interpreter, any language | **WASM** | the strongest unexplored option; **not measured**, `wasmtime` is not in the offline cache |
+| Case | Author writes | Why | Private RAM per plugin (§2.7) |
+| --- | --- | --- | --- |
+| **Paved road** | **TypeScript** (`.ts`, no build) | same language as the UI, types an agent can act on, one artifact for every platform, already runs | 19.1 MB |
+| Plain JS is fine too | `.js` | identical runtime and distribution; use it when types buy nothing | 19.1 MB |
+| The work already lives in a library | **Python** | pandas/openpyxl/requests are the reason to be there; same distribution story | 7.5 MB |
+| CPU-bound, or no runtime may be assumed | **Rust** via `runtime: "exec"` | ~5× faster cold start, half the per-call floor, no runtime dependency, **cheaper than the host itself** — needs the market schema change first | **0.7 MB** |
+| Untrusted in-process scripting, someday | embedded engine | see §2.4: 1.02 MB, but no `fetch`/`console`/`require` — a different product | not measured |
+| One artifact, no interpreter, any language | **WASM** | the strongest unexplored option; **not measured**, `wasmtime` is not in the offline cache | not measured |
 
 The Rust row is real and tested: `crates/plugin/src/bin/forge-plugin-native.rs`
 is a working native plugin, and three integration cases in
@@ -421,9 +433,94 @@ the suite.
 
 **What does not change: the kernel stays Rust.** The two decisions are
 independent, and §2.3 is why: the boundary costs 0.003% of a turn, so a plugin's
-language cannot move the kernel's 8.5 MB, 5 ms or 6.3 MB idle. Choosing
-TypeScript for plugins is not a partial retreat from Rust — it is the *same*
-decision that put the web UI in TypeScript, which is why it costs no new stack.
+language cannot move the kernel's own 8.5 MB binary, 5 ms start or ~6 MB idle.
+Choosing TypeScript for plugins is not a partial retreat from Rust — it is the
+*same* decision that put the web UI in TypeScript, which is why it costs no new
+stack.
+
+**But "the kernel stays small" is not "the machine stays small".** An earlier
+version of this paragraph let the 6 MB idle figure stand as the whole memory
+answer. It is not: every enabled plugin is a separate process with its own
+interpreter, and §2.7 measures what that adds. Read the two together.
+
+### 2.7 What a plugin costs in RAM (measured)
+
+Every number in §2.3 is a *time*. Memory is a different axis, and it is the one
+this rewrite was sold on — `forge web` idles around 6 MB where the Electron
+original held several GB. An interpreter per plugin could spend that advantage
+quietly, so it was measured instead of assumed in either direction.
+
+Reproduce it with:
+
+```text
+cargo build --release -p forge-plugin --bins --offline
+cargo run --release -p forge-plugin --example memory_cost --offline -- 120 3
+```
+
+It holds the children open and prints its pid; sample that pid and its children
+from another shell (`Get-CimInstance Win32_Process -Filter "ParentProcessId=<pid>"`
+plus `Get-Process` for private bytes, or `ps -o rss= --ppid <pid>`). **One method
+for all three runtimes**, so the comparison is fair. Working set includes shared
+image and DLL pages; **private bytes is the honest incremental cost**, so both are
+recorded.
+
+An empty plugin of each runtime, plus the host holding them:
+
+| Process | Working set | **Private bytes** |
+| --- | --- | --- |
+| `node.exe` (one plugin) | 55.9 MB | **19.1 MB** |
+| `python.exe` (one plugin) | 12.6 MB | **7.5 MB** |
+| native `exec` plugin | 4.4 MB | **0.7 MB** |
+| the forge host itself | 6.1 MB | 1.8 MB |
+
+Node's own accounting agrees and explains where it goes: `rss 55.9 MB`,
+`heapTotal 6.0 MB`, `heapUsed 4.7 MB`, `external 1.9 MB`. **The plugin's code is
+6 MB of a 56 MB process**; the rest is the interpreter and V8. That is a floor
+paid for *being Node*, not for anything the author wrote.
+
+**The marginal plugin costs the same as the first.** Three Node plugins held at
+once: 55.9 + 55.9 + 55.9 = **167.7 MB working set, 57.5 MB private**. Nothing is
+shared. So the cost is per *process*, and the number of processes is the
+multiplier that matters.
+
+**Multiplexing was measured, not inferred.** One Node process holding three
+plugin instances (each with its own module state through a factory) came to
+**55.6 MB working set / 19.7 MB private** — against 167.7 / 57.5 for three
+processes. That is **112 MB of working set and 37.8 MB private saved**, and it
+puts the per-plugin private cost at 6.6 MB instead of 19.1 MB. The saving is real
+and it is larger than the entire spread between languages.
+
+What multiplexing would cost, which is why it is not simply done:
+
+- **Crash isolation.** Today a plugin that segfaults or exits takes only itself
+  down; the host reports `child_exited` and the turn continues. Sharing a process
+  makes one bad plugin fatal to every plugin in its group.
+- **CPU and hang isolation.** A plugin spinning forever is currently one killable
+  pid with a 10 s call budget. In a shared process it blocks the others.
+- **A protocol change.** Frames would need a plugin id, since one stdout stream
+  would carry several plugins' replies. `PROTOCOL.md` has no such field today.
+
+**Enabling a plugin pays for it immediately, whether or not it is called.**
+`crates/cli/src/wiring.rs:808-840` loads every name in `plugins.enabled` during
+wiring, because the model needs the tool schemas before the first request and
+those come from `tools/list` over a live pipe. Deferring the spawn would need a
+cached tool list with an invalidation story; that is a design decision, not an
+oversight, and it is not made here.
+
+**What this changes about §2.6.** The recommendation stands for one or two
+plugins, and the memory column above is now part of it. It changes the *priority*
+of the remaining work: choosing Python over TypeScript saves 11.6 MB private per
+plugin, while sharing one interpreter saves ~12.5 MB per plugin and a native
+plugin saves 18.4 MB — so **process architecture outranks language choice on this
+axis**, and a plugin that must always be resident is the strongest case for
+`exec` or WASM.
+
+**The DSH comparison, restated honestly.** Five Node plugins plus the host is
+about **97 MB private / 286 MB working set**, not 6 MB. That is still roughly
+50× less than the 4,914 MB the original held across ten processes, so the
+advantage survives — but the headline "6 MB" is only true with no plugins
+enabled, and quoting it without that qualifier would be the same mistake as
+quoting a Node-to-Node round trip as our own.
 
 ## 3. Crate plan and the layer graph
 

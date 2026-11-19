@@ -92,12 +92,39 @@ cargo run --release -p forge-plugin --example ipc_cost --offline
 p50 约 8.5–9.8 ms、Node 约 43–46 ms，约 5 倍；per-call 地板约减半。两者都不到一次
 模型调用的 4%，所以语言不是按性能选的——见 ADR-0003 §2.6。
 
+### 内存是另一根轴，别拿延迟的数字回答它
+
+`examples/memory_cost.rs` 是 §2.7 那组数字的来源。上面全是**时间**，而内存是这次
+重写真正的卖点，所以它必须单独量：
+
+```text
+cargo build --release -p forge-plugin --bins --offline
+cargo run --release -p forge-plugin --example memory_cost --offline -- 120 3
+```
+
+第一个参数是持有秒数，第二个是同时挂几个 Node 插件（用来量**边际成本**）。它打印
+自己的 pid 并挂住子进程，你在另一个 shell 里采样它和它的孩子——三个 runtime 用
+**同一种方法**量，比较才公平。工作集含共享的映像与 DLL 页，**私有字节才是真实增量
+成本**，两个都记。
+
+实测空插件：Node **55.9 MB 工作集 / 19.1 MB 私有**、Python 12.6 / 7.5、原生
+4.4 / **0.7**，而宿主自己 6.1 / 1.8。Node 自报 `heapTotal` 只有 6 MB——**另外 50 MB
+是「作为 Node」的地板价**，跟作者写了什么无关。三个 Node 插件是 167.7 / 57.5，
+**边际成本等于首次成本，一点不共享**。
+
+所以「多插件共用一个解释器」值得量而不是推断：一个 Node 进程装 3 个实例实测
+55.6 / 19.7，省 112 MB 工作集 / 37.8 MB 私有。**但共用的代价是崩溃与卡死不再隔离**，
+且协议要加 plugin id——那是设计决定，不是顺手能做的优化。
+
 ### 三种 runtime 都被真跑过
 
 `node`/`python` 由 `tests/reference-node/` 与十行 Python 冒烟覆盖；`exec` 由
 `src/bin/forge-plugin-native.rs` 覆盖——那是一个能跑的最小原生插件（echo/fail/fill），
 `tests/host_it.rs` 里三个用例走它验证握手、两种失败形状、以及 discover 不 spawn。
 在它存在之前 `exec` 只被测过「字符串能解析」，argv 少一段也不会有测试发现。
+
+`node` 还有第四个用例 `a_typescript_entry_runs_with_no_build_step`：`.ts` 入口零构建
+跑通（Node ≥ 23.6 擦类型），Node 缺失或过老时走 `skip()` 而不是假 OK。
 
 ## 依赖与边界
 
@@ -139,3 +166,9 @@ p50 约 8.5–9.8 ms、Node 约 43–46 ms，约 5 倍；per-call 地板约减�
 - 不要按调用 spawn。真正贵的是启动：spawn + handshake 实测 36–45 ms，约单次调用的
   1,000 倍。`chat` 整轮持一个 `Host`、只有 `load` 起进程，这条纪律才是保住性能的那条；
   传输方式不是。
+- 不要拿延迟的数字回答内存问题。它们是两根轴：一次调用 37 µs 可以忽略，而一个 Node
+  插件进程实测 19.1 MB 私有、**第二个又是 19.1 MB**（§2.7）。宿主自己 1.8 MB，所以
+  「forge 只用 6 MB」这句话只在**没启用插件**时成立，引用它必须带这个限定词。
+- 不要为了省内存把几个插件塞进一个进程，除非同时接受崩溃与卡死不再隔离、并给协议加上
+  plugin id。实测能省 112 MB 工作集（3 个插件），但今天「崩一个只死一个」是遏制故事的
+  一部分，那是设计决定而不是优化。
