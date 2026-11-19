@@ -58,10 +58,11 @@ jobs:
         shell: bash
 
     env:
-      # The committed .cargo/config.toml hard-codes the developer's ASCII
-      # target directory (D:/forge-rs-target/forge-rs). Never use that local
-      # Windows path in CI: this repo-local, ASCII value overrides it on every
-      # runner and keeps the artifact next to the checkout.
+      # `.cargo/config.toml` deliberately pins no target directory: a path like
+      # "D:/forge-rs-target" is one segment containing a colon to a Linux
+      # loader, which is exactly how the first hosted ubuntu job failed. Every
+      # runner gets its target directory from here instead, next to the
+      # checkout.
       CARGO_TARGET_DIR: target
 
     steps:
