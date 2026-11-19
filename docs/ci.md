@@ -20,17 +20,20 @@ Two toolchains on purpose: `test` proves the floor, `lint` runs where developers
 work. A pinned-toolchain lint job cannot see a lint that only a newer clippy
 knows (`is_multiple_of` was exactly that kind of lint).
 
-## Five rounds to green
+## Every run it took, and what each one caught
 
-| Run | Head | lint | web | ubuntu | windows |
-| --- | --- | --- | --- | --- | --- |
-| 44528486442 | `4947037` | ✗ | ✓ | ✗ | ✗ |
-| 44538730334 | `2b36d70` | ✗ | ✓ | ✗ | ✗ |
-| 44545921397 | `ddb2a3d` | ✓ | ✓ | ✗ | ✗ |
-| 44556272262 | `5732bce` | ✓ | ✓ | ✗ | ✗ |
-| 44558234256 | `7e6e25f` | ✓ | ✓ | ✓ | ✓ |
+| Run | Head | lint | web | ubuntu | windows | caught |
+| --- | --- | --- | --- | --- | --- | --- |
+| 44528486442 | `4947037` | ✗ | ✓ | ✗ | ✗ | 1, 2, 7 |
+| 44538730334 | `2b36d70` | ✗ | ✓ | ✗ | ✗ | 2, 3 |
+| 44545921397 | `ddb2a3d` | ✓ | ✓ | ✗ | ✗ | 4, 5 |
+| 44556272262 | `5732bce` | ✓ | ✓ | ✗ | ✗ | 6 |
+| 44558234256 | `7e6e25f` | ✓ | ✓ | ✓ | ✓ | — |
+| 44564786342 | `46e9188` | ✓ | ✓ | ✓ | ✗ | 8 |
+| 44582690666 | `0065fff` | ✓ | ✓ | ✓ | ✗ | 9 |
+| 44585759279 | `d05c4c5` | ✓ | ✓ | ✓ | ✓ | — |
 
-The seven defects, in the order they surfaced:
+The nine defects, in the order they surfaced:
 
 1. **A pinned target directory is not portable.** `.cargo/config.toml` carried
    `target-dir = "D:/forge-rs-target/forge-rs"` — a workaround for MSVC error
@@ -66,10 +69,19 @@ The seven defects, in the order they surfaced:
    ends its output with `Node.js v22.23.4`, so the host's one-line summary was a
    version number. It now prefers the last line that starts with `Error` or
    contains `Error: `. That change is what made defect 5 legible at all.
+8. **A fixture that answers before reading the request.** `crates/net`'s test
+   server read the request head and replied without draining the POST body. On
+   Windows, closing a socket that still holds unread input sends RST, and the
+   RST can discard the response the client has not read yet; the ubuntu job
+   passed while windows failed with `os error 10054`.
+9. **A deadline that covered the handshake.** The plugin timeout test set
+   200 ms before `load`, so starting Node had to fit inside it. On a hosted
+   Windows runner it did not. The deadline now covers only the call that is
+   supposed to hang, which is what the test is named after.
 
-Defects 4–7 are all one class: **a second machine is a second reader.** A test
-that passes on Windows because a delete silently fails, or because a backslash is
-special, is not a test of the thing it names.
+Defects 4–9 are all one class: **a second machine is a second reader.** A test
+that passes on Windows because a delete silently fails, because a backslash is
+special, or because the disk is fast enough, is not a test of the thing it names.
 
 ## The bench workflow
 
