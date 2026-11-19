@@ -37,6 +37,8 @@ knows (`is_multiple_of` was exactly that kind of lint).
 | 44603497179 | `58e6046` | ✓ | ✓ | ✗ | ✓ | 10 |
 | 44606471925 | `7aaf73f` | ✓ | ✓ | ✓ | ✓ | — |
 | 44618571269 | `f56bda3` | ✓ | ✓ | ✓ | ✓ | — (first run of `sandbox macos-latest`, green) |
+| 44627249157 | `ce9d56f` | ✓ | ✓ | ✓ | ✓ | — (the darwin/arm64 bench record and its docs) |
+| 44638519696 | `3a0acb16` | ✓ | ✓ | ✓ | ✓ | — (the capability snapshot route, its tests and the doc corrections) |
 
 The ten defects, in the order they surfaced:
 

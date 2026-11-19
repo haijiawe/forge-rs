@@ -1,6 +1,7 @@
 # ADR-0002 — the harness is written in Rust
 
-- **Status:** accepted, in progress (2026-11-16). Supersedes the language half of
+- **Status:** accepted and delivered (2026-11-17); all six waves are in, and §6
+  records what each one had to pass. Supersedes the language half of
   [01-tech-stack-adr.md](01-tech-stack-adr.md) (ADR-0001, Go + React).
 - **Decision owner:** the user. This document records the consequences, not the
   debate; ADR-0001 keeps the measurements that led to Go so the reversal has a

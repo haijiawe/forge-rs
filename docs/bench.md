@@ -48,8 +48,10 @@ Tolerances are stored **per row**: `0.35` (35%) for `session_append_fsync` and
 `session_append_batch`, `0.10` (10%) for the other four. `-fail-over` is used
 only when a baseline row has `tolerance == 0`.
 
-The numbers below are placeholders for the field shape; no baseline has been
-recorded yet. Record one only from a settled build.
+The numbers below are placeholders for the field shape, not recordings.
+`scripts/bench/baseline.json` holds the real ones: windows/amd64 from this
+machine, linux/amd64 from a hosted runner, and darwin/arm64 from the macOS one.
+Record a new row only from a settled build.
 
 ```json
 {

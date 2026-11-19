@@ -35,17 +35,17 @@ plus the directory's own [README.md](contracts/README.md).
 
 ## States, read honestly
 
-`delivered` is the document's own evidence, not this table's opinion. Three
-header lines in these files are already stale, each contradicted inside the same
-file: [08](08-rust-port.md) opens "accepted, in progress" while its wave table
-ends with all six waves delivered; [09](09-platform-tier.md) opens "nothing here
-is implemented" while §5 records P1–P3 shipped and P4 as a plan — which is why
-its state is `partially delivered`; [bench](bench.md) says no baseline was ever
-recorded while [scripts/bench/baseline.json](../scripts/bench/baseline.json)
-holds one from a settled tree. [ci](ci.md) and [release](release.md) are
-delivered as documents, but both say plainly that no hosted runner has executed
-them. Where this table and a document disagree, the document is the source of
-truth and the table is the bug.
+`delivered` is the document's own evidence, not this table's opinion. The header
+lines of [08](08-rust-port.md) and [bench](bench.md) used to contradict their own
+bodies ("accepted, in progress" above a wave table that ends with every wave in;
+"no baseline has been recorded" above a baseline file with three rows) and were
+corrected rather than left as a known lie. [09](09-platform-tier.md) is
+`partially delivered` on purpose: waves P1–P3 are in and P4 — the addressable
+compaction and Office output — is not started, which is what its status line
+says. [ci](ci.md) and [release](release.md) are delivered as documents, and both
+now describe runs that actually happened, on hosted runners, with the run ids.
+Where this table and a document disagree, the document is the source of truth and
+the table is the bug.
 
 ## Keeping this index from rotting
 
