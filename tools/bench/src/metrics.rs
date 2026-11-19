@@ -58,16 +58,28 @@ fn temp_dir(tag: &str) -> Result<PathBuf, String> {
 /// Guessing `target/release/forge` would break under a custom CARGO_TARGET_DIR
 /// (this repository uses an ASCII target dir outside the source tree).
 pub fn find_forge_binary(root: &Path) -> Result<PathBuf, String> {
-    let output = Command::new("cargo")
+    let mut command = Command::new("cargo");
+    command
         .args([
             "build",
             "--release",
-            "--offline",
             "-p",
             "forge-cli",
             "--message-format=json",
         ])
-        .current_dir(root)
+        .current_dir(root);
+    // Network policy belongs to the caller, not to the harness: a hosted
+    // runner starts with an empty registry and must be allowed to download,
+    // while the offline development box sets `FORGE_BENCH_OFFLINE=1`. Passing
+    // `--offline` unconditionally is how the first bench workflow died with
+    // "failed to download aho-corasick ... --offline was specified".
+    if matches!(
+        std::env::var("FORGE_BENCH_OFFLINE").as_deref(),
+        Ok("1") | Ok("true")
+    ) {
+        command.arg("--offline");
+    }
+    let output = command
         .output()
         .map_err(|e| format!("bench: cannot run cargo build forge-cli: {e}"))?;
     if !output.status.success() {

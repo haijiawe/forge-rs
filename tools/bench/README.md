@@ -27,8 +27,13 @@ document, one rule: **only `-strict` fails a regression**.
 ```
 cargo run -q -p forge-bench --offline --                                   # report
 cargo run -q -p forge-bench --offline -- -strict                           # CI gate
+$env:FORGE_BENCH_OFFLINE = "1"   # only on the offline development box
 cargo run -q -p forge-bench --offline -- -out scripts/bench/baseline.json -baseline ""
 ```
+
+The harness builds `forge-cli` with its own `cargo build`; `FORGE_BENCH_OFFLINE=1`
+makes that inner build pass `--offline`. Hosted runners leave it unset — an empty
+registry plus `--offline` is how the first bench workflow failed.
 
 ## 公开面
 
