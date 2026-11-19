@@ -330,6 +330,7 @@ fn prune_profiles(json: bool, stdout: &mut dyn Write, stderr: &mut dyn Write) ->
     #[cfg(not(target_os = "windows"))]
     {
         let _ = json;
+        let _ = stderr;
         let _ = writeln!(
             stdout,
             "sandbox profiles: nothing to prune on this platform"

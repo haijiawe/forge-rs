@@ -1,0 +1,57 @@
+name: bench
+
+# Records a performance baseline for the runner's own platform.
+#
+# `scripts/bench/baseline.json` is a set of per-platform records and
+# `forge-bench -strict` compares only the record matching the host it runs on,
+# so a record measured here cannot loosen or tighten the gate on another
+# platform. The development box is Windows; this is how a Linux and a macOS
+# arm64 record ever get to exist.
+#
+# It is manual on purpose: runner hardware is shared and the numbers are only
+# comparable within a platform, so a scheduled run would add noise, not signal.
+# Download the artifact, merge the record into `scripts/bench/baseline.json`,
+# and commit it with the measurement date in the message.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    name: record ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: build and record
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="baseline-$(echo '${{ matrix.os }}' | cut -d- -f1).json"
+          cargo run --release -q -p forge-bench -- -out "$name" -baseline ""
+          echo "wrote $name"
+          cat "$name"
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-${{ matrix.os }}
+          path: baseline-*.json
+          if-no-files-found: error
+
+      - name: compare against the committed record
+        shell: bash
+        # A run that cannot be compared is not a failure: the point of this job
+        # is to produce the first record for a platform. This step only reports.
+        continue-on-error: true
+        run: cargo run --release -q -p forge-bench -- -strict

@@ -277,7 +277,7 @@ fn sha1(data: &[u8]) -> [u8; 20] {
         0x1032_5476,
         0xc3d2_e1f0,
     ];
-    for chunk in message.chunks_exact(64) {
+    for chunk in message.as_chunks::<64>().0 {
         let mut words = [0u32; 80];
         for (i, word) in words.iter_mut().enumerate().take(16) {
             let at = i * 4;

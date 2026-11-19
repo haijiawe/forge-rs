@@ -636,18 +636,35 @@ impl Drop for Host {
     }
 }
 
-/// Append the child's last stderr line to a failure.
+/// Append the child's own diagnosis to a failure.
 ///
 /// A plugin's own diagnosis is almost always better than the host's, and the
 /// host is the only party that captured it. Without this line the operator sees
 /// "child_exited" and has to guess.
+///
+/// Why it is not just the last line: Node ends every crash report with a bare
+/// `Node.js v22.23.4`, so reporting the last line reports the version and
+/// throws away the `Error:` above it. The first CI run on a runner whose Node
+/// was older than the development machine's produced exactly that useless
+/// message. The chosen line is the last one that looks like a diagnosis; when
+/// there is none, the last non-empty line still beats nothing.
 fn annex_stderr(error: Error, connection: &Connection) -> Error {
     if matches!(
         error.kind(),
         Kind::ChildExited | Kind::Timeout | Kind::ProtocolError
     ) {
-        let tail = connection.stderr_tail(1);
-        if let Some(line) = tail.last() {
+        let tail = connection.stderr_tail(12);
+        let lines: Vec<&str> = tail
+            .iter()
+            .map(|line| line.trim())
+            .filter(|line| !line.is_empty() && !is_version_footer(line))
+            .collect();
+        let chosen = lines
+            .iter()
+            .rev()
+            .find(|line| line.starts_with("Error") || line.contains("Error: "))
+            .or_else(|| lines.last());
+        if let Some(line) = chosen {
             return Error::new(
                 error.kind(),
                 format!("{} (stderr: {line})", error.message()),
@@ -655,6 +672,14 @@ fn annex_stderr(error: Error, connection: &Connection) -> Error {
         }
     }
     error
+}
+
+/// `Node.js v22.23.4` — Node's crash footer, never the cause.
+fn is_version_footer(line: &str) -> bool {
+    match line.strip_prefix("Node.js v") {
+        Some(rest) => rest.starts_with(|ch: char| ch.is_ascii_digit()),
+        None => false,
+    }
 }
 
 fn type_name(value: &Value) -> &'static str {
