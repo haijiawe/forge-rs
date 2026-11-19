@@ -77,6 +77,15 @@ fn main() {
             let milliseconds: u64 = args[2].parse().expect("milliseconds");
             std::thread::sleep(Duration::from_millis(milliseconds));
         }
+        "write" => {
+            // The file-backed half of containment: this exits instead of sleeping,
+            // so a test can ask "did the write succeed" from the exit status alone.
+            let path = &args[2];
+            if let Err(error) = std::fs::write(path, b"written") {
+                eprintln!("write {path}: {error}");
+                std::process::exit(3);
+            }
+        }
         "connect" => {
             // Network containment is only observable from inside: the test listens
             // on loopback, and this child reports whether the connect was allowed.

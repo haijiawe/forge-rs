@@ -37,7 +37,7 @@ impl Platform for LinuxPlatform {
                 enforced: false,
                 detail: format!(
                     "linux: landlock ABI {abi} detected (filesystem writes confinable; TCP bind/connect {}). \
-                     Process-tree teardown is internal/exec's job. unverified on this host",
+                     Process-tree teardown is internal/exec's job.",
                     if abi >= 4 { "confined" } else { "NOT confined" }
                 ),
             },
@@ -48,7 +48,7 @@ impl Platform for LinuxPlatform {
                 enforced: false,
                 detail: format!(
                     "linux: no usable landlock ({error}); filesystem writes cannot be confined. \
-                     Process-tree teardown is internal/exec's job, not this package's. unverified on this host"
+                     Process-tree teardown is internal/exec's job, not this package's."
                 ),
             },
         }
@@ -65,12 +65,23 @@ impl Platform for LinuxPlatform {
                 format!("sandbox: linux: landlock unavailable: {error}: {ERR_UNAVAILABLE}"),
             )
         })?;
-        let self_path = std::env::current_exe().map_err(|error| {
-            Error::new(
-                ErrorKind::Refused,
-                format!("sandbox: linux: cannot locate own executable: {error}: {ERR_UNAVAILABLE}"),
-            )
-        })?;
+        // The wrapper has to be a program that calls `maybe_exec_helper` before
+        // it parses anything. In production that is `forge`; in an integration
+        // test the test harness itself is the current executable and would run
+        // its own argument parser instead, so `Spec::wrapper` must be honoured
+        // here exactly as Windows honours it. Falling back to this process keeps
+        // the embedding case (a host library that is the harness) working.
+        let self_path = match spec.wrapper.as_deref() {
+            Some(path) if !path.trim().is_empty() => PathBuf::from(path),
+            _ => std::env::current_exe().map_err(|error| {
+                Error::new(
+                    ErrorKind::Refused,
+                    format!(
+                        "sandbox: linux: cannot locate own executable: {error}: {ERR_UNAVAILABLE}"
+                    ),
+                )
+            })?,
+        };
         Ok(Box::new(LandlockEnforcer {
             spec: spec.clone(),
             abi,
@@ -100,7 +111,7 @@ impl crate::Enforcer for LandlockEnforcer {
             enforced: true,
             detail: format!(
                 "linux landlock ABI {}: filesystem writes confined to {}; TCP bind/connect {}. \
-                 Process-tree teardown is internal/exec's job. unverified on this host",
+                 Process-tree teardown is internal/exec's job.",
                 self.abi,
                 self.spec.workspace,
                 if self.abi >= 4 && !self.spec.allow_net {
