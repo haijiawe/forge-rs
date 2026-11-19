@@ -99,8 +99,10 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
   会成段时间拒绝新名字（本机攒到约九十个 `forge.sandbox.*` 后出现过），而采纳一个
   已存在的身份从不受影响；只有真的需要新身份时才付那 8 秒退避重试，最后才退到
   全用户共享的 `forge.sandbox`（共享身份不再隔离两个 workspace，必须在文档里说）。
-- 不要在 Linux/macOS 的能力文案里省略 `unverified on this host`：这两个平台只在
-  本机编译检查过，没有实测。
+- 不要在 macOS 的能力文案里省略 `unverified on this host`：这个平台只在本机编译
+  检查过，没有实测。Linux 不是——`crates/sandbox/tests/linux.rs` 的五个用例在 CI
+  的 ubuntu job 里跑真实内核；把 Linux 也说成 "unverified" 同样是撒谎，只是方向
+  相反。
 - 不要把 `ERROR_ACCESS_DENIED` 一律当权限问题去改 ACL。进程的强制完整性级别取
   “父进程级别”和“自身镜像标签”中较低的那个：镜像放在打了 `Low` 标签的目录里
   （浏览器解压的下载常见），进程就以 Low 运行，而 Low 进程**写不了 `%LOCALAPPDATA%`**，
