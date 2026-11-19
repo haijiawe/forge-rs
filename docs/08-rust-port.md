@@ -117,9 +117,13 @@ These are not preferences. Each was found by a failing build:
    `D:\魔改版Agent框架\...`, every crate that compiles C (`rusqlite`, `ring`)
    dies with `cl: 命令行 error D8050 : 无法执行 c1.dll: 未能将命令行放入调试记录中`
    — `cl.exe` writes its command line into a debug record in the ANSI code page,
-   and the `/Fo` path is not representable. Fixed by `.cargo/config.toml`:
-   `target-dir = "D:/forge-rs-target/forge-rs"`. The source tree may keep its
-   name; only the target must move.
+   and the `/Fo` path is not representable. The source tree may keep its name;
+   only the target must move. The fix lives in the environment, not in the
+   tracked tree: `check.ps1` derives an ASCII target directory when the checkout
+   path is not ASCII, and every CI job sets `CARGO_TARGET_DIR` itself. An
+   earlier draft pinned `target-dir = "D:/forge-rs-target/forge-rs"` in
+   `.cargo/config.toml`; on Linux that is one path segment containing a colon
+   and it broke the first hosted ubuntu job, so it was removed.
 2. **MSVC only.** The `stable-x86_64-pc-windows-gnu` toolchain is installed but
    unusable: `error calling dlltool 'dlltool.exe': program not found`. Do not
    "fix" a build failure by switching to GNU.
@@ -331,6 +335,9 @@ check and to a test that only inspects its own arguments:
 | A retry that outlives the truth | Pruning 57 leftover profiles took 182 s and removed none: every name was refused with `0x80070005` because the profile service was refusing *everything* at that moment, which a fresh create proved. Retrying per item treated one shared condition as 57 independent failures. | Probe once with the full budget, stop when the first probe fails with nothing removed, and say the service is refusing — 3.9 s and an answer the operator can act on. |
 | A correlation you did not test for | Two variables moved together: profiles failed under `D:\魔改版Agent框架\...` and worked under `%TEMP%`, so the path's non-ASCII characters looked like the cause, and a workaround was built (re-exec from an ASCII copy) that could never work — the failing process could not even create the copy's folder. The real variable was the mandatory integrity label: the project tree is labelled `Low`, its binaries run at Low integrity, and a Low process cannot write `%LOCALAPPDATA%` or read a Medium object's DACL. Every "language" test had been run inside the labelled tree; every "control" outside it. | Change one variable at a time, and when a hypothesis predicts a mechanism, go and look at the mechanism (`whoami /groups` showing `Mandatory Label\Low` was one command away). Then make the failure name the condition and print the fix instead of leaving a workaround that hides it. |
 | An identity check that compares with the wrong boundary | `integrity_rid() < 0x1000` never fires, because Low *is* `0x1000`; the hint stayed silent exactly on the host it was written for. | Compare against the boundary you actually mean (`< Medium, 0x2000`) and name the constant after the meaning, not the example. |
+| A test that cleans up its parent | The bridge tests built their plugin roots directly in `%TEMP%` and removed `root.parent()` at the end — that is `TEMP` itself. Windows refused to delete open files, so the damage was invisible for months; the hosted Linux job owns `/tmp`, deleted it, and took every other test's scratch directory with it. | A per-test base directory (`<base>/plugins`, `<base>/experts`); a test may only delete its own. |
+| A build flag that encodes one machine's network | `forge-bench` shells out to `cargo build -p forge-cli` and always passed `--offline`, which is right on a mirrored development box and fatal on a runner with an empty registry (`failed to download aho-corasick`). | The caller decides: `FORGE_BENCH_OFFLINE=1` on the offline box, absent in the workflow. |
+| A path that is one segment here and two there | `.cargo/config.toml` pinned `target-dir = "D:/forge-rs-target/forge-rs"` to dodge MSVC error `D8050`. To a Linux loader that is one string containing a colon, and the ubuntu job died with `failed to join paths from $LD_LIBRARY_PATH together`. | Pin no machine-specific path in a tracked file; derive it in the local script and let CI set its own. |
 
 ## 9. Risks
 
@@ -338,6 +345,6 @@ check and to a test that only inspects its own arguments:
 | --- | --- |
 | Compile time makes iteration painful | ten small crates, `thin` LTO in release only, no async, no proc-macro crates beyond serde |
 | Two trees drift while both exist | resolved: the Go tree was deleted on 2026-11-17; a change to an oracle is now a deliberate edit to `tests/` plus both readers' tests, not a silent port drift |
-| Windows-only C toolchain quirk resurfaces | ASCII target dir is in `.cargo/config.toml`, documented in §4.1, and asserted by CI |
+| Windows-only C toolchain quirk resurfaces | the ASCII target directory is no longer committed (it is one my machine needs, not the project); `check.ps1` derives it when the checkout path is not ASCII, and CI sets its own |
 | Rust rewrite stalls at 60% | waves are independently shippable; W0–W1 already replace the storage layer, and the Go binary keeps working meanwhile |
 | Agent-written Rust compiles but is unidiomatic | every crate has a README with `may_import`/`must_not`, and `archcheck` enforces the graph, not the style |
