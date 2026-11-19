@@ -110,6 +110,31 @@ Rust arch names are mapped to Go names in the document (`x86_64` → `amd64`,
 5. Regressions exit 0 in report mode. Only `-strict` exits 1, with a count.
 6. A differing `rustVersion` is noted; the gate still applies.
 
+## The Windows record, and why it was refreshed
+
+`scripts/bench/baseline.json` originally held one record, taken on 2026-11-16
+against the M7 tree (7.5 MB binary, ten crates). The current tree is 8.5 MB and
+has six more crates by design. The record was re-taken on 2026-11-19 after the
+machine had settled; the deltas are written down here rather than absorbed
+silently into a tolerance:
+
+| metric | 2026-11-16 | 2026-11-19 | delta |
+| --- | --- | --- | --- |
+| version_startup | 5.14 ms | 6.37 ms | +24% slower |
+| session_append_fsync | 4,501 /s | 4,354 /s | −3% |
+| session_append_batch | 76,942 /s | 89,477 /s | +16% faster |
+| session_replay_10k | 159,766 /s | 148,230 /s | −7% |
+| session_projection_10k | 92,313 /s | 84,630 /s | −8% |
+| event_roundtrip | 2,843 ns/op | 2,849 ns/op | +0.2% |
+
+`event_roundtrip` matching within 0.2% says the machine and the release profile
+are the same ones that produced the old record; it does not explain the
+startup row. The six added crates are the obvious candidate, but that has not
+been isolated, and the honest statement is that it has not. Startup at 6.4 ms
+is still below the retired Go tree's 7.2 ms and far below a JS harness.
+The record's job is to catch regressions from *today's* tree; keeping a stale
+record produces a gate that is red for reasons nobody intends to fix.
+
 ## Running and integrating
 
 ```powershell

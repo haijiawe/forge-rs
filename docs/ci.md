@@ -88,6 +88,25 @@ matching `os`/`arch`), and commit it with the measurement date. The final step o
 the workflow runs `-strict` with `continue-on-error: true`: a run that cannot be
 compared yet is not a failure, it only reports.
 
+The workflow's first two runs each found one defect, and both were invisible on
+a developer machine that has a warm target directory and a working registry:
+
+1. **The inner build was pinned offline.** `forge-bench` shells out to
+   `cargo build -p forge-cli` to have a binary to launch, and that call always
+   passed `--offline`. A dev box has every crate cached; a hosted runner starts
+   with an empty registry and died on `aho-corasick`. The flag is now
+   conditional on `FORGE_BENCH_OFFLINE=1`, so network policy belongs to the
+   caller (the Makefile sets it, the workflow does not).
+2. **The build was inside the measurement budget.** `version_startup` pays for
+   that build on a cold runner; it took about sixty seconds and exhausted the
+   harness's sixty-second runtime budget, so the second run recorded exactly one
+   metric out of six. `run_all` now builds once before starting the clock, and
+   the artifact has all six.
+
+`record macos-14` is `cancelled` with no steps and no runner name: this account
+cannot be assigned a macOS runner. That is a plan boundary, not a workflow bug,
+and it is why no `darwin/arm64` record exists yet.
+
 ## A flake that was made into a wait
 
 `http_surface_matches_oracle_protocol_and_event_contract` in

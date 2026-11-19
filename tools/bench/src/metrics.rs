@@ -105,12 +105,11 @@ pub fn find_forge_binary(root: &Path) -> Result<PathBuf, String> {
 }
 
 /// 20 cold `forge --version` launches, one per phase. Unit: ms (lower better).
-pub fn version_startup(root: &Path) -> Result<Stat, String> {
-    let binary = find_forge_binary(root)?;
+pub fn version_startup(binary: &Path) -> Result<Stat, String> {
     let mut samples = Vec::with_capacity(VERSION_RUNS);
     for _ in 0..VERSION_RUNS {
         let elapsed_ms = stats::measure_phase(|| {
-            let output = Command::new(&binary)
+            let output = Command::new(binary)
                 .arg("--version")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -351,12 +350,12 @@ where
 
 /// Run all six metrics, skipping any that would exceed the 60s budget.
 pub fn run_all(root: &Path) -> Result<Vec<MetricRow>, String> {
-    // The first `version_startup` sample is what pays for `cargo build` on a
-    // cold runner. That is setup, not a measurement: on the first hosted bench
-    // run it took ~60 s, the budget below was already exhausted, and the
-    // recorded baseline contained a single metric. Build once, then start the
-    // clock.
-    find_forge_binary(root)?;
+    // The first `version_startup` sample used to pay for `cargo build`, and on
+    // a hosted runner the build costs far more than the 60 s budget below: the
+    // first recorded baseline held a single metric, and the second run spent a
+    // further ~60 s calling `find_forge_binary` again *inside* the clock. Build
+    // once here, reuse the path, then start the clock.
+    let binary = find_forge_binary(root)?;
     let started = Instant::now();
     let mut rows = Vec::with_capacity(6);
 
@@ -364,7 +363,7 @@ pub fn run_all(root: &Path) -> Result<Vec<MetricRow>, String> {
         started,
         "version_startup",
         "ms",
-        || version_startup(root),
+        || version_startup(&binary),
         &mut rows,
     )?;
     maybe_run(
