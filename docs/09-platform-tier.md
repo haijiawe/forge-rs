@@ -393,10 +393,11 @@ answers; a linux-only bundle on Windows is refused naming the platforms that are
 published. A source plugin is still one tarball that installs everywhere its
 runtime exists.
 
-**The paved road is TypeScript, and it needs no build step.** This was measured,
-not assumed: Node 24.21.0 executes `.ts` directly, and a plugin whose manifest
-says `runtime: "node"`, `entry: "index.ts"` — with `interface`, type annotations
-and `as Error` in it — completed the whole path through the **release binary**:
+**TypeScript also needs no build step — an option, not the agent default.** This
+was measured, not assumed: Node 24.21.0 executes `.ts` directly, and a plugin whose
+manifest says `runtime: "node"`, `entry: "index.ts"` — with `interface`, type
+annotations and `as Error` in it — completed the whole path through the **release
+binary**:
 
 ```
 forge plugin start tspeak   -> tspeak 0.1.0 speaks protocol 1
@@ -421,12 +422,13 @@ Its limits, also measured — Node strips types, it does not compile them, so on
 Older Node needs `--experimental-strip-types` or a build; that is exactly what
 `engines.runtime` in the market index exists to declare.
 
-So the recommendation, in order:
+So the recommendation, in order (the agent-authored default is settled in the
+subsection below):
 
 | Case | Author writes | Why | Private RAM per plugin (§2.7) |
 | --- | --- | --- | --- |
-| **Paved road** | **TypeScript** (`.ts`, no build) | same language as the UI, types an agent can act on, one artifact for every platform, already runs | 19.1 MB |
-| Plain JS is fine too | `.js` | identical runtime and distribution; use it when types buy nothing | 19.1 MB |
+| **Paved road (agent default)** | **JavaScript** (`.js`, no build) | most forgiving for an agent: no type syntax to get wrong, runs as written, one artifact for every platform | 19.1 MB |
+| Types help the agent | **TypeScript** (`.ts`, no build on Node ≥ 23.6) | types are a contract that constrains output; but strip-only mode rejects `enum`/parameter properties, so it is an option, not the default | 19.1 MB |
 | The work already lives in a library | **Python** | pandas/openpyxl/requests are the reason to be there; same distribution story | 7.5 MB |
 | CPU-bound, or no runtime may be assumed | **Rust** via `runtime: "exec"` | ~5× faster cold start, half the per-call floor, no runtime dependency, **cheaper than the host itself**; the market now carries platform builds and the host reads them | **0.7 MB** |
 | Untrusted in-process scripting, someday | embedded engine | see §2.4: 1.02 MB, but no `fetch`/`console`/`require` — a different product | not measured |
@@ -450,6 +452,51 @@ stack.
 version of this paragraph let the 6 MB idle figure stand as the whole memory
 answer. It is not: every enabled plugin is a separate process with its own
 interpreter, and §2.7 measures what that adds. Read the two together.
+
+#### The stack, chosen for agent-authored plugins
+
+The deciding requirement, stated plainly: **stable performance, and a plugin
+ecosystem that an agent can write easily.** Those two are not in tension, because
+they live in different layers, and the process boundary is what keeps them apart:
+
+| Requirement | Lives in | Choice | Why |
+| --- | --- | --- | --- |
+| 性能稳定 (stable performance) | the **host/kernel** | **Rust** (keep) | measured: 8.5 MB binary, ~5 ms start, ~6 MB idle, 37 µs plugin call. A plugin's language cannot move these (§2.3) |
+| agent 好写 (easy for an agent to write) | the **plugin language** | **interpreted: JS / TS / Python** | no compile step, immediate runtime feedback, the languages agents are most fluent in |
+| the very easiest thing an agent can write | **skills** | **Markdown** | no code at all; the skill system already loads it |
+| tap the largest existing pool | **interop** | **MCP** | language-agnostic; 10 official SDKs, and the host already speaks it (`forge-mcp`) |
+
+So the choice is **Rust host + interpreted plugins + Markdown skills, over MCP**.
+Rust is *not* the default plugin language, and that is the point: "编译难" falls on
+whoever writes the host or *chooses* a native plugin, never on an agent writing a
+JS/Python plugin, and never on the end user running the single binary.
+
+Within the interpreted row, for an **agent** author specifically:
+
+- **JavaScript is the default paved road** (the scaffold's current `node` output).
+  It is the most forgiving: no type syntax to get wrong, runs as written, huge
+  training corpus. This refines the earlier TypeScript-leaning recommendation —
+  once "agent 好写" is the explicit criterion, the absence of type-syntax traps
+  matters more than stack alignment with the UI.
+- **TypeScript is available when types help** (`.ts` runs zero-build on Node ≥ 23.6,
+  proven in `host_it.rs`). Types are a contract that constrains an agent's output,
+  but strip-only mode rejects `enum` / parameter properties / namespaces — traps an
+  agent can fall into, which is why it is an option, not the default.
+- **Python** when the work already lives in a Python library (pandas/openpyxl/…).
+
+This is not a retreat from Rust and costs no new stack: the web UI is already
+TypeScript, and the plugin boundary already accepts any language. The ecosystem
+evidence points the same way — the most complete pool (MCP) is language-agnostic
+with an official Rust SDK (`rmcp`, ~51.9M crates.io downloads), so a Rust host
+plugs into it without forcing Rust on plugin authors. The biggest single-harness
+pool (DSH, "Everything is a Plugin") grows mostly through its language-agnostic
+MCP + Markdown-skill layer, which this host can already consume; only its
+in-process Cordis modules are out of reach, and that is a subset, not the growth.
+
+**Decision: keep the Rust kernel; pave the interpreted plugin road (JS default,
+TS/Python options) plus Markdown skills; interoperate over MCP.** The scaffold
+already emits the agent-friendly default, so nothing needs rebuilding to honor
+this choice.
 
 ### 2.7 What a plugin costs in RAM (measured)
 
