@@ -105,6 +105,11 @@ pub struct Options {
     /// [`crate::ratelimit`]; `RateLimit::disabled()` is for callers that drive
     /// the server themselves and know their own rate.
     pub rate_limit: RateLimit,
+    /// What this process can offer, for `GET /api/capabilities`. The CLI fills
+    /// this in once at startup because discovering it needs crates this one must
+    /// not depend on; the default is an empty report, which is honest for a
+    /// server embedded in a test.
+    pub capabilities: crate::capabilities::Report,
 }
 
 impl Default for Options {
@@ -120,6 +125,7 @@ impl Default for Options {
             ping_interval: Duration::from_secs(30),
             delta_interval: Duration::from_millis(50),
             rate_limit: RateLimit::default(),
+            capabilities: crate::capabilities::Report::default(),
         }
     }
 }

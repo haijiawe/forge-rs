@@ -1030,3 +1030,85 @@ fn base64_for(bytes: &[u8]) -> String {
     }
     out
 }
+
+/// The capability snapshot is a separate resource from `/api/sessions`: it
+/// describes this process, so it answers before any session exists.
+#[test]
+fn the_capability_report_is_served_before_any_session_exists() {
+    let options = Options {
+        addr: "127.0.0.1:0".to_string(),
+        data_dir: unique_dir("capabilities"),
+        version: "feature-test".to_string(),
+        capabilities: forge_server::Report {
+            mode: "workspace-write".to_string(),
+            workspace: "C:/work".to_string(),
+            model: "m1".to_string(),
+            plugins: vec![
+                forge_server::Entry::new("counter", "1.0.0 (node runtime)", true),
+                forge_server::Entry::inactive("ghost", "0.1.0 (node runtime), not enabled"),
+            ],
+            skills: vec![forge_server::Entry::new("deploy", "ship it", true)],
+            ..Default::default()
+        },
+        ..Options::default()
+    };
+    let fixture = Fixture::start(options);
+
+    let (status, headers, bytes) = fixture.api("GET", "/api/capabilities", None, &[]);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    assert!(headers
+        .iter()
+        .any(|(name, value)| name.eq_ignore_ascii_case("content-type")
+            && value.starts_with("application/json")));
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    assert_eq!(body["mode"], "workspace-write");
+    assert_eq!(body["workspace"], "C:/work");
+    assert_eq!(body["model"], "m1");
+    // The row the browser was missing: installed, listed, and honestly off.
+    let ghost = body["plugins"]
+        .as_array()
+        .expect("plugins")
+        .iter()
+        .find(|row| row["name"] == "ghost")
+        .expect("the disabled plugin is named");
+    assert_eq!(ghost["active"], false);
+    assert_eq!(ghost["detail"], "0.1.0 (node runtime), not enabled");
+    // Groups with nothing in them are present and empty, not absent.
+    assert_eq!(body["teams"], json!([]));
+    assert_eq!(body["bundles"], json!([]));
+    assert_eq!(body["mcp"], json!([]));
+}
+
+#[test]
+fn the_capability_report_is_read_only() {
+    let fixture = Fixture::default();
+    let (status, _, bytes) = fixture.api("POST", "/api/capabilities", Some(&json!({})), &[]);
+    assert_eq!(status, 405, "{}", String::from_utf8_lossy(&bytes));
+    let (status, _, bytes) = fixture.api("DELETE", "/api/capabilities", None, &[]);
+    assert_eq!(status, 405, "{}", String::from_utf8_lossy(&bytes));
+}
+
+#[test]
+fn a_server_embedded_in_a_test_still_names_every_capability_group() {
+    let fixture = Fixture::default();
+    let (status, _, bytes) = fixture.api("GET", "/api/capabilities", None, &[]);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    for key in [
+        "mode",
+        "workspace",
+        "model",
+        "plugins",
+        "experts",
+        "teams",
+        "bundles",
+        "skills",
+        "mcp",
+    ] {
+        assert!(body.get(key).is_some(), "missing {key}: {body}");
+        assert!(
+            body[key].is_array() || body[key].is_string(),
+            "{key}: {body}"
+        );
+    }
+}

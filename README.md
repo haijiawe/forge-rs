@@ -79,7 +79,7 @@ These were measured on this host, not chosen:
 - **Cross targets are compile checks only.** `x86_64-unknown-linux-gnu` and
   `aarch64-apple-darwin` are installed; no linker for either triple exists on
   this host. `aarch64-unknown-linux-gnu` and `aarch64-pc-windows-msvc` are not
-  installed. `make release` checks the nine pure-Rust crates; `forge-cli` is
+  installed. `make release` checks every crate except `forge-cli`; that one is
   excluded because `rustls`/`ring` needs a target C compiler (`cc`) this host
   does not have. The native CLI is covered by `cargo build --release --offline`.
 
@@ -101,7 +101,7 @@ checks a tree other than the one above the working directory.
 
 ## Commands
 
-Thirteen spellings; the first nine are the ones the Go oracle froze in
+Fifteen spellings; the first nine are the ones the Go oracle froze in
 `docs/contracts/cli.md`, `goal`/`schedule` are the P2 additions, and
 `plugin`/`expert`/`team`/`market` are the P3 additions:
 

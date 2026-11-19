@@ -137,6 +137,8 @@ All paths are under `{base}`. `{id}` is a session id; an unknown id is
 | 8 | `GET` | `/api/sessions/{id}/stream` | WebSocket: snapshot, then live events | `101` |
 | 9 | `POST` | `/api/sessions/{id}/cancel` | Stop the turn that is running | `202` |
 | 10 | `POST` | `/api/sessions/{id}/steer` | Inject text into the running turn | `202` |
+| 11 | `GET` | `/api/sessions/{id}/attachments/{attachmentId}` | One attachment's bytes | `200` |
+| 12 | `GET` | `/api/capabilities` | What this process can offer, session or not | `200` |
 
 ### 4.1 `GET /healthz`
 
@@ -489,6 +491,41 @@ immutable` — a name refers to one body forever.
   session's URL is `404`, not a hit: the difference between "not in this session"
   and "never existed" describes somebody else's data.
 - `404 not_found` — no such session, no such reference, or no such file.
+
+### 4.12 `GET /api/capabilities`
+
+Describes **this process**, not one session, so it answers before any session
+exists. It is a snapshot taken when the process started, not a query: plugins are
+loaded once before the listener binds, so what the model can reach does not
+change while the process runs.
+
+```json
+{
+  "mode": "workspace-write",
+  "workspace": "C:/work",
+  "model": "deepseek-v4.1-flash",
+  "plugins": [{ "name": "counter", "detail": "1.0.0 (node runtime)", "active": false }],
+  "experts": [],
+  "teams": [],
+  "bundles": [],
+  "skills": [],
+  "mcp": []
+}
+```
+
+Every group is always present, and an empty array means "none configured" — never
+"not supported". `active` says whether this build offers the entry to the model
+right now: an installed but disabled plugin, or a roster entry marked
+`enabled: false`, appears with `active: false`. That row is the reason the route
+exists; describing it is the point, so it is never omitted.
+
+Nothing here starts a process or walks the disk on the request path: the server
+carries data the CLI discovered at startup, because the crates that can discover
+it are not ones this layer may depend on.
+
+- `GET` only; anything else is `405 method_not_allowed`.
+- The `detail` strings are for humans and are not a stable machine interface.
+  Machine-readable fields are `name` and `active`; everything else may change.
 
 ---
 

@@ -11,7 +11,7 @@
 //!
 //! Ordering matters and is deliberate:
 //!
-//! 1. built-ins first, so the frozen seven names exist even when nothing else
+//! 1. built-ins first, so the unconditional names exist even when nothing else
 //!    is configured;
 //! 2. every MCP tool becomes its own `mcp__<server>__<tool>` entry with an
 //!    `ask` rule ahead of the sandbox defaults — a remote process is not the

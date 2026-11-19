@@ -21,6 +21,7 @@ use std::path::PathBuf;
 
 pub mod attachments;
 pub mod bridges;
+pub mod capabilities;
 pub mod chat;
 pub mod doctor;
 pub mod expertcmd;

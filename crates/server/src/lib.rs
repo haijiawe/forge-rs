@@ -12,6 +12,7 @@
 #![allow(clippy::type_complexity)]
 
 pub mod api;
+pub mod capabilities;
 pub mod ratelimit;
 pub mod server;
 
@@ -19,5 +20,6 @@ pub use api::{
     CancelToken, DeltaSink, EventWriter, Options, StaticSource, SteeringSource, TurnContext,
     TurnRunner,
 };
+pub use capabilities::{Entry, Report};
 pub use ratelimit::{RateLimit, RateLimiter};
 pub use server::{Server, WS_SUBPROTOCOL};

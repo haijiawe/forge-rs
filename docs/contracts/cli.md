@@ -117,6 +117,10 @@ usage:
   forge index [flags]          rebuild or query the search index
   forge goal <command>         record, inspect or close a goal
   forge schedule <command>     record recurring prompts and run the ones due
+  forge plugin <command>       inspect the installed plugin set
+  forge expert <command>       list or show the expert roster
+  forge team <command>         list teams, or run one over a shared board
+  forge market <command>       install or remove plugin bundles
   forge doctor [flags]         check the environment
   forge help                   this message
 
@@ -124,7 +128,7 @@ docs: docs/README.md
 ```
 
 Exactly: the first line uses an em dash (U+2014), there is a blank line after it,
-nine two-space-indented command lines padded so descriptions start in the same
+fifteen two-space-indented command lines padded so descriptions start in the same
 column, a blank line, then the `docs:` line. The block ends with a single `\n`.
 Nothing is written to stderr, and no config or filesystem access happens.
 
@@ -141,7 +145,7 @@ when a first argument is a prompt instead of a mistyped subcommand).
 ```text
 $ forge chat "summarize internal/session"
 The session package owns the append-only event log…
-forge chat: model=gpt-4o-mini sandbox=workspace-write tools=7 approve=never
+forge chat: model=gpt-4o-mini sandbox=workspace-write tools=11 approve=never
 forge chat: session=20260101-120000-a1b2c3
 forge chat: log=C:\Users\Administrator\.forge\sessions\20260101-120000-a1b2c3.jsonl
 forge chat: turn=1 steps=1 reason=completed usage in=812 out=233 total=1045
@@ -341,7 +345,7 @@ policy for the ten unconditional tools.
 | `web_fetch`, `web_search` | **ask** | **ask** | allow |
 | anything not listed | deny | deny | allow |
 
-A tenth tool, `goal_end`, is registered only when the turn belongs to a goal
+An eleventh tool, `goal_end`, is registered only when the turn belongs to a goal
 loop (`forge chat --goal`): it records the verdict the loop reads to decide
 whether to open another round. Its policy is `allow` in every mode, because
 ending a goal touches no file — gating it would make a confined turn unable to

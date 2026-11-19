@@ -2,7 +2,7 @@
 dir: crates/cli
 layer: L3
 role: the forge binary: argument parsing, chat/web/doctor/index/import/session/goal/schedule/plugin/expert/team/market, usage, version
-public: [run, reorder_flags, VERSION, COMMIT, USAGE, EXIT_OK, EXIT_FAILURE, EXIT_USAGE]
+public: [run, reorder_flags, command_after_flags, VERSION, COMMIT, USAGE, EXIT_OK, EXIT_FAILURE, EXIT_USAGE]
 may_import: [forge-core, forge-config, forge-sandbox, forge-llm, forge-session, forge-agent, forge-tool, forge-server, forge-protocol, forge-store, forge-import, forge-mcp, forge-skill, forge-subagent, forge-net, forge-goal, forge-schedule, forge-market, forge-plugin, forge-experts, forge-team]
 must_not: []
 gate: make arch
@@ -38,12 +38,20 @@ HTTP/WS 服务并把带 token 的 URL 打到 stderr；所有日志追加由 serv
 - `wiring` 子模块：把一个 registry、一条策略和三种外部桥（MCP 服务器、技能、子代理）组装进
   `WiredTools`；`forge chat` 与 `forge web` 都走这里，所以两个面不会对"哪些工具存在"各说各话。
 - `indexcmd`/`importcmd`/`sessioncmd`：三条子命令的 `run` 与它们的 `USAGE`。
+- `capabilities` 模块：`report(&Config, &Facts) -> forge_server::Report` 把"这个进程此刻能提供
+  什么"整理成一份只读快照，供 `GET /api/capabilities` 与浏览器面板使用。它只发现、不启动：
+  插件走 `Host::discover`，名册与 market 走磁盘扫描，MCP 与技能读配置。做不出结论的项落一行
+  诊断而不是让整个报告失败——报告缺席比报告说"没配置"更误导人。
+- `attachments` 模块：`parts_hook(&Path)` 把日志里的附件引用读成 `ContentPart`，让图片进模型
+  请求；读不到主体就跳过（少给一个附件不算失败），日志里始终只有引用。
 
 ## 依赖与边界
 
 可依赖所有更低层 crate：`forge-core`、`forge-config`、`forge-sandbox`、`forge-llm`、
 `forge-session`、`forge-agent`、`forge-tool`、`forge-server`、`forge-protocol`，以及能力层的
-`forge-store`、`forge-import`、`forge-mcp`、`forge-skill`、`forge-subagent`。`ctrlc = "3.4"`
+`forge-store`、`forge-import`、`forge-mcp`、`forge-skill`、`forge-subagent`、`forge-net`、
+`forge-goal`、`forge-schedule`、`forge-market`、`forge-plugin`、`forge-experts`、`forge-team`。
+`ctrlc = "3.4"`
 用于 `forge web` 的优雅关停与第二次 Ctrl+C 退出 130（离线缓存已有，避免手写平台信号代码）。
 不得被其他 crate 导入（`main.rs` 是唯一入口），也不得把 clap 之类的解析器或 async 运行时带进来——
 参数解析是手写的，与 Go 版保持一致。

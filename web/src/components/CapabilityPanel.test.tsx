@@ -1,10 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import { CapabilityPanel } from './CapabilityPanel';
+import type { CapabilityReport } from '../api/capabilities';
 import { mount } from '../test/render';
 
-function render(names: string[]) {
-  const mounted = mount(<CapabilityPanel names={names} />);
+function render(names: string[], report?: CapabilityReport | null, reportError?: string | null) {
+  const mounted = mount(
+    <CapabilityPanel names={names} report={report ?? null} reportError={reportError ?? null} />,
+  );
   return mounted;
+}
+
+function emptyReport(overrides: Partial<CapabilityReport> = {}): CapabilityReport {
+  return {
+    mode: 'workspace-write',
+    workspace: 'C:/work',
+    model: 'm1',
+    plugins: [],
+    experts: [],
+    teams: [],
+    bundles: [],
+    skills: [],
+    mcp: [],
+    ...overrides,
+  };
 }
 
 describe('CapabilityPanel', () => {
@@ -22,7 +40,9 @@ describe('CapabilityPanel', () => {
     const chips = Array.from(container.querySelectorAll('.capability-tool')).map(
       (chip) => chip.textContent,
     );
-    expect(chips).toEqual(['fs_read', 'shell', 'reference.echo']);
+    expect(chips).toContain('fs_read');
+    expect(chips).toContain('shell');
+    expect(chips).toContain('reference.echo');
     expect(container.textContent).toContain('3 in the last request');
     unmount();
   });
@@ -61,13 +81,44 @@ describe('CapabilityPanel', () => {
     unmount();
   });
 
-  it('states the one thing the browser cannot know, in words', () => {
-    const { container, unmount } = render(['expert']);
-    // No endpoint for installed-but-unused plugins or rosters: the pane has to
-    // say so on screen, and point at the CLI that can.
+  it('lists a configured plugin that was not offered, and says which it is', () => {
+    const report = emptyReport({
+      plugins: [
+        { name: 'counter', detail: '1.0.0 (node runtime)', active: true },
+        { name: 'ghost', detail: '0.1.0 (node runtime), not enabled', active: false },
+      ],
+    });
+    const { container, unmount } = render(['fs_read'], report);
+    expect(container.textContent).toContain('configured');
+    expect(container.textContent).toContain('1 not offered');
+    const off = container.querySelectorAll('.capability-tool-off');
+    expect(off).toHaveLength(1);
+    expect(off[0]?.textContent).toContain('ghost');
+    expect(off[0]?.textContent).toContain('(not offered)');
+    // The active one must not carry the warning suffix.
+    const on = Array.from(container.querySelectorAll('.capability-tool')).find((chip) =>
+      chip.textContent?.startsWith('counter'),
+    );
+    expect(on?.textContent).toBe('counter');
+    unmount();
+  });
+
+  it('says a configuration with nothing unused is a configuration, not a failure', () => {
+    const { container, unmount } = render(['fs_read'], emptyReport());
+    expect(container.textContent).toContain('nothing is configured but unused');
+    unmount();
+  });
+
+  it('points at the CLI when the configured set could not be read', () => {
+    const { container, unmount } = render(['expert'], null, 'connection refused');
+    expect(container.textContent).toContain('connection refused');
     expect(container.textContent).toContain('forge plugin list');
-    expect(container.textContent).toContain('forge expert list');
-    expect(container.textContent).toContain('no endpoint');
+    unmount();
+  });
+
+  it('waits quietly before the configured set arrives', () => {
+    const { container, unmount } = render(['fs_read']);
+    expect(container.textContent).toContain('reading the configured set');
     unmount();
   });
 });

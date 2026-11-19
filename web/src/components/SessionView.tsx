@@ -3,8 +3,9 @@
 // The store owns all state; this component subscribes with
 // useSyncExternalStore and re-renders once per published frame (the store
 // batches to requestAnimationFrame, see state/sessionStore.ts).
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { ForgeApi } from '../api/client';
+import type { CapabilityReport } from '../api/capabilities';
 import type { ApprovalDecision } from '../api/types';
 import { SessionStore } from '../state/sessionStore';
 import { ApprovalDialog } from './ApprovalDialog';
@@ -40,6 +41,28 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
   }, [store]);
 
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+
+  // One GET at mount. Configuration does not change while the process runs --
+  // plugins are loaded once, before the server binds -- so there is nothing to
+  // poll for, and a failure here must leave the pane quiet rather than break
+  // the session screen.
+  const [report, setReport] = useState<CapabilityReport | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.capabilities().then(
+      (value) => {
+        if (live) setReport(value);
+      },
+      (error: unknown) => {
+        if (!live) return;
+        setReportError(error instanceof Error ? error.message : 'capabilities unavailable');
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [api]);
 
   const send = useCallback((text: string) => store.sendMessage(text), [store]);
   const steer = useCallback((text: string) => store.steerTurn(text), [store]);
@@ -88,7 +111,7 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
 
       <Transcript rows={state.rows} rowKeys={state.rowKeys} emptyHint="waiting for the first event…" />
 
-      <CapabilityPanel names={state.toolNames} />
+      <CapabilityPanel names={state.toolNames} report={report} reportError={reportError} />
 
       {state.pendingApproval !== null && (
         <ApprovalDialog pending={state.pendingApproval} onDecide={decide} />

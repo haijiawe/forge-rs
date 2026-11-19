@@ -75,6 +75,17 @@ function fakeApi(overrides: Partial<ForgeApi> = {}): ForgeApi {
     cancel: vi.fn(async () => ({ cancelled: true, seq: 3 })),
     steer: vi.fn(async () => ({ seq: 4, accepted: true, deduplicated: false })),
     decide: vi.fn(async () => ({ approvalId: 'apr-1', decision: 'allow' as const, seq: 5 })),
+    capabilities: vi.fn(async () => ({
+      mode: 'workspace-write',
+      workspace: 'C:/work',
+      model: 'm1',
+      plugins: [],
+      experts: [],
+      teams: [],
+      bundles: [],
+      skills: [],
+      mcp: [],
+    })),
   };
   return { ...base, ...overrides };
 }

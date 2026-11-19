@@ -731,7 +731,7 @@ model had been offered.
 | --- | --- | --- |
 | `read_image` | absent, and its blocker was the transport: a tool result is a text message | `Message.parts` (`ContentPart::{Text, Image}`, `serde(skip)` so the frozen contract JSON does not move), an OpenAI array-form encoder, `Result.parts`, and one follow-up user message per batch of images |
 | attachments reaching the model | recorded and downloadable, never seen | `crates/cli/src/attachments.rs` reads the blob store for the projected messages and for `tool/result` `meta.imagePath` |
-| the browser knowing the tool set | no endpoint, no reading of the log | `web/src/state/capabilities.ts` reads the newest `llm/call`'s `tools` and groups it; no route added, no dependency added |
+| the browser knowing the tool set | no endpoint, no reading of the log | `web/src/state/capabilities.ts` reads the newest `llm/call`'s `tools` and groups it, and `GET /api/capabilities` lets the panel also list what is configured but not offered |
 | `sandboxAccess.network` | `Spec.allow_net` existed and was never set | honours `sandboxAccess.network`, measured both directions on Windows |
 
 *Status: delivered. 97 CLI lib tests (six of them new bridge tests that found a
@@ -742,11 +742,11 @@ files, `check.ps1` green. End-to-end: the second provider request carries
 deleting the file makes the next turn report no image — which is what "re-read
 from disk, not stored in the log" means when it is true.*
 
-**Still not done, and named rather than implied:** the browser cannot list
-installed plugins, the roster, or a team board, because the server publishes no
-route for them (the panel says so on screen instead of guessing); `GET
-/api/capabilities` is the one field that would unlock it, and it is not
-implemented.
+**Still not done, and named rather than implied:** the panel reports the last
+request's tool list and the configured-but-unused set; it does not show a team
+board's contents or a plugin's own tool schema, because neither is in the
+capability snapshot. Both are readable over existing routes (`forge team list`,
+`forge plugin call`), so this is a UI decision, not a missing field.
 
 ## 6. What this does not buy
 
@@ -756,9 +756,9 @@ implemented.
 - **Feature parity with DSH.** P1–P4 close the *capability* list, not the
   *surface* list (desktop shell, xterm terminal, ACP agent protocol, Office
   rendering, image models).
-- **A licence.** `Cargo.toml` still says `license = "UNLICENSED"` and there is no
-  `LICENSE` file. Nothing here may be redistributed until that changes. This is
-  a prerequisite for P3, not a follow-up.
+- **A licence.** Mitigated: `Cargo.toml` says `license = "MIT"` and `LICENSE`
+  holds the MIT text. The crate is redistributable; a published package would
+  still need a decision about the name and a version policy.
 
 ## 7. Risks
 

@@ -1464,6 +1464,15 @@ impl Server {
     }
 
     fn handle_api(&self, request: &Request, segments: &[&str]) -> ApiResult<Response> {
+        // Not under `/sessions`: this describes the process, not one log. It is
+        // a GET only, and it answers from an in-memory snapshot -- no plugin
+        // process, no filesystem walk, nothing on the request path.
+        if segments.len() == 1 && segments[0] == "capabilities" {
+            return match request.method.as_str() {
+                "GET" => Ok(Response::json(200, &self.shared.options.capabilities)),
+                _ => Err(method_not_allowed("GET")),
+            };
+        }
         if segments.first().copied() != Some("sessions") {
             return Err(ApiFailure::new(404, code::NOT_FOUND, "no such endpoint"));
         }

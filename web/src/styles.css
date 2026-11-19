@@ -761,3 +761,21 @@ body {
   margin: 6px 0 0;
   line-height: 1.35;
 }
+
+/* Configured-but-unused rows: a plugin that is installed and switched off, an
+   expert the roster marks disabled. The strike-through is the whole point -- it
+   is the row an operator usually came looking for. */
+.capability-configured {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+
+.capability-tool-off {
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.capability-off {
+  font-size: 10px;
+}

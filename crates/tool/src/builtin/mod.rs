@@ -1,6 +1,6 @@
 //! The built-in tools and their small helpers.
 //!
-//! Eight of them are registered in every turn; the rest depend on what the turn
+//! Ten of them are registered in every turn; the rest depend on what the turn
 //! can actually do — network access, a data directory, a process runner, an open
 //! goal. A missing capability is a missing tool rather than a tool that fails at
 //! call time, so the tool list is a truthful answer to "what can this turn do".

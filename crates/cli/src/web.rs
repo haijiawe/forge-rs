@@ -635,10 +635,27 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
         Err(e) => return runtime_error(stderr, &format!("sandbox: {}", e.message())),
     };
 
+    let data_dir = if cfg.data_dir.trim().is_empty() {
+        PathBuf::from(".")
+    } else {
+        PathBuf::from(cfg.data_dir.trim())
+    };
     let mut server_options = ServerOptions {
         addr: opts.addr.trim().to_string(),
         data_dir: PathBuf::from(cfg.data_dir.trim()),
         version: VERSION.to_string(),
+        // A snapshot, not a query: plugins are loaded once, so what the model
+        // can reach does not change while this process runs. Discovering it here
+        // keeps `forge-server` free of the four crates that would be needed.
+        capabilities: crate::capabilities::report(
+            &cfg,
+            &crate::capabilities::Facts {
+                mode: sandbox.as_str(),
+                workspace: &workspace_str,
+                model: &model,
+                data_dir: &data_dir,
+            },
+        ),
         ..Default::default()
     };
 
@@ -648,11 +665,6 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
     // rebuilds the tool set (the approver is bound to one session log), so hand
     // the shared pieces over as owned values.
     let cfg = Arc::new(cfg);
-    let data_dir = if cfg.data_dir.trim().is_empty() {
-        PathBuf::from(".")
-    } else {
-        PathBuf::from(cfg.data_dir.trim())
-    };
     let server_slot: Arc<Mutex<Option<Arc<forge_server::Server>>>> = Arc::new(Mutex::new(None));
     {
         let slot = Arc::clone(&server_slot);

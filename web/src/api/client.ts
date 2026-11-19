@@ -12,6 +12,7 @@
 //     on a status number.
 
 import { decodeFrame, HeaderVersion, IdempotencyKeyHeader, Version } from './protocol';
+import { parseReport, type CapabilityReport } from './capabilities';
 import type {
   ApprovalDecision,
   ApprovalDecisionResponse,
@@ -69,6 +70,8 @@ export interface ForgeApi {
     decision: ApprovalDecision,
     note?: string,
   ): Promise<ApprovalDecisionResponse>;
+  /** What this process was configured with; one GET, no session involved. */
+  capabilities(): Promise<CapabilityReport>;
 }
 
 function trimTrailingSlash(baseUrl: string): string {
@@ -202,6 +205,13 @@ export class ForgeClient implements ForgeApi {
       `/api/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`,
       { method: 'POST', body: JSON.stringify(body) },
     );
+  }
+
+  capabilities(): Promise<CapabilityReport> {
+    // Decoded through parseReport rather than cast: this endpoint is newer than
+    // the frozen protocol module, so an older or partial server must degrade to
+    // empty groups instead of handing the panel `undefined`.
+    return this.request<unknown>('/api/capabilities').then(parseReport);
   }
 }
 
