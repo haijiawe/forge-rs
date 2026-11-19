@@ -70,6 +70,35 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
+  # Runtime evidence for the macOS enforcer, kept out of the `test` matrix so a
+  # failure names sandbox-exec instead of an unrelated workspace test. The crate
+  # is compiled for every host by `test`; this job actually runs the profile on
+  # a real macOS kernel. Do not add `--offline` here: hosted runners start with
+  # an empty registry, same reason as the `test` job above.
+  sandbox-macos:
+    name: sandbox macos-latest
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install the minimum supported Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.89"
+
+      - name: cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-1.89-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: cargo test (sandbox-exec evidence)
+        run: cargo test -p forge-sandbox --test macos --lib
+
   lint:
     name: lint (stable)
     runs-on: ubuntu-latest
