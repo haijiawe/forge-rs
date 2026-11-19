@@ -806,7 +806,15 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
     // third-party process must not cost the operator their session.
     let mut plugin_host: Option<Arc<forge_plugin::Host>> = None;
     if !options.cfg.plugins.enabled.is_empty() {
-        let host = Arc::new(forge_plugin::Host::start(options.cfg.plugin_root()));
+        let mut host = forge_plugin::Host::start(options.cfg.plugin_root());
+        // Read market-installed bundles too, so a plugin enabled by name is found
+        // whether it was hand-installed under plugins/ or installed by the market.
+        host.add_root(
+            std::path::Path::new(&options.cfg.data_dir)
+                .join("market")
+                .join("bundles"),
+        );
+        let host = Arc::new(host);
         for name in &options.cfg.plugins.enabled {
             let name = name.trim();
             if name.is_empty() {

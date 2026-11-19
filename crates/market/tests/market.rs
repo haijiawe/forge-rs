@@ -166,6 +166,9 @@ fn bundle_for(base: &str, name: &str, version: &str, bytes: &[u8]) -> Bundle {
             forge: Some(">=0.1.0".to_string()),
             runtime: Some("node".to_string()),
         }),
+        // The fixture is a source plugin: one tarball, every platform.
+        os: None,
+        arch: None,
     }
 }
 

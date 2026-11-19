@@ -990,6 +990,21 @@ One flag table serves all six subcommands. A flag that a subcommand does not use
 is accepted and ignored rather than refused, so `--json` works on `new` exactly
 as it does on `list`.
 
+### Where plugins are read from
+
+`list`, `doctor`, `start` and `call` read **two** roots: the plugin root
+(`<dataDir>/plugins`, or `--dir`) and the market's bundle directory
+(`<dataDir>/market/bundles`). A plugin installed by `forge market install` is
+therefore visible to `plugin list` and loadable by name without any extra step —
+the market's install promise does not end at a directory nothing loads. `new`
+writes only to the plugin root; it never writes into the market's store.
+
+A name present in both roots is **refused, not resolved by order**: the two
+directories can hold different code, and running the one the operator did not
+mean is worse than not running. `list`/`doctor` report it as broken with both
+paths named, and `start`/`call` refuse it. A missing market directory is the
+normal case (nothing installed yet) and is not an error.
+
 ### Which subcommands start a process
 
 `start` and `call` spawn the plugin. `list`, `doctor` and `new` do not: a listing
@@ -1100,3 +1115,63 @@ next: forge plugin call greeter hello --args '{"name":"world"}'
 $ forge plugin call greeter hello --args '{"name":"world"}'
 hello, world
 ```
+
+## 8. `forge market <command>`
+
+### Usage
+
+```text
+usage: forge market <command> [flags]
+
+commands:
+  list                 show the installed bundles and their versions
+  search <text>        list index entries whose name or description matches
+  install <name>       install a bundle (accepts name or name@version)
+  remove <name>        uninstall a bundle, refusing if a file was edited
+  verify [name]        report files whose digest no longer matches
+
+flags:
+  --json               machine-readable output
+  --data-dir <dir>     data directory (default: the forge home's configured one)
+  --root <dir>         market root (default: <dataDir>/market)
+  --index <url>        index URL; required by `search` and `install`
+  --force              uninstall before installing (refuses edits either way)
+  -h, --help           this message
+```
+
+The index is `{"version":1,"bundles":[...]}`. Each bundle carries `name`,
+`version`, `description`, `tarball` (absolute http(s) URL), `sha256` and `size`;
+the install proves the digest against the bytes actually received and refuses a
+mismatch, a short body, or a body larger than declared. A requirement is an exact
+version or `*`; ranges are refused by name.
+
+### Platform-specific bundles
+
+A bundle may declare `os` and `arch` together. Both absent means a
+platform-independent source bundle (one tarball installs everywhere its runtime
+exists); both present means a native build for exactly that pair. The accepted
+spellings are the release pipeline's — `windows`/`linux`/`darwin` and
+`amd64`/`arm64` — and half-declared (only one of the two) is refused. The
+uniqueness key is name + version + os + arch, so several platform builds of one
+version can be listed.
+
+`search` prints a `platform` column (`any platform` for a source bundle) and, on
+stderr, how many hits have no build for the host. `install` resolves to the
+host's platform: a version published only for other platforms is refused with
+the platforms that *are* published named, not as "no such version". When a source
+bundle and a native build both fit the host, install refuses rather than guessing.
+
+### Installed bundles are plugins
+
+`install` unpacks into `<root>/bundles/<name>/`, and `forge plugin` reads that
+directory as a second root (§7). So an installed bundle is immediately visible to
+`forge plugin list` and loadable by name; no copy or link step is needed. `remove`
+deletes only the files the install record lists, and refuses if any was edited.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The command did what it says. An empty search result is `0`. |
+| `1` | A digest mismatch, a truncated/oversized body, no build for this platform, an ambiguous resolution, an edited file blocking remove, or a failed download. |
+| `2` | Usage error: unknown command or flag, a missing name, `search`/`install` without `--index`. |

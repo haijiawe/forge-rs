@@ -60,7 +60,9 @@ pub use download::{download, verify_file};
 pub use error::*;
 pub use gzip::{gunzip, is_gzip};
 pub use hash::{is_sha256_hex, sha256_hex};
-pub use index::{Bundle, Engines, Index, INDEX_VERSION};
+pub use index::{
+    host_platform, Bundle, Engines, Index, Platform, INDEX_VERSION, KNOWN_ARCH, KNOWN_OS,
+};
 pub use inflate::inflate;
 pub use install::{
     extract_to, install, install_bytes, list, modified_files, uninstall, Installed, Removed,

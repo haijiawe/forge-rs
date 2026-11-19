@@ -270,6 +270,10 @@ fn search(
                 || bundle.description.to_lowercase().contains(&needle)
         })
         .collect();
+    // The host platform is reported alongside the rows, because "is there a
+    // build for me" is the first question a native bundle raises and the answer
+    // is not visible in a name and a version.
+    let here = forge_market::host_platform();
     if opt.json {
         let rows: Vec<serde_json::Value> = hits
             .iter()
@@ -280,6 +284,8 @@ fn search(
                     "description": bundle.description,
                     "tarball": bundle.tarball,
                     "size": bundle.size,
+                    "platform": bundle.platform_label(),
+                    "fitsThisHost": bundle.fits(&here),
                 })
             })
             .collect();
@@ -287,19 +293,41 @@ fn search(
             stdout,
             stderr,
             "forge market",
-            &serde_json::json!({ "query": needle, "bundles": rows }),
+            &serde_json::json!({
+                "query": needle,
+                "host": here.label(),
+                "bundles": rows,
+            }),
         );
     }
     if hits.is_empty() {
         let _ = writeln!(stdout, "nothing in the index matches {needle:?}");
         return EXIT_OK;
     }
-    let _ = writeln!(stdout, "{:<24} {:<12}  description", "name", "version");
-    for bundle in hits {
+    let _ = writeln!(
+        stdout,
+        "{:<24} {:<12} {:<16}  description",
+        "name", "version", "platform"
+    );
+    for bundle in &hits {
         let _ = writeln!(
             stdout,
-            "{:<24} {:<12}  {}",
-            bundle.name, bundle.version, bundle.description
+            "{:<24} {:<12} {:<16}  {}",
+            bundle.name,
+            bundle.version,
+            bundle.platform_label(),
+            bundle.description
+        );
+    }
+    // A hit that cannot be installed here is stated, not left to be discovered
+    // by a failed install.
+    let unusable = hits.iter().filter(|bundle| !bundle.fits(&here)).count();
+    if unusable > 0 {
+        let _ = writeln!(
+            stderr,
+            "forge market: {unusable} of {} row(s) have no build for {}; install would refuse them",
+            hits.len(),
+            here.label()
         );
     }
     EXIT_OK

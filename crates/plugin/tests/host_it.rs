@@ -914,3 +914,94 @@ fn a_typescript_entry_runs_with_no_build_step() {
     assert!(refused.output.contains("arguments.name"));
     host.unload_all();
 }
+
+// ---------------------------------------------------------------------------
+// Several roots: a plugin is installed by hand or by the market, and the host
+// must see both. Before this, `forge market install` unpacked into
+// market/bundles/ while the host only read plugins/, so an installed plugin was
+// invisible to `plugin list` and to a turn.
+// ---------------------------------------------------------------------------
+
+const TWO_ROOT_MANIFEST: &str = r#"{
+  "name": "shared",
+  "version": "1.0.0",
+  "description": "a plugin used to test multi-root discovery",
+  "runtime": "exec",
+  "entry": "run"
+}"#;
+
+#[test]
+fn a_market_installed_plugin_is_discovered_alongside_a_hand_installed_one() {
+    let hand = Scratch::new("roots-hand");
+    let market = Scratch::new("roots-market");
+    hand.install(
+        "handmade",
+        r#"{"name":"handmade","version":"1.0.0","description":"by hand","runtime":"exec","entry":"run"}"#,
+        &[],
+    );
+    market.install("shared", TWO_ROOT_MANIFEST, &[]);
+
+    let mut host = Host::start(&hand.dir);
+    host.add_root(&market.dir);
+    let (found, broken) = host.discover();
+    assert!(broken.is_empty(), "{broken:?}");
+    let names: Vec<&str> = found.iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(names, vec!["handmade", "shared"]);
+    // Each manifest remembers the root it came from, so a load runs the right
+    // directory's entry rather than guessing by name.
+    let shared = found.iter().find(|m| m.name == "shared").expect("shared");
+    assert!(shared.directory.starts_with(&market.dir));
+}
+
+#[test]
+fn a_name_present_in_two_roots_is_refused_with_both_paths_named() {
+    let hand = Scratch::new("dup-hand");
+    let market = Scratch::new("dup-market");
+    hand.install("shared", TWO_ROOT_MANIFEST, &[]);
+    market.install("shared", TWO_ROOT_MANIFEST, &[]);
+
+    let mut host = Host::start(&hand.dir);
+    host.add_root(&market.dir);
+    let (found, broken) = host.discover();
+    // Neither copy is loadable: keeping the first in `found` would let a load
+    // silently run the first root's code. Order must not decide which code runs,
+    // so the name is withdrawn from `found` and reported once as a conflict.
+    assert!(found.is_empty(), "{found:?}");
+    assert_eq!(broken.len(), 1);
+    let message = broken[0].1.message();
+    assert!(message.contains("installed twice"), "{message}");
+    assert!(
+        message.contains(&hand.dir.display().to_string()),
+        "{message}"
+    );
+    assert!(
+        message.contains(&market.dir.display().to_string()),
+        "{message}"
+    );
+
+    // Loading the duplicated name surfaces the refusal, not a coin flip.
+    let err = host.load("shared").unwrap_err();
+    assert!(
+        err.message().contains("installed twice"),
+        "{}",
+        err.message()
+    );
+}
+
+#[test]
+fn a_missing_second_root_is_not_an_error() {
+    let hand = Scratch::new("missing-second");
+    hand.install(
+        "only",
+        r#"{"name":"only","version":"1.0.0","description":"d","runtime":"exec","entry":"run"}"#,
+        &[],
+    );
+    let mut host = Host::start(&hand.dir);
+    // A market directory that was never created: the common case on a machine
+    // that has never run `market install`.
+    host.add_root(hand.dir.join("does-not-exist"));
+    let (found, broken) = host.discover();
+    assert!(broken.is_empty(), "{broken:?}");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].name, "only");
+}

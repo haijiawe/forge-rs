@@ -24,7 +24,14 @@ pub const ERR_BUNDLE_VERSION: &str = "market: bundle version is not a plain vers
 pub const ERR_SHA256_SHAPE: &str = "market: sha256 is not 64 lowercase hex characters";
 pub const ERR_SIZE: &str = "market: bundle size must be greater than zero";
 pub const ERR_TARBALL_URL: &str = "market: tarball is not an absolute http(s) URL";
-pub const ERR_DUPLICATE_BUNDLE: &str = "market: two bundles share the same name and version";
+pub const ERR_DUPLICATE_BUNDLE: &str =
+    "market: two bundles share the same name, version and platform";
+pub const ERR_BUNDLE_PLATFORM: &str = "market: a bundle must declare both os and arch, or neither";
+pub const ERR_UNKNOWN_OS: &str = "market: bundle os is not one this build knows";
+pub const ERR_UNKNOWN_ARCH: &str = "market: bundle arch is not one this build knows";
+pub const ERR_NO_BUILD_FOR_PLATFORM: &str = "market: the index has no build for this platform";
+pub const ERR_AMBIGUOUS_PLATFORM: &str =
+    "market: several bundles match this name, version and platform";
 pub const ERR_UNKNOWN_NAME: &str = "market: the index has no bundle with that name";
 pub const ERR_UNKNOWN_VERSION: &str = "market: the index has no such version for that bundle";
 pub const ERR_RANGE_REQUIREMENT: &str = "market: version ranges are not supported";

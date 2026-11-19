@@ -51,13 +51,21 @@ JSON-RPC 2.0，一行一个对象，UTF-8，`\n` 结尾。协议写在 `PROTOCOL
 执行授权，和 `forge-skill` 只读 `SKILL.md` 是同一条纪律，而这里的产物是程序。`load`
 才起子进程并做 `initialize`，`unload` 发 `shutdown`、关 stdin、等两秒、再杀。
 
+一个宿主可以读**多个根**（`add_root`）：插件要么被手工放进 `<dataDir>/plugins`，要么被
+`forge market install` 解到 `<dataDir>/market/bundles`，两条路装出来的都是插件，宿主必须
+都看得见，否则 market 那句"install plugin bundles"就止于一个没人加载的目录。CLI 的
+`host_of` 与 chat/web 接线都把 market 的 bundles 目录加成第二个根。**同名出现在两个根里
+会被拒绝而不是按顺序挑一个**：两份目录可能是不同的代码，跑错那份比起不来更糟——discover
+把两份都撤下、报一条点名两条路径的冲突，`load` 随之拒绝。缺失的第二个根不是错误（多数机器
+只走其中一条路）。
+
 子进程死了不靠看门狗发现：下一次调用在写之前 `try_wait`，管道断了就报
 `child_exited`，并把最后一行 stderr 附在消息里。没人调用的插件不需要被盯着，而为
 「发现故障」存在的线程本身也会故障。
 
 ## 公开面
 
-`Host`：`start`/`discover`/`load`/`unload`/`unload_all`/`loaded_names`/`is_loaded`/
+`Host`：`start`/`add_root`/`root`/`roots`/`discover`/`load`/`unload`/`unload_all`/`loaded_names`/`is_loaded`/
 `handshake`/`capabilities`/`tools`/`call_tool`/`prompts`/`prompt_text`/`run_hook`/
 `all_tools`/`command_line`，以及 `with_logger`/`set_timeout`/`set_max_bytes`/
 `set_protocol_version` 和三个对应的读取器。

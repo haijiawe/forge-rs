@@ -43,9 +43,16 @@ pub struct Loaded {
     pub handshake: Handshake,
 }
 
-/// The host over one plugin root.
+/// The host over one or more plugin roots.
+///
+/// More than one root exists because a plugin reaches the machine two ways: the
+/// operator puts a directory under `<dataDir>/plugins`, or `forge market install`
+/// unpacks a bundle under `<dataDir>/market/bundles`. Both are plugins; a host
+/// that only read the first would make the market's own promise — "install plugin
+/// bundles from an index" — end at a directory nothing loads.
 pub struct Host {
-    root: PathBuf,
+    /// Search order. The first root is the one `start` was given.
+    roots: Vec<PathBuf>,
     timeout: Duration,
     max_bytes: usize,
     /// The protocol version this host announces, which is the host's own unless
@@ -61,7 +68,7 @@ impl Host {
     /// Point the host at a directory of plugin directories. Spawns nothing.
     pub fn start(root: impl Into<PathBuf>) -> Host {
         Host {
-            root: root.into(),
+            roots: vec![root.into()],
             timeout: Duration::from_millis(DEFAULT_TIMEOUT_MS),
             max_bytes: DEFAULT_MAX_BYTES,
             protocol_version: PROTOCOL_VERSION,
@@ -72,8 +79,27 @@ impl Host {
         }
     }
 
+    /// The primary root: the one `start` was given, and the one a caller prints
+    /// when it has one line to say where plugins live.
     pub fn root(&self) -> &Path {
-        &self.root
+        &self.roots[0]
+    }
+
+    /// Every root, in search order.
+    pub fn roots(&self) -> &[PathBuf] {
+        &self.roots
+    }
+
+    /// Search another directory of plugin directories as well. Spawns nothing.
+    ///
+    /// A name offered by two roots is refused by [`Host::discover`] rather than
+    /// resolved by order: the two directories can hold different code, and
+    /// running the one the operator did not mean is worse than not running.
+    pub fn add_root(&mut self, root: impl Into<PathBuf>) {
+        let root = root.into();
+        if !self.roots.contains(&root) {
+            self.roots.push(root);
+        }
     }
 
     /// Where the child's stderr goes. Default is a logger that drops it; the
@@ -121,22 +147,50 @@ impl Host {
     /// operator has to see, and hiding it would make `forge plugin list` a
     /// report that only mentions the healthy.
     pub fn discover(&self) -> (Vec<Manifest>, Vec<(PathBuf, Error)>) {
-        let mut found = Vec::new();
+        let mut found: Vec<Manifest> = Vec::new();
         let mut broken = Vec::new();
-        let entries = match std::fs::read_dir(&self.root) {
-            Ok(entries) => entries,
-            // A machine without a plugin directory is the normal case, not a
-            // failure: it means nobody installed anything.
-            Err(_) => return (found, broken),
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            match manifest::read(&path) {
-                Ok(manifest) => found.push(manifest),
-                Err(error) => broken.push((path, error)),
+        for root in &self.roots {
+            let entries = match std::fs::read_dir(root) {
+                Ok(entries) => entries,
+                // A machine without this plugin directory is the normal case,
+                // not a failure: it means nobody installed anything here. With
+                // several roots it is also the common case — most machines have
+                // hand-installed plugins or market ones, not both.
+                Err(_) => continue,
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                match manifest::read(&path) {
+                    Ok(manifest) => {
+                        if let Some(position) = found.iter().position(|m| m.name == manifest.name) {
+                            // Two directories claim one name. Withdraw the first
+                            // copy as well: leaving it in `found` would let
+                            // `manifest()` return it and silently run the first
+                            // root's code, which is exactly the coin flip this
+                            // refusal exists to prevent. Neither copy is safely
+                            // loadable until the operator removes one.
+                            let first = found.remove(position);
+                            broken.push((
+                                path,
+                                Error::new(
+                                    Kind::BadManifest,
+                                    format!(
+                                        "plugin {:?} is installed twice: {} and {}; remove one",
+                                        manifest.name,
+                                        first.directory.display(),
+                                        manifest.directory.display()
+                                    ),
+                                ),
+                            ));
+                            continue;
+                        }
+                        found.push(manifest);
+                    }
+                    Err(error) => broken.push((path, error)),
+                }
             }
         }
         found.sort_by(|a, b| a.name.cmp(&b.name));
@@ -160,9 +214,15 @@ impl Host {
         }) {
             return Err(error.clone());
         }
+        let searched = self
+            .roots
+            .iter()
+            .map(|root| root.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
         Err(Error::new(
             Kind::UnknownPlugin,
-            format!("no plugin named {name:?} under {}", self.root.display()),
+            format!("no plugin named {name:?} under {searched}"),
         ))
     }
 

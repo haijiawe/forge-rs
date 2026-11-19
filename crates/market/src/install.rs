@@ -479,6 +479,8 @@ mod tests {
             sha256: sha256_hex(bytes),
             size: bytes.len() as u64,
             engines: None,
+            os: None,
+            arch: None,
         }
     }
 

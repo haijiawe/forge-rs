@@ -183,22 +183,39 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
     Ok(opt)
 }
 
+/// The data directory these commands read from.
+fn data_dir_of(opt: &Options) -> forge_core::Result<PathBuf> {
+    if opt.data_dir.trim().is_empty() {
+        crate::default_data_dir()
+    } else {
+        Ok(PathBuf::from(opt.data_dir.trim()))
+    }
+}
+
 /// The plugin root, plus the data directory it was derived from.
 fn root_of(opt: &Options) -> forge_core::Result<PathBuf> {
     if !opt.dir.trim().is_empty() {
         return Ok(PathBuf::from(opt.dir.trim()));
     }
-    let data_dir = if opt.data_dir.trim().is_empty() {
-        crate::default_data_dir()?
-    } else {
-        PathBuf::from(opt.data_dir.trim())
-    };
-    Ok(data_dir.join("plugins"))
+    Ok(data_dir_of(opt)?.join("plugins"))
+}
+
+/// Where `forge market install` unpacks bundles. A plugin reaches the machine
+/// either by hand into `plugins/` or through the market into `market/bundles/`;
+/// the host must read both or the market's install promise ends at a directory
+/// nothing loads.
+fn market_bundles_root(opt: &Options) -> forge_core::Result<PathBuf> {
+    Ok(data_dir_of(opt)?.join("market").join("bundles"))
 }
 
 fn host_of(opt: &Options) -> forge_core::Result<Arc<forge_plugin::Host>> {
     let root = root_of(opt)?;
     let mut host = forge_plugin::Host::start(&root);
+    // A missing market directory is the normal case (nothing installed yet), so
+    // a failure to derive it must not sink the whole command.
+    if let Ok(bundles) = market_bundles_root(opt) {
+        host.add_root(bundles);
+    }
     if opt.timeout > 0 {
         host.set_timeout(std::time::Duration::from_millis(opt.timeout));
     }

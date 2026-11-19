@@ -250,6 +250,8 @@ mod tests {
             sha256: sha256_hex(b"x"),
             size: 1,
             engines: None,
+            os: None,
+            arch: None,
         }
     }
 

@@ -370,20 +370,28 @@ as two reference implementations of one protocol. "Adding JS plugins" is
 therefore not obviously a third stack, but it *is* a second authoring language
 next to the frontend's TypeScript, and that cost is real.
 
-**Distribution is a hard constraint, and it is in the code.**
-`crates/market/src/index.rs:30` describes a bundle as
-`name/version/description/author/keywords/homepage/tarball/sha256/size/engines`.
-There is **no `os`, `arch` or `platform` field** — `engines` records "needs node
->= 20", not "this tarball is the windows-amd64 build". Worse,
-`crates/market/src/index.rs:122-134` requires `name` + `version` to be unique in
-an index and refuses duplicates with `ERR_DUPLICATE_BUNDLE`, so six platform
-builds of `myplugin 1.0.0` cannot even be listed.
+**Distribution was a hard constraint; it has been lifted.** The original
+`crates/market/src/index.rs` described a bundle as
+`name/version/description/author/keywords/homepage/tarball/sha256/size/engines`
+with **no `os`/`arch` field**, and required `name` + `version` to be unique, so
+six platform builds of `myplugin 1.0.0` could not even be listed — a native
+plugin could not be distributed at all. That is now changed: `Bundle` carries
+optional `os`/`arch` (both absent = platform-independent source, both present =
+a native build, half-declared refused), the uniqueness key is
+name + version + os + arch, and `resolve` filters to the host platform before
+picking a version. The accepted spellings are the release pipeline's
+(`windows`/`linux`/`darwin`, `amd64`/`arm64`), so the market does not refuse the
+artifacts this project builds.
 
-A native plugin therefore **cannot be distributed through this market at all**
-without a contract change: add `os`/`arch` to `Bundle` *and* include them in the
-uniqueness key. A source plugin is one tarball that installs everywhere its
-runtime exists. That is not a preference; it is what the shipped schema can
-express.
+The second half of the gap was that an installed bundle landed in
+`market/bundles/` while the plugin host only read `plugins/`, so `market install`
+ended at a directory nothing loaded. The host now reads **both roots**
+(`Host::add_root`), and a name present in both is refused with both paths named
+rather than resolved by order. Verified end to end on the release binary:
+`market install native` → `plugin list` shows it → `plugin call native echo`
+answers; a linux-only bundle on Windows is refused naming the platforms that are
+published. A source plugin is still one tarball that installs everywhere its
+runtime exists.
 
 **The paved road is TypeScript, and it needs no build step.** This was measured,
 not assumed: Node 24.21.0 executes `.ts` directly, and a plugin whose manifest
@@ -420,7 +428,7 @@ So the recommendation, in order:
 | **Paved road** | **TypeScript** (`.ts`, no build) | same language as the UI, types an agent can act on, one artifact for every platform, already runs | 19.1 MB |
 | Plain JS is fine too | `.js` | identical runtime and distribution; use it when types buy nothing | 19.1 MB |
 | The work already lives in a library | **Python** | pandas/openpyxl/requests are the reason to be there; same distribution story | 7.5 MB |
-| CPU-bound, or no runtime may be assumed | **Rust** via `runtime: "exec"` | ~5× faster cold start, half the per-call floor, no runtime dependency, **cheaper than the host itself** — needs the market schema change first | **0.7 MB** |
+| CPU-bound, or no runtime may be assumed | **Rust** via `runtime: "exec"` | ~5× faster cold start, half the per-call floor, no runtime dependency, **cheaper than the host itself**; the market now carries platform builds and the host reads them | **0.7 MB** |
 | Untrusted in-process scripting, someday | embedded engine | see §2.4: 1.02 MB, but no `fetch`/`console`/`require` — a different product | not measured |
 | One artifact, no interpreter, any language | **WASM** | the strongest unexplored option; **not measured**, `wasmtime` is not in the offline cache | not measured |
 
