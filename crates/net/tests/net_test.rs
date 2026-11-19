@@ -32,6 +32,12 @@ where
             };
             counter.fetch_add(1, Ordering::SeqCst);
             let head = read_head(&mut stream);
+            // Drain the request body before answering. A server that closes a
+            // socket while unread bytes are still in flight makes Windows send
+            // an RST, and an RST may discard the response the client has not
+            // read yet — the POST test failed with os error 10054 exactly that
+            // way on a hosted runner, which is faster than this laptop.
+            drain_body(&mut stream, &head);
             let bytes = handler(index, &head);
             // The client may have closed already; a failed write ends this one
             // connection, not the test.
@@ -58,6 +64,33 @@ fn read_head(stream: &mut TcpStream) -> String {
         }
     }
     String::from_utf8_lossy(&head).into_owned()
+}
+
+/// Consume exactly `Content-Length` bytes of request body, if the head names a
+/// length. Without this a POST fixture answers and closes while the body sits
+/// unread in its receive buffer, and the resulting RST can swallow the answer.
+fn drain_body(stream: &mut TcpStream, head: &str) {
+    let length = head
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if name.eq_ignore_ascii_case("content-length") {
+                value.trim().parse::<usize>().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0);
+    let mut left = length;
+    let mut scratch = [0u8; 4096];
+    while left > 0 {
+        let want = left.min(scratch.len());
+        match stream.read(&mut scratch[..want]) {
+            Ok(0) => break,
+            Ok(read) => left -= read,
+            Err(_) => break,
+        }
+    }
 }
 
 fn response(status: &str, headers: &[(&str, &str)], body: &str) -> Vec<u8> {
