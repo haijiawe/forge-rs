@@ -1,49 +1,92 @@
-# CI: what was rehearsed, and what was not
+# CI: what runs, what it caught, and what is still not rehearsed
 
-Every number here came from a command run on the development host
-(Windows 11, `x86_64-pc-windows-msvc`). The honest headline first: **no GitHub
-Actions runner has ever executed these workflows.** This checkout has no git
-remote and no `gh` CLI, so `ci.yml` and `release.yml` are configurations that
-were step-checked locally, not a pipeline anyone has watched go green.
+The repository is `github.com/haijiawe/forge-rs` (private) and the tree is MIT.
+Every workflow here has executed on hosted runners except `release.yml`, which
+needs a version tag; `bench.yml` is manual and is covered below.
 
-## The three jobs, and how each step was rehearsed
+The honest headline: **the first five CI runs were not a formality.** Each one
+found something the Windows development box could not see, and two of them were
+defects in tests that would have kept hiding indefinitely on a single machine.
 
-| Job | Step | Local substitute | Result |
-| --- | --- | --- | --- |
-| `test` | `cargo run -p archcheck` | `cargo run -q -p archcheck --offline` | `archcheck: ok (.)` |
-| `test` | `cargo test --workspace` on 1.89 | `cargo +1.89.0 test --workspace --offline` | 64 suites, exit 0 |
-| `test` | same, on 1.96 | `cargo test --workspace --offline` | exit 0 |
-| `lint` | `cargo fmt --all -- --check` | same | exit 0 |
-| `lint` | `cargo clippy --workspace --all-targets -- -D warnings` | same, with `RUSTFLAGS=-D warnings` | exit 0 |
-| `web` | `npm ci`, `tsc --noEmit`, `vitest run`, `npm run build` | same, in `web/` | 12 files / 78 tests, 265 kB bundle |
-| `web` | bundle budget | `find dist/assets -name '*.js' -printf '%s\n' \| awk ...` | 265,720 B raw, under the 2,000,000 B ceiling |
+## The jobs
 
-The `ubuntu-latest` half of the `test` matrix is a compile check, not a test run:
-`cargo check --workspace --exclude forge-cli --target x86_64-unknown-linux-gnu`
-passes, but this host has no Linux linker, so nothing Linux has ever executed
-here. The same goes for `aarch64-apple-darwin`. `docs/08-rust-port.md` §4 records
-that constraint; it is not a claim about runtime behaviour.
+| Job | Runner | What it proves |
+| --- | --- | --- |
+| `test` | ubuntu-latest, windows-latest | builds and runs the whole suite on the minimum supported rustc (1.89, set by `rusqlite`) |
+| `lint` | ubuntu-latest | `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings` on current stable |
+| `web` | ubuntu-latest | `npm ci`, `tsc --noEmit`, `vitest run`, `vite build`, and the 2,000,000-byte bundle ceiling |
 
-## Three defects this rehearsal found
+Two toolchains on purpose: `test` proves the floor, `lint` runs where developers
+work. A pinned-toolchain lint job cannot see a lint that only a newer clippy
+knows (`is_multiple_of` was exactly that kind of lint).
 
-The point of running the steps by hand was to catch what a written workflow hides.
+## Five rounds to green
 
-1. **The pinned toolchain could not build the dependencies.** `ci.yml` pinned
-   `1.85` and `Cargo.toml` said `rust-version = "1.85"`; both were aspirational.
-   `cargo +1.85 check --workspace` stops before compiling:
-   `libsqlite3-sys@0.40.0 requires rustc 1.88.0`, `rusqlite@0.43.0 requires
-   rustc 1.89.0`. The real floor is 1.89, and it is now what both files say.
-   Verified by installing 1.89.0 and running the whole suite on it.
-2. **`--offline` in CI would fail on the first run.** The flag exists because
-   this host's registry is an rsproxy mirror; a fresh runner has an empty
-   `~/.cargo/registry` and needs the network. CI no longer passes it — the
-   Makefile and `check.ps1` still do, which is where it means something.
-3. **Lint and test on the same toolchain hides new lints.** Running clippy on
-   1.96 after the 1.89 pin failed on
-   `manual implementation of .is_multiple_of()` in
-   `crates/sandbox/src/job_windows.rs` and `crates/server/src/server.rs` — lints
-   introduced after 1.89. Hence the split: `test` proves the minimum compiler
-   builds and passes, `lint` runs current stable where developers actually work.
+| Run | Head | lint | web | ubuntu | windows |
+| --- | --- | --- | --- | --- | --- |
+| 44528486442 | `4947037` | ✗ | ✓ | ✗ | ✗ |
+| 44538730334 | `2b36d70` | ✗ | ✓ | ✗ | ✗ |
+| 44545921397 | `ddb2a3d` | ✓ | ✓ | ✗ | ✗ |
+| 44556272262 | `5732bce` | ✓ | ✓ | ✗ | ✗ |
+| 44558234256 | `7e6e25f` | ✓ | ✓ | ✓ | ✓ |
+
+The seven defects, in the order they surfaced:
+
+1. **A pinned target directory is not portable.** `.cargo/config.toml` carried
+   `target-dir = "D:/forge-rs-target/forge-rs"` — a workaround for MSVC error
+   `D8050` when the source path contains non-ASCII characters. On Linux that is
+   one path segment containing a colon, and the ubuntu job died with
+   `failed to join paths from $LD_LIBRARY_PATH together`. The config now pins no
+   target directory at all; `check.ps1` derives an ASCII one only when the
+   checkout path needs it, and the workflows set `CARGO_TARGET_DIR`.
+2. **Two clippy lints newer than the development toolchain**: `needless_late_init`
+   in `crates/session/src/fork.rs` and `chunks_exact_to_as_chunks` in
+   `crates/server/src/server.rs`. Both rewritten to the lint's preferred form.
+3. **A variable used only under `#[cfg(windows)]`** in `crates/cli/src/doctor.rs`
+   made the non-Windows build warn (`unused variable: stderr`), which `-D warnings`
+   turns into a failure.
+4. **A manifest path does not mean the same thing on two platforms.**
+   `C:\evil.js` is absolute on Windows and an ordinary filename on Unix, so the
+   containment check accepted it there. A bundle would then point at two
+   different files depending on where it was installed. `entry_stays_inside` now
+   refuses backslashes and drive prefixes on every platform; `/` is the only
+   separator a manifest may use.
+5. **`TEMP` can be an 8.3 short name.** The hosted Windows runner hands out
+   `C:\Users\RUNNER~1\...`. Rust creates a file through it happily; the Node
+   child, given the same string, reported `Cannot find module`. Test scratch
+   roots are canonicalised once (and the `\\?\` prefix trimmed) so both sides
+   see one long path.
+6. **A test cleaned up its parent.** The bridge tests used `root.parent()` — the
+   system temp directory itself — as `data_dir`, then removed it at the end.
+   Windows refused to delete open files, so nothing bad showed locally; the
+   Linux runner owns `/tmp` and really deleted it, taking every other test's
+   scratch directory with it. Each test now owns `<base>/plugins` or
+   `<base>/experts` and removes only its own base.
+7. **The plugin host reported the wrong last stderr line.** A failed Node child
+   ends its output with `Node.js v22.23.4`, so the host's one-line summary was a
+   version number. It now prefers the last line that starts with `Error` or
+   contains `Error: `. That change is what made defect 5 legible at all.
+
+Defects 4–7 are all one class: **a second machine is a second reader.** A test
+that passes on Windows because a delete silently fails, or because a backslash is
+special, is not a test of the thing it names.
+
+## The bench workflow
+
+`bench.yml` is `workflow_dispatch` only, because runner hardware is shared and a
+baseline is only comparable within one platform. It records one report per
+runner (ubuntu-latest, windows-latest, macos-14) with
+
+```
+cargo run --release -q -p forge-bench -- -out "baseline-<os>.json" -baseline ""
+```
+
+and uploads each as an artifact. To arm the gate on a new platform, download the
+artifact, copy its single record into `scripts/bench/baseline.json` (the file is
+a `{version, baselines: [...]}` set, and `forge-bench` compares only the record
+matching `os`/`arch`), and commit it with the measurement date. The final step of
+the workflow runs `-strict` with `continue-on-error: true`: a run that cannot be
+compared yet is not a failure, it only reports.
 
 ## A flake that was made into a wait
 
@@ -65,9 +108,9 @@ disagreement is still a failure.
 
 ## Not rehearsed at all
 
-- `release.yml` — needs a tag and a runner: cross-compilation of six targets,
-  `SHA256SUMS`, `gh release create`. Only its YAML and its `actionlint` pass were
-  checked (see `docs/release.md` §8).
-- `actions/cache@v4` behaviour, `dtolnay/rust-toolchain` resolution, and whether
-  the ubuntu runner has the C toolchain `bundled` SQLite needs.
-- Anything the `web` job does on a machine without this host's npm cache.
+- `release.yml` — needs a tag and a runner: native builds for three platforms,
+  `SHA256SUMS`, `gh release create`. Only its YAML was reviewed (see
+  `docs/release.md` §8). A `workflow_dispatch` dry run is possible and is the
+  next thing to try.
+- Anything about a machine that is neither Windows nor the runners above, e.g.
+  Linux sandbox confinement under a non-Ubuntu kernel or macOS sandbox at all.
