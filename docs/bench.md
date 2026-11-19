@@ -153,8 +153,40 @@ machine you control is what should gate Linux work.
 
 The `windows-latest` artifact from the same workflow is not committed: its
 `session_append_fsync` was 368/s against 4,354/s on the machine that produced
-the Windows record. Hosted Windows disks are that much slower, and putting two
-machines under one `windows/amd64` key would make the gate meaningless.
+the Windows record, and a later dispatch measured 274/s. Hosted Windows disks
+are that much slower, and putting two machines under one `windows/amd64` key
+would make the gate meaningless.
+
+A third dispatch (2026-11-20, run 44621655899) produced yet another Linux
+record — `session_append_batch` 35,322/s, `session_replay_10k` 125,059/s. It was
+not adopted: swapping a hosted record for another hosted record every dispatch
+turns the file into a changelog of runner noise. Run B stays, because it is the
+one described in the table above.
+
+## The macOS record, and why it exists at all
+
+`macos/arm64` was recorded on 2026-11-20 by `bench.yml` on `macos-latest`
+(rustc 1.100.0, Apple Silicon):
+
+| metric | value |
+| --- | --- |
+| version_startup | 4.79 ms |
+| session_append_fsync | 1,715 /s |
+| session_append_batch | 42,315 /s |
+| session_replay_10k | 150,170 /s |
+| session_projection_10k | 123,629 /s |
+| event_roundtrip | 3,775 ns/op |
+
+This is a hosted number and inherits every caveat above — but it is the *only*
+macOS record there is, so the choice was between a wobbly reference and no gate
+at all on that platform. It is committed for the second reason, and the
+tolerance on the I/O rows (35%) is wide enough to absorb the wobble the Linux
+runs demonstrated.
+
+Getting it required changing the matrix from `macos-14` to `macos-latest`: the
+first dispatch asked for `macos-14` and the job was cancelled with no runner
+assigned (`runner_id: 0`, empty steps), while `release.yml`'s `macos-latest`
+job had run fine the day before. The two labels are not interchangeable.
 
 ## Running and integrating
 

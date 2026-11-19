@@ -124,6 +124,68 @@
           "tolerance": 0.1
         }
       ]
+    },
+    {
+      "os": "macos",
+      "arch": "arm64",
+      "rustVersion": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+      "timestamp": "2026-11-19T21:44:26Z",
+      "results": [
+        {
+          "name": "version_startup",
+          "unit": "ms",
+          "value": 4.7931,
+          "samples": 20,
+          "p50": 5.3767,
+          "p95": 7.9806,
+          "tolerance": 0.1
+        },
+        {
+          "name": "session_append_fsync",
+          "unit": "events/sec",
+          "value": 1714.9288,
+          "samples": 20,
+          "p50": 1057.7489,
+          "p95": 1709.9047,
+          "tolerance": 0.35
+        },
+        {
+          "name": "session_append_batch",
+          "unit": "events/sec",
+          "value": 42315.2806,
+          "samples": 20,
+          "p50": 29071.3697,
+          "p95": 37938.7858,
+          "tolerance": 0.35
+        },
+        {
+          "name": "session_replay_10k",
+          "unit": "events/sec",
+          "value": 150169.785,
+          "samples": 20,
+          "p50": 121782.9645,
+          "p95": 147924.2522,
+          "tolerance": 0.1
+        },
+        {
+          "name": "session_projection_10k",
+          "unit": "events/sec",
+          "value": 123628.7516,
+          "samples": 20,
+          "p50": 102436.1887,
+          "p95": 122958.5681,
+          "tolerance": 0.1
+        },
+        {
+          "name": "event_roundtrip",
+          "unit": "ns/op",
+          "value": 3774.625,
+          "samples": 5,
+          "p50": 3905.125,
+          "p95": 4225,
+          "tolerance": 0.1
+        }
+      ]
     }
   ]
 }
