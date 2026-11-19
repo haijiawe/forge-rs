@@ -15,6 +15,24 @@ param(
 $ErrorActionPreference = 'Stop'
 $failed = @()
 
+# The target directory must sit on an all-ASCII path when this checkout does
+# not: cl.exe encodes its command line in the ANSI code page, and a /Fo path
+# under D:\魔改版Agent框架\... cannot be represented there (error D8050; the
+# long version of the story is in .cargo/config.toml). The setting cannot live
+# in the repository config because Linux treats "D:/..." as one path segment
+# containing ':', so it is derived here from the checkout instead. An explicit
+# CARGO_TARGET_DIR from the caller always wins.
+if (-not $env:CARGO_TARGET_DIR) {
+    $nonAscii = $false
+    foreach ($ch in $PSScriptRoot.ToCharArray()) {
+        if ([int]$ch -gt 127) { $nonAscii = $true; break }
+    }
+    if ($nonAscii) {
+        $env:CARGO_TARGET_DIR = Join-Path $env:SystemDrive 'forge-rs-target\forge-rs'
+        Write-Host "CARGO_TARGET_DIR=$env:CARGO_TARGET_DIR (the checkout path is not ASCII)" -ForegroundColor DarkGray
+    }
+}
+
 function Step {
     param([string]$Name, [scriptblock]$Body)
     Write-Host ""

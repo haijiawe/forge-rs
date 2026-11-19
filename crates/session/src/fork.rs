@@ -104,9 +104,11 @@ where
     let at_seq = prefix.last().map(|event| event.seq).unwrap_or(0);
     let now = now_millis();
     let mut output: Vec<Event> = Vec::with_capacity(prefix.len() + 1);
-    let copy_from;
 
-    if prefix[0].typ == EventType::SESSION_START.as_str() {
+    // The branch value is the index of the first parent record the child still
+    // has to copy: 1 when the parent's own session/start became the child's
+    // head, 0 when a fresh head was synthesised in front of every parent record.
+    let copy_from = if prefix[0].typ == EventType::SESSION_START.as_str() {
         let mut head = prefix[0].clone();
         head.seq = 1;
         // The id is copied, not minted: events-v1 §4.1 allows exactly two
@@ -122,7 +124,7 @@ where
             now,
         )?);
         output.push(head);
-        copy_from = 1;
+        1
     } else {
         // A parent that starts with a turn is still a readable v1 log (the
         // projection synthesises a turn for `turn/end`), but a child needs a
@@ -150,8 +152,8 @@ where
         output.push(head);
         // No record was consumed for the head: every parent record is history
         // the child must keep.
-        copy_from = 0;
-    }
+        0
+    };
 
     for event in &prefix[copy_from..] {
         let mut copied = event.clone();

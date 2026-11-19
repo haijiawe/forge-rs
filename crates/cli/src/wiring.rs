@@ -1584,7 +1584,8 @@ mod tests {
             .collect();
         assert!(
             plugin_tools.contains(&"reference.echo".to_string()),
-            "expected a namespaced plugin tool in {names:?}"
+            "expected a namespaced plugin tool in {names:?}; notes: {:?}",
+            wired.notes
         );
         assert!(plugin_tools.contains(&"reference.add".to_string()));
         // The reference plugin advertises four tools (`echo`, `add`, `fail`,
@@ -1595,7 +1596,8 @@ mod tests {
         assert_eq!(
             plugin_tools.len(),
             4,
-            "the reference plugin advertises four tools: {plugin_tools:?}"
+            "the reference plugin advertises four tools: {plugin_tools:?}; notes: {:?}",
+            wired.notes
         );
 
         // A call that leaves this process must be seen by the operator first,

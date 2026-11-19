@@ -1,29 +1,28 @@
-# The target directory MUST live on an all-ASCII path.
+# Nothing in this file may name a machine-specific absolute path.
 #
-# Measured 2026-11-16 on this box: with the target inside
-# D:\魔改版Agent框架\..., every crate that compiles C (rusqlite bundled, ring)
-# fails with
+# Why that rule exists: this file used to pin
+#   [build] target-dir = "D:/forge-rs-target/forge-rs"
+# to work around an MSVC bug on the development box. On Linux that value is a
+# single path segment containing `:`, so cargo died before compiling anything:
+#   error: failed to join paths from `$LD_LIBRARY_PATH` together
+#   Caused by: path segment contains separator `:`
+# The workaround was real, but it belonged to the machine, not to the tree.
+#
+# The MSVC bug it works around, measured 2026-11-16: when the target directory
+# lives under a non-ASCII path (this checkout is D:\魔改版Agent框架\...), every
+# crate that compiles C (rusqlite bundled, ring) fails with
 #   cl: 命令行 error D8050 : 无法执行 c1.dll: 未能将命令行放入调试记录中
 # because cl.exe stores its command line in a debug record encoded in the ANSI
-# code page, and the /Fo path is not representable there. Pointing the target
-# dir at an ASCII path is the whole fix; the source tree may keep its name.
-[build]
-target-dir = "D:/forge-rs-target/forge-rs"
-
-# The same path again, this time as an environment variable, because
-# `build.target-dir` is cargo's private business: it is NOT exported to the
-# programs cargo runs. The e2e harness spawns a real `forge` binary and finds it
-# through `CARGO_TARGET_DIR` (see tests/e2e/tests/acceptance.rs `target_root`),
-# so without this line `cargo test --workspace` fails with
-#   forge binary not found at ...\forge-rs\target\debug\forge.exe
-# while the same command run from a shell that exports the variable passes —
-# a gate that depends on who starts it. The two values are adjacent on purpose:
-# change one, change both. `force = false` keeps an explicit shell export
-# winning, which is what a developer bisecting a different target dir expects.
-[env]
-CARGO_TARGET_DIR = { value = "D:/forge-rs-target/forge-rs", force = false }
+# code page and the /Fo path is not representable there. The fix is to point
+# the *target* directory at an ASCII path; the source tree may keep its name.
+#
+# So the setting lives in the environment instead:
+#   PowerShell:  $env:CARGO_TARGET_DIR = 'D:\forge-rs-target\forge-rs'
+#   bash:        export CARGO_TARGET_DIR=/tmp/forge-rs-target
+# `check.ps1` does this automatically when the checkout path is not ASCII, and
+# `tests/e2e` finds the built binary through the same variable.
 
 [net]
-# The rsproxy mirror is what makes an offline build possible on this network;
-# crates.io itself is unreachable through schannel here.
+# crates.io is unreachable through schannel on the development network; cargo
+# shells out to git so the configured proxy/mirror can answer.
 git-fetch-with-cli = true
