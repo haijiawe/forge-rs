@@ -393,6 +393,31 @@ answers; a linux-only bundle on Windows is refused naming the platforms that are
 published. A source plugin is still one tarball that installs everywhere its
 runtime exists.
 
+**The publish half now exists too, so the loop closes.** `market` had no way to
+*produce* a bundle — it could install one and nothing could make one. `pack_dir`
+(`crates/market/src/pack.rs`) writes the tarball with the same codec the consumer
+reads: ustar headers the reader checks, wrapped in stored-block gzip, hashed with
+the same `sha256_hex` the index verifier uses. That is deliberate rather than
+convenient — a separate packer would be a second implementation that has to be
+kept in agreement with the first by hand, and the round-trip test feeds
+`pack_dir` output straight into `install_bytes` so a drift breaks a test instead
+of a publisher.
+
+`forge market pack <dir>` is the command: it reads `plugin.json`, writes
+`<name>-<version>[-os-arch].tar.gz`, and with `--base-url` merges an entry into
+`index.json` under the same name+version+os+arch key the index enforces (so
+re-packing replaces rather than duplicates). The public example is
+`examples/plugins/hello/` — one tool, no dependencies, the file to copy.
+
+Verified end to end on the release binary against a real `python -m http.server`:
+`pack` → `search` → `install` → `plugin list` → `plugin call hello greet` →
+`hello, end to end`. Repeating it with a scaffold-generated plugin exercised the
+merge path and then tripped the duplicate guard: the same name existed under
+`plugins/` (hand-made) and `market/bundles/` (installed), and the host refused
+with both paths named rather than picking one. That is the guard working, and it
+is worth knowing as a workflow trap — a publisher should pack from a directory
+that is not also on the host's search path.
+
 **TypeScript also needs no build step — an option, not the agent default.** This
 was measured, not assumed: Node 24.21.0 executes `.ts` directly, and a plugin whose
 manifest says `runtime: "node"`, `entry: "index.ts"` — with `interface`, type

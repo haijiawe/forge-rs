@@ -94,6 +94,14 @@ pub const ERR_EXTRA_FILES: &str =
     "market: the bundle directory holds files the record does not list";
 pub const ERR_TARGET_EXISTS: &str = "market: the bundle directory exists but no record lists it";
 
+// ---- packing (the producer half) ----------------------------------------
+
+pub const ERR_PACK_SOURCE: &str = "market: pack source is not a readable directory";
+pub const ERR_PACK_EMPTY: &str = "market: pack source holds no files";
+pub const ERR_PACK_PATH: &str = "market: pack entry path cannot be stored safely";
+pub const ERR_PACK_SYMLINK: &str = "market: pack refuses to follow a symbolic link";
+pub const ERR_PACK_SIZE: &str = "market: pack entry is too large for a ustar header";
+
 /// The body of a refusal, with the concrete value appended.
 pub(crate) fn refuse_with(reason: &str, detail: impl std::fmt::Display) -> Error {
     Error::new(ErrorKind::Refused, format!("{reason}: {detail}"))

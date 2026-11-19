@@ -1129,6 +1129,7 @@ commands:
   install <name>       install a bundle (accepts name or name@version)
   remove <name>        uninstall a bundle, refusing if a file was edited
   verify [name]        report files whose digest no longer matches
+  pack <dir>           pack a plugin directory into a bundle tarball
 
 flags:
   --json               machine-readable output
@@ -1136,6 +1137,10 @@ flags:
   --root <dir>         market root (default: <dataDir>/market)
   --index <url>        index URL; required by `search` and `install`
   --force              uninstall before installing (refuses edits either way)
+  --out <dir>          where `pack` writes the tarball (default: .)
+  --base-url <url>     `pack`: URL prefix for the tarball; writes/merges index.json
+  --os <os>            `pack`: target os for a native build (windows/linux/darwin)
+  --arch <arch>        `pack`: target arch for a native build (amd64/arm64)
   -h, --help           this message
 ```
 
@@ -1144,6 +1149,36 @@ The index is `{"version":1,"bundles":[...]}`. Each bundle carries `name`,
 the install proves the digest against the bytes actually received and refuses a
 mismatch, a short body, or a body larger than declared. A requirement is an exact
 version or `*`; ranges are refused by name.
+
+### `pack`
+
+Publishes a plugin: reads `<dir>/plugin.json` for `name`, `version` and
+`description`, packs every file under `<dir>` into
+`<out>/<name>-<version>[-<os>-<arch>].tar.gz`, and prints its `sha256` and `size`.
+
+With `--base-url`, an index entry is written to (or merged into)
+`<out>/index.json`, with `tarball` set to `<base-url>/<filename>`. The merge key
+is name + version + os + arch — the same key the index enforces — so re-packing a
+changed plugin **replaces** its entry instead of adding a duplicate, and the
+merged document is re-validated before it is written. Without `--base-url` the
+tarball is still produced and no index is written; the digest and size are
+printed so the entry can be completed wherever it will be hosted.
+
+`--os` and `--arch` must be given together (or not at all) and must be from the
+accepted sets; a half-declared platform is a usage error, not a default. The
+tarball is written with the market's own encoder, so the digest `pack` prints is
+the digest `install` verifies — the same codec, not a second implementation.
+
+```text
+$ forge market pack examples/plugins/hello --out dist --base-url https://example.invalid/p
+packed hello 1.0.0 (3 file(s))
+  dist/hello-1.0.0.tar.gz
+  sha256 4070399c89c8…
+  size   11287
+  index  dist/index.json
+```
+
+### Exit codes
 
 ### Platform-specific bundles
 
@@ -1173,5 +1208,5 @@ deletes only the files the install record lists, and refuses if any was edited.
 | Code | Meaning |
 | --- | --- |
 | `0` | The command did what it says. An empty search result is `0`. |
-| `1` | A digest mismatch, a truncated/oversized body, no build for this platform, an ambiguous resolution, an edited file blocking remove, or a failed download. |
-| `2` | Usage error: unknown command or flag, a missing name, `search`/`install` without `--index`. |
+| `1` | A digest mismatch, a truncated/oversized body, no build for this platform, an ambiguous resolution, an edited file blocking remove, a failed download, or a `pack` whose source is missing/empty/unreadable. |
+| `2` | Usage error: unknown command or flag, a missing name, `search`/`install` without `--index`, `pack` without a directory, `--os` without `--arch` (or vice versa), or an os/arch outside the accepted sets. |

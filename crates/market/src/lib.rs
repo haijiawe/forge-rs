@@ -2,10 +2,11 @@
 //! its digest, unpack it, and remember what was installed.
 //!
 //! This crate is the *consumer* side of a market — the index is an HTTP document
-//! and a bundle is a tarball, but nothing here publishes either. It is the only
-//! place in the tree that decides whether bytes from the network are the bytes a
-//! publisher signed for, so the interesting code is the verification, not the
-//! fetching.
+//! and a bundle is a tarball. [`pack`] is the one producer step: it turns a local
+//! directory into the very artifact the consumer verifies, using the same codec,
+//! but nothing here hosts an index or signs anything. It is the only place in the
+//! tree that decides whether bytes from the network are the bytes a publisher
+//! signed for, so the interesting code is the verification, not the fetching.
 //!
 //! # The rules this crate refuses to bend
 //!
@@ -52,6 +53,7 @@ pub mod hash;
 pub mod index;
 pub mod inflate;
 pub mod install;
+pub mod pack;
 pub mod store;
 pub mod tar;
 pub mod unpack;
@@ -67,6 +69,7 @@ pub use inflate::inflate;
 pub use install::{
     extract_to, install, install_bytes, list, modified_files, uninstall, Installed, Removed,
 };
+pub use pack::{pack_dir, Packed};
 pub use store::{
     InstalledFile, InstalledRecord, InstalledSet, Store, BUNDLES_DIR, RECORD_NAME, RECORD_VERSION,
 };

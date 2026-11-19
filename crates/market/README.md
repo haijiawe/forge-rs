@@ -1,8 +1,8 @@
 ---
 dir: crates/market
 layer: L2
-role: plugin market consumer — index fetch, resolve, checksummed download, tar/tar.gz unpack, install record
-public: [Index, Bundle, Engines, Platform, host_platform, KNOWN_OS, KNOWN_ARCH, INDEX_VERSION, Store, InstalledSet, InstalledRecord, InstalledFile, install, install_bytes, uninstall, list, modified_files, extract_to, Installed, Removed, download, verify_file, open_tarball, parse_tar, Archive, Entry, MAX_ENTRIES, unpack, Unpacked, gunzip, gunzip_limited, is_gzip, inflate, inflate_from, sha256_hex, is_sha256_hex, digest_of_file, crc32, crc16_from_crc32, is_safe_name, is_safe_version, is_safe_relative_path, is_absolute_http_url, now_rfc3339, rfc3339_from_epoch, BUNDLES_DIR, RECORD_NAME, RECORD_VERSION, STAGING_DIR, DEFAULT_MAX_OUTPUT, DEFAULT_MAX_GZIP_OUTPUT]
+role: plugin market — index fetch, resolve, checksummed download, tar/tar.gz pack and unpack, install record
+public: [Index, Bundle, Engines, Platform, host_platform, KNOWN_OS, KNOWN_ARCH, INDEX_VERSION, Store, InstalledSet, InstalledRecord, InstalledFile, install, install_bytes, uninstall, list, modified_files, extract_to, Installed, Removed, download, verify_file, open_tarball, pack_dir, Packed, parse_tar, Archive, Entry, MAX_ENTRIES, unpack, Unpacked, gunzip, gunzip_limited, is_gzip, inflate, inflate_from, sha256_hex, is_sha256_hex, digest_of_file, crc32, crc16_from_crc32, is_safe_name, is_safe_version, is_safe_relative_path, is_absolute_http_url, now_rfc3339, rfc3339_from_epoch, BUNDLES_DIR, RECORD_NAME, RECORD_VERSION, STAGING_DIR, DEFAULT_MAX_OUTPUT, DEFAULT_MAX_GZIP_OUTPUT]
 may_import: [forge-core, forge-net]
 must_not:
   - import any crate above L2
@@ -10,12 +10,13 @@ must_not:
   - treat a checksum mismatch as a warning
   - write outside the destination directory during an unpack
   - keep an install that failed verification
+  - let pack and unpack disagree about the format; pack writes what parse_tar reads
 gate: cargo test -p forge-market --offline
 ---
 
 ## 做什么
 
-The consumer half of a plugin market. It fetches an `{"version":1,"bundles":[...]}` index, resolves a name and a requirement to exactly one `Bundle`, downloads that bundle's tarball over HTTP, proves its SHA-256 against the bytes actually received, unpacks it under `<root>/bundles/<name>/`, and records what it wrote in `<root>/installed.json` so an uninstall can delete exactly those files.
+A plugin market. The consumer side fetches an `{"version":1,"bundles":[...]}` index, resolves a name and a requirement to exactly one `Bundle`, downloads that bundle's tarball over HTTP, proves its SHA-256 against the bytes actually received, unpacks it under `<root>/bundles/<name>/`, and records what it wrote in `<root>/installed.json` so an uninstall can delete exactly those files. The producer side — `pack_dir` — turns a local directory into that same artifact.
 
 The parts that matter are the refusals, not the fetches:
 
@@ -26,6 +27,10 @@ The parts that matter are the refusals, not the fetches:
 - **An uninstall deletes only what the record lists.** A recorded file whose digest changed, a recorded file that vanished, or a file in the bundle directory the record never listed all stop the whole uninstall *before* anything is deleted, with the offending path named — a user's edit is not the market's to delete.
 
 `open_tarball` is the one entry point most callers want: it sniffs the gzip magic and either gunzips then parses, or parses the `.tar` directly.
+
+**`pack_dir` is the producer step, and it shares the codec.** It walks a directory, writes ustar headers with a real checksum, and wraps the result in a gzip member built from *stored* DEFLATE blocks (no compression). The point is not that compression is unnecessary but that pack and unpack must agree: the archive is produced by the same constants `parse_tar` checks and hashed with the same `sha256_hex` the index verifier uses, so "the digest pack prints" and "the digest install verifies" are the same computation rather than two implementations that happen to match. Stored blocks also sidestep a second thing to audit — the DEFLATE *encoder* — for payloads that are small and mostly already-compressed text. A test feeds the output straight into `install_bytes`.
+
+`pack_dir` refuses rather than guesses on the same rules as the reader: a symbolic link is not followed (it could point anywhere and the resulting tarball would not describe what was packed), a non-regular file is refused, an empty directory is not a bundle, and a path is checked against the reader's own safety rules (relative, no `..`, no backslash, no drive prefix, no NUL) so a name that packs is always a name that reads back. A path over 100 bytes is split across the ustar `prefix`/`name` fields at a `/` boundary, or refused if it cannot be.
 
 **A bundle may be platform-specific.** `os` and `arch` are optional members, but they travel together: both absent means a platform-independent source bundle (one tarball, every platform), both present means a native build for exactly that pair, and half-declared is refused rather than defaulted — "windows, any arch" is not something a compiler produces. The accepted spellings are the ones `.github/workflows/release.yml` publishes (`windows`/`linux`/`darwin`, `amd64`/`arm64`), not Rust's internal target names, so the market does not refuse the artifacts this project builds. The uniqueness key is name + version + os + arch, which is what lets six platform builds of one version be listed at all. `resolve` filters to the host platform before picking a version, so "no build for your platform" names the platforms that *are* published instead of masquerading as "no such version"; `resolve_for(name, requirement, &Platform)` takes the platform as a parameter so a test can ask what `linux/arm64` would get while running on Windows. When a source bundle and a native build both fit one platform, resolution refuses rather than guessing which the operator meant.
 
@@ -41,6 +46,8 @@ The parts that matter are the refusals, not the fetches:
 
 `open_tarball`, `parse_tar` with `Archive` / `Entry` / `MAX_ENTRIES`, `unpack` with `Unpacked`, `gunzip` / `is_gzip`, `inflate`.
 
+`pack_dir(&Path) -> Result<Packed>`, where `Packed` carries the gzipped `tarball`, its `sha256` and `size` (the two values an index entry needs), and the sorted `files` written.
+
 `sha256_hex`, `is_sha256_hex`, `digest_of_file`, `crc32`, `now_rfc3339`, `rfc3339_from_epoch`, and the path/URL shape predicates `is_safe_name`, `is_safe_version`, `is_safe_relative_path`, `is_absolute_http_url`.
 
 Every refusal prefix lives in `error` as a `pub const ERR_*`, so a caller (and a test) can name the rule it hit instead of matching on message text.
@@ -53,12 +60,14 @@ There is deliberately no `flate2`, no `tar` and no `sha2`. The DEFLATE decoder i
 
 HTTP is not re-implemented here. `forge_net::Client` owns redirects, TLS trust roots, the deadline and the body cap; this crate only decides what a status, a length and a digest mean. A non-2xx response is reported as a refusal naming the status, never retried and never treated as a transport failure.
 
-The window is narrow on purpose: this crate does not publish an index, does not sign anything, and does not run what it installs. `engines` is recorded, not enforced.
+The window is narrow on purpose: this crate does not sign anything, and it does not run what it installs. `engines` is recorded, not enforced. `pack_dir` produces bytes; it does not host them and it does not write an index — the CLI does that, because a URL is the publisher's decision and this crate has no opinion about one.
 
 ## 不要做
 
 - Do not add `flate2`, `tar`, `sha2` or an archive crate. The hand-written decoders are the point: one budget, one behaviour under audit, and tests that pin real streams.
 - Do not turn a checksum mismatch into a warning, a retry, or an install. The whole crate exists to make that one case impossible.
+- Do not give `pack` its own format. It must write what `parse_tar` reads and hash with the same `sha256_hex` the verifier uses, or "pack then install" becomes two implementations that have to be kept in agreement by hand. The round-trip test feeds `pack_dir` output straight into `install_bytes` for exactly this reason.
+- Do not follow a symbolic link while packing, and do not store a path the reader would refuse. A bundle whose names cannot be read back is a bundle nobody can install.
 - Do not delete a file the record does not list, and do not delete a listed file whose digest moved. Refusing is always the cheaper mistake.
 - Do not resolve a semver range, and do not pick a version for a `*` that matches several. A wrong answer here is silent and a refusal is not.
 - Do not default a half-declared platform, and do not pick between a source bundle and a native build that both fit one platform. The first makes an index mean different things on different machines; the second runs code the operator did not choose. Refuse and name the conflict.

@@ -1,0 +1,7 @@
+{
+  "name": "hello",
+  "version": "1.0.0",
+  "description": "A minimal example plugin: one tool that greets a name.",
+  "runtime": "node",
+  "entry": "index.js"
+}

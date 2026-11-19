@@ -4,9 +4,10 @@
 //! crate does the verifying (`crates/market`); this command is the part that
 //! knows where the index lives, where bundles go, and how to say what happened.
 //!
-//! Nothing here is fetched for `list`, `verify` or `remove`: those read the
-//! record on disk. Only `search` and `install` need an index, and only `install`
-//! downloads a tarball.
+//! Nothing here is fetched for `list`, `verify`, `remove` or `pack`: those read
+//! or write local files. Only `search` and `install` need an index, and only
+//! `install` downloads a tarball. `pack` is the producer step: it turns a plugin
+//! directory into the tarball an index describes, using the market's own codec.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -29,6 +30,7 @@ commands:
   install <name>       install a bundle (accepts name or name@version)
   remove <name>        uninstall a bundle, refusing if a file was edited
   verify [name]        report files whose digest no longer matches
+  pack <dir>           pack a plugin directory into a bundle tarball
 
 flags:
   --json               machine-readable output
@@ -36,6 +38,10 @@ flags:
   --root <dir>         market root (default: <dataDir>/market)
   --index <url>        index URL; required by `search` and `install`
   --force              uninstall before installing (refuses edits either way)
+  --out <dir>          where `pack` writes the tarball (default: .)
+  --base-url <url>     `pack`: URL prefix for the tarball; writes/merges index.json
+  --os <os>            `pack`: target os for a native build (windows/linux/darwin)
+  --arch <arch>        `pack`: target arch for a native build (amd64/arm64)
   -h, --help           this message
 
 A requirement is an exact version or `*`. Ranges are refused on purpose: `*`
@@ -46,7 +52,7 @@ did not.
 exit codes: 0 ok, 1 failure, 2 usage
 ";
 
-const VALUE_FLAGS: &[&str] = &["data-dir", "root", "index"];
+const VALUE_FLAGS: &[&str] = &["data-dir", "root", "index", "out", "base-url", "os", "arch"];
 
 #[derive(Debug, Default)]
 struct Options {
@@ -55,6 +61,10 @@ struct Options {
     root: String,
     index: String,
     force: bool,
+    out: String,
+    base_url: String,
+    os: String,
+    arch: String,
 }
 
 pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
@@ -83,6 +93,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         "install" => install(&store, &opt, &positional, stdout, stderr),
         "remove" => remove(&store, &opt, &positional, stdout, stderr),
         "verify" => verify(&store, &opt, &positional, stdout, stderr),
+        "pack" => pack(&opt, &positional, stdout, stderr),
         other => {
             let _ = writeln!(stderr, "forge market: unknown command {other:?}\n\n{USAGE}");
             EXIT_USAGE
@@ -126,6 +137,10 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
             "data-dir" => opt.data_dir = take(&mut i)?,
             "root" => opt.root = take(&mut i)?,
             "index" => opt.index = take(&mut i)?,
+            "out" => opt.out = take(&mut i)?,
+            "base-url" => opt.base_url = take(&mut i)?,
+            "os" => opt.os = take(&mut i)?,
+            "arch" => opt.arch = take(&mut i)?,
             "" => {}
             other => {
                 let _ = writeln!(stderr, "forge market: unknown flag --{other}");
@@ -521,6 +536,212 @@ fn verify(
     }
 }
 
+/// Pack a plugin directory into a bundle tarball, and optionally an index entry.
+///
+/// This is the producer step that closes the loop `new -> pack -> install`: the
+/// tarball is written with the market's own codec, so the digest printed here is
+/// the one `install` will verify, by construction rather than by a second
+/// implementation agreeing with the first.
+fn pack(opt: &Options, positional: &[&str], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
+    let Some(dir) = positional.first() else {
+        let _ = writeln!(stderr, "forge market: pack needs a plugin directory");
+        return EXIT_USAGE;
+    };
+    let dir = PathBuf::from(dir);
+    let manifest = match forge_plugin::manifest::read(&dir) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            let _ = writeln!(stderr, "forge market: {}", err.message());
+            return EXIT_FAILURE;
+        }
+    };
+
+    // A native build declares both os and arch; a source plugin declares neither.
+    let os = opt.os.trim();
+    let arch = opt.arch.trim();
+    let platform = match (os.is_empty(), arch.is_empty()) {
+        (true, true) => None,
+        (false, false) => {
+            if !forge_market::KNOWN_OS.contains(&os) {
+                let _ = writeln!(
+                    stderr,
+                    "forge market: --os {os:?} is not one of {}",
+                    forge_market::KNOWN_OS.join(", ")
+                );
+                return EXIT_USAGE;
+            }
+            if !forge_market::KNOWN_ARCH.contains(&arch) {
+                let _ = writeln!(
+                    stderr,
+                    "forge market: --arch {arch:?} is not one of {}",
+                    forge_market::KNOWN_ARCH.join(", ")
+                );
+                return EXIT_USAGE;
+            }
+            Some((os.to_string(), arch.to_string()))
+        }
+        _ => {
+            let _ = writeln!(
+                stderr,
+                "forge market: --os and --arch must be given together, or not at all"
+            );
+            return EXIT_USAGE;
+        }
+    };
+
+    let packed = match forge_market::pack_dir(&dir) {
+        Ok(packed) => packed,
+        Err(err) => return fail(stderr, "forge market", &err),
+    };
+
+    let out = if opt.out.trim().is_empty() {
+        PathBuf::from(".")
+    } else {
+        PathBuf::from(opt.out.trim())
+    };
+    if let Err(err) = std::fs::create_dir_all(&out) {
+        let _ = writeln!(
+            stderr,
+            "forge market: cannot create {}: {err}",
+            out.display()
+        );
+        return EXIT_FAILURE;
+    }
+    let suffix = match &platform {
+        Some((os, arch)) => format!("-{os}-{arch}"),
+        None => String::new(),
+    };
+    let filename = format!("{}-{}{}.tar.gz", manifest.name, manifest.version, suffix);
+    let tarball_path = out.join(&filename);
+    if let Err(err) = std::fs::write(&tarball_path, &packed.tarball) {
+        let _ = writeln!(
+            stderr,
+            "forge market: cannot write {}: {err}",
+            tarball_path.display()
+        );
+        return EXIT_FAILURE;
+    }
+
+    // With a base URL the tarball has a home, so an index entry can be written.
+    // Without one the tarball is still produced, but its URL is the publisher's
+    // to decide; the digest and size are printed so the entry can be completed.
+    let base = opt.base_url.trim();
+    let index_path = if base.is_empty() {
+        None
+    } else {
+        let bundle = Bundle {
+            name: manifest.name.clone(),
+            version: manifest.version.clone(),
+            description: manifest.description.clone(),
+            author: None,
+            keywords: None,
+            homepage: None,
+            tarball: format!("{}/{}", base.trim_end_matches('/'), filename),
+            sha256: packed.sha256.clone(),
+            size: packed.size,
+            engines: None,
+            os: platform.as_ref().map(|(os, _)| os.clone()),
+            arch: platform.as_ref().map(|(_, arch)| arch.clone()),
+        };
+        match merge_index_entry(&out, bundle) {
+            Ok(path) => Some(path),
+            Err(err) => return fail(stderr, "forge market", &err),
+        }
+    };
+
+    if opt.json {
+        return crate::write_json(
+            stdout,
+            stderr,
+            "forge market",
+            &serde_json::json!({
+                "name": manifest.name,
+                "version": manifest.version,
+                "tarball": tarball_path.display().to_string(),
+                "sha256": packed.sha256,
+                "size": packed.size,
+                "files": packed.files,
+                "platform": platform.map(|(os, arch)| format!("{os}/{arch}")),
+                "index": index_path.map(|p| p.display().to_string()),
+            }),
+        );
+    }
+    let _ = writeln!(
+        stdout,
+        "packed {} {} ({} file(s))",
+        manifest.name,
+        manifest.version,
+        packed.files.len()
+    );
+    let _ = writeln!(stdout, "  {}", tarball_path.display());
+    let _ = writeln!(stdout, "  sha256 {}", packed.sha256);
+    let _ = writeln!(stdout, "  size   {}", packed.size);
+    match index_path {
+        Some(path) => {
+            let _ = writeln!(stdout, "  index  {}", path.display());
+        }
+        None => {
+            let _ = writeln!(
+                stderr,
+                "forge market: no --base-url, so no index was written; host the tarball and add an entry with this sha256 and size"
+            );
+        }
+    }
+    EXIT_OK
+}
+
+/// Add or replace one bundle in `<out>/index.json`, keeping the other entries.
+///
+/// The merged document is re-validated before it is written, so a pack cannot
+/// leave behind an index the consumer would refuse. The key is name + version +
+/// os + arch, the same one the index enforces.
+fn merge_index_entry(out: &Path, bundle: Bundle) -> forge_core::Result<PathBuf> {
+    let index_path = out.join("index.json");
+    let mut bundles: Vec<Bundle> = if index_path.exists() {
+        let bytes = std::fs::read(&index_path).map_err(|err| {
+            forge_core::Error::new(
+                forge_core::ErrorKind::Io,
+                format!("cannot read {}: {err}", index_path.display()),
+            )
+        })?;
+        forge_market::Index::parse(&bytes)?.bundles
+    } else {
+        Vec::new()
+    };
+    let key = |b: &Bundle| {
+        (
+            b.name.clone(),
+            b.version.clone(),
+            b.os.clone(),
+            b.arch.clone(),
+        )
+    };
+    if let Some(position) = bundles.iter().position(|b| key(b) == key(&bundle)) {
+        bundles[position] = bundle;
+    } else {
+        bundles.push(bundle);
+    }
+    let mut index = forge_market::Index { bundles };
+    index.validate()?;
+    let doc = serde_json::json!({
+        "version": forge_market::INDEX_VERSION,
+        "bundles": index.bundles,
+    });
+    let text = serde_json::to_string_pretty(&doc).map_err(|err| {
+        forge_core::Error::new(
+            forge_core::ErrorKind::Json,
+            format!("cannot encode index: {err}"),
+        )
+    })?;
+    std::fs::write(&index_path, text).map_err(|err| {
+        forge_core::Error::new(
+            forge_core::ErrorKind::Io,
+            format!("cannot write {}: {err}", index_path.display()),
+        )
+    })?;
+    Ok(index_path)
+}
+
 fn market_client() -> forge_core::Result<forge_net::Client> {
     // The default 2 MiB body cap is right for an index and wrong for a tarball,
     // so the download client is the one place that raises it.
@@ -613,12 +834,128 @@ mod tests {
 
     #[test]
     fn the_usage_names_every_command() {
-        for command in ["list", "search", "install", "remove", "verify"] {
+        for command in ["list", "search", "install", "remove", "verify", "pack"] {
             assert!(
                 USAGE.contains(&format!("  {command}")),
                 "usage lacks {command}"
             );
         }
+    }
+
+    /// A minimal plugin directory: a manifest and one entry file.
+    fn plugin_dir(root: &Path, name: &str) -> PathBuf {
+        let dir = root.join(name);
+        std::fs::create_dir_all(&dir).expect("create plugin dir");
+        std::fs::write(
+            dir.join("plugin.json"),
+            format!(
+                "{{\"name\":\"{name}\",\"version\":\"1.0.0\",\"description\":\"a test plugin\",\"runtime\":\"node\",\"entry\":\"index.js\"}}"
+            ),
+        )
+        .expect("write manifest");
+        std::fs::write(dir.join("index.js"), "// a plugin\n").expect("write entry");
+        dir
+    }
+
+    #[test]
+    fn pack_produces_a_tarball_and_index_the_consumer_installs() {
+        let root = scratch("pack-roundtrip");
+        let dir = plugin_dir(&root, "hello");
+        let out = root.join("dist");
+        let (code, stdout, stderr) = run_market(&[
+            "pack",
+            &dir.display().to_string(),
+            "--out",
+            &out.display().to_string(),
+            "--base-url",
+            "https://example.invalid/plugins",
+        ]);
+        assert_eq!(code, 0, "{stderr}");
+        assert!(stdout.contains("packed hello 1.0.0"));
+
+        // The index the packer wrote must parse and resolve to the bundle.
+        let index_bytes = std::fs::read(out.join("index.json")).expect("index written");
+        let index = forge_market::Index::parse(&index_bytes).expect("index parses");
+        let bundle = index.resolve("hello", "1.0.0").expect("resolve");
+        assert_eq!(
+            bundle.tarball,
+            "https://example.invalid/plugins/hello-1.0.0.tar.gz"
+        );
+
+        // The tarball on disk must match the digest the index declares, and the
+        // consumer must install it — the whole producer/consumer loop, in process.
+        let tarball = std::fs::read(out.join("hello-1.0.0.tar.gz")).expect("tarball");
+        assert_eq!(forge_market::sha256_hex(&tarball), bundle.sha256);
+        assert_eq!(tarball.len() as u64, bundle.size);
+        let store = forge_market::Store::new(root.join("market"));
+        let installed = forge_market::install_bytes(&store, bundle, &tarball)
+            .expect("install the packed bundle");
+        assert_eq!(installed.name, "hello");
+        assert!(installed.files.iter().any(|f| f == "plugin.json"));
+        assert!(installed.files.iter().any(|f| f == "index.js"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn pack_without_a_base_url_writes_the_tarball_but_no_index() {
+        let root = scratch("pack-nourl");
+        let dir = plugin_dir(&root, "solo");
+        let out = root.join("dist");
+        let (code, _stdout, stderr) = run_market(&[
+            "pack",
+            &dir.display().to_string(),
+            "--out",
+            &out.display().to_string(),
+        ]);
+        assert_eq!(code, 0);
+        assert!(out.join("solo-1.0.0.tar.gz").is_file());
+        assert!(!out.join("index.json").exists());
+        assert!(stderr.contains("no --base-url"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn pack_refuses_half_a_platform() {
+        let root = scratch("pack-halfplatform");
+        let dir = plugin_dir(&root, "half");
+        let (code, _stdout, stderr) = run_market(&[
+            "pack",
+            &dir.display().to_string(),
+            "--os",
+            "linux",
+            "--out",
+            &root.join("dist").display().to_string(),
+        ]);
+        assert_eq!(code, 2);
+        assert!(stderr.contains("together"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn pack_replaces_an_existing_entry_for_the_same_name_version_platform() {
+        let root = scratch("pack-merge");
+        let dir = plugin_dir(&root, "dup");
+        let out = root.join("dist");
+        let out_str = out.display().to_string();
+        let dir_str = dir.display().to_string();
+        let base = "https://example.invalid/p";
+        let (first, _, _) = run_market(&["pack", &dir_str, "--out", &out_str, "--base-url", base]);
+        assert_eq!(first, 0);
+        // Change the entry bytes so the digest differs, then pack again.
+        std::fs::write(dir.join("index.js"), "// changed\n").expect("edit");
+        let (second, _, _) = run_market(&["pack", &dir_str, "--out", &out_str, "--base-url", base]);
+        assert_eq!(second, 0);
+        let index =
+            forge_market::Index::parse(&std::fs::read(out.join("index.json")).expect("index"))
+                .expect("parse");
+        assert_eq!(
+            index.bundles.len(),
+            1,
+            "the entry was replaced, not duplicated"
+        );
+        let tarball = std::fs::read(out.join("dup-1.0.0.tar.gz")).expect("tarball");
+        assert_eq!(index.bundles[0].sha256, forge_market::sha256_hex(&tarball));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

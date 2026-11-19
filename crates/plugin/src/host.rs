@@ -178,10 +178,13 @@ impl Host {
                                 Error::new(
                                     Kind::BadManifest,
                                     format!(
-                                        "plugin {:?} is installed twice: {} and {}; remove one",
+                                        "plugin {:?} is installed twice: {} and {}; remove one \
+                                         (`forge market remove {}` for the market copy, or delete \
+                                         the plugin directory for the other)",
                                         manifest.name,
                                         first.directory.display(),
-                                        manifest.directory.display()
+                                        manifest.directory.display(),
+                                        manifest.name
                                     ),
                                 ),
                             ));
