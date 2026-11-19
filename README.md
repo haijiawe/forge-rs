@@ -238,9 +238,10 @@ no `gh`. Both were rehearsed step by step locally instead (see `docs/ci.md`).
   job runs `crates/sandbox/tests/linux.rs`, which writes inside the workspace, is
   refused outside it, is refused a write in `read-only`, is granted an `extra_write`
   path by name, and gets `permission denied` from the kernel with `allow_net = false`
-  (and `connected` with it). macOS `sandbox-exec` is compile-checked only; `forge
-  doctor` says so in its `sandbox` line rather than claiming containment it has not
-  shown.
+  (and `connected` with it). macOS `sandbox-exec` gets the same treatment: the
+  `sandbox macos-latest` CI job runs `crates/sandbox/tests/macos.rs`, which asserts
+  the mode matrix, workspace write scope, `read-only`, `extra_write` and both
+  network directions on a real macOS kernel.
 - **On Windows containment is two rings, and the second one narrows what tools can
   do.** A Job Object caps the process tree, per-process/job memory and process
   count; an AppContainer decides which files and networks the child can reach

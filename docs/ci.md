@@ -4,7 +4,7 @@ The repository is `github.com/haijiawe/forge-rs` (private) and the tree is MIT.
 Every workflow here has now executed on hosted runners, including `release.yml`
 (through its `workflow_dispatch` dry-run mode) and the manual `bench.yml`.
 
-The honest headline: **the first ten CI runs were not a formality.** Each one
+The honest headline: **the first twelve CI runs were not a formality.** Each one
 found something the Windows development box could not see, and several were
 defects in tests that would have kept hiding indefinitely on a single machine.
 
@@ -13,6 +13,7 @@ defects in tests that would have kept hiding indefinitely on a single machine.
 | Job | Runner | What it proves |
 | --- | --- | --- |
 | `test` | ubuntu-latest, windows-latest | builds and runs the whole suite on the minimum supported rustc (1.89, set by `rusqlite`) |
+| `sandbox-macos` | macos-latest | runs `crates/sandbox/tests/macos.rs` on a real kernel: mode matrix, write scope, `read-only`, `extra_write`, network both ways |
 | `lint` | ubuntu-latest | `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings` on current stable |
 | `web` | ubuntu-latest | `npm ci`, `tsc --noEmit`, `vitest run`, `vite build`, and the 2,000,000-byte bundle ceiling |
 
@@ -35,6 +36,7 @@ knows (`is_multiple_of` was exactly that kind of lint).
 | 44596952813 | `fe762e9` | ✓ | ✓ | ✓ | ✓ | — |
 | 44603497179 | `58e6046` | ✓ | ✓ | ✗ | ✓ | 10 |
 | 44606471925 | `7aaf73f` | ✓ | ✓ | ✓ | ✓ | — |
+| 44618571269 | `f56bda3` | ✓ | ✓ | ✓ | ✓ | — (first run of `sandbox macos-latest`, green) |
 
 The ten defects, in the order they surfaced:
 
@@ -98,7 +100,7 @@ special, or because the disk is fast enough, is not a test of the thing it names
 
 `bench.yml` is `workflow_dispatch` only, because runner hardware is shared and a
 baseline is only comparable within one platform. It records one report per
-runner (ubuntu-latest, windows-latest, macos-14) with
+runner (ubuntu-latest, windows-latest, macos-latest) with
 
 ```
 cargo run --release -q -p forge-bench -- -out "baseline-<os>.json" -baseline ""
@@ -126,9 +128,11 @@ a developer machine that has a warm target directory and a working registry:
    metric out of six. `run_all` now builds once before starting the clock, and
    the artifact has all six.
 
-`record macos-14` is `cancelled` with no steps and no runner name: this account
-cannot be assigned a macOS runner. That is a plan boundary, not a workflow bug,
-and it is why no `darwin/arm64` record exists yet.
+`record macos-14` was originally `cancelled` with no steps and no runner name:
+that label could not be assigned to this account, while `release.yml`'s
+`macos-latest` job did run on 2026-11-20. The bench matrix therefore asks for
+`macos-latest` now; whether a `darwin/arm64` record can be produced is decided
+by the next dispatch, not by assuming the labels are interchangeable.
 
 ## A flake that was made into a wait
 
@@ -159,9 +163,7 @@ disagreement is still a failure.
   ref was not a tag. That proves the build path; it does not prove
   `gh release create` itself, which needs a real `v*` tag and cannot be undone.
 - Anything about a machine that is neither Windows nor the runners above, e.g.
-  Linux sandbox confinement under a non-Ubuntu kernel or macOS sandbox at all.
-- A macOS *bench* record: `bench.yml` asked for `macos-14` and the job was
-  cancelled with no runner assigned (`runner_id: 0`, empty steps), so the
-  account cannot get that runner even though `release.yml`'s `macos-latest`
-  job did run on 2026-11-20. Treat the two labels as different entitlements
-  until proven otherwise.
+  Linux sandbox confinement under a non-Ubuntu kernel, or macOS versions other
+  than the `macos-latest` image (which is Apple Silicon).
+- A macOS *bench* record: the matrix now asks for `macos-latest` because
+  `macos-14` could not be assigned, but no dispatch has produced a record yet.

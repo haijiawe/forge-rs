@@ -110,10 +110,13 @@ fn the_mode_matrix_matches_what_sandbox_exec_can_do() {
         );
     }
 
-    // `darwin.rs` still says "unverified on this host", and that is deliberate:
-    // this file has not run on macOS yet. The label is removed only after the
-    // `sandbox macos-latest` job has produced a green run; asserting its absence
-    // here before that would be a claim, not a test.
+    // The label was removed on 2026-11-20, after this file ran green in the
+    // `sandbox macos-latest` job. Asserting its absence is what keeps the label
+    // from returning without evidence.
+    assert!(
+        !installed.detail.contains("unverified"),
+        "the macOS enforcer is exercised by this file now, so it must not call itself unverified"
+    );
 }
 
 #[test]

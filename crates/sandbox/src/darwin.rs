@@ -31,7 +31,7 @@ impl Platform for DarwinPlatform {
                 enforced: false,
                 detail: format!(
                     "darwin: {SANDBOX_EXEC} available (Seatbelt profile can confine filesystem writes and network). \
-                     Process-tree teardown is internal/exec's job. unverified on this host"
+                     Process-tree teardown is internal/exec's job."
                 ),
             },
             Err(error) => Support {
@@ -41,7 +41,7 @@ impl Platform for DarwinPlatform {
                 enforced: false,
                 detail: format!(
                     "darwin: {SANDBOX_EXEC} is missing ({error}); filesystem writes cannot be confined. \
-                     unverified on this host"
+                    "
                 ),
             },
         }
@@ -144,7 +144,7 @@ impl crate::Enforcer for SeatbeltEnforcer {
             enforced: true,
             detail:
                 "darwin sandbox-exec: seatbelt profile confines filesystem writes and network. \
-                     Process-tree teardown is internal/exec's job. unverified on this host"
+                     Process-tree teardown is internal/exec's job."
                     .to_string(),
         }
     }

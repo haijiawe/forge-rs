@@ -36,10 +36,11 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
   `NetworkIsolationSetAppContainerConfig`（`Firewallapi.dll`，需管理员、进程级、影响所有
   AppContainer）的豁免，本 crate 刻意不建这种豁免，所以 loopback 只能用作“拒绝”那一半。
   macOS 对应的是一行 `(allow network*)`，Linux 是 Landlock ABI ≥ 4（更低版本时
-  `Support.network` 为 false 并拒绝非 full-access）。macOS 的这句是
-  `unverified on this host`；Linux 不是——Ubuntu CI 每次 push 跑
+  `Support.network` 为 false 并拒绝非 full-access）。两个平台的 `Support.Detail`
+  都不再带 `unverified on this host`：Linux 由 ubuntu job 每次 push 跑
   `crates/sandbox/tests/linux.rs` 的五个用例（workspace 内外写、read-only、
-  `extra_write`、网络两向），所以它的 `Support.Detail` 不再带这句话。`wrapper` 是“`main`
+  `extra_write`、网络两向），macOS 由 `sandbox macos-latest` job 跑
+  `crates/sandbox/tests/macos.rs` 的五个同形用例。`wrapper` 是“`main`
   第一句调用 `maybe_exec_helper` 的可执行文件”，默认 `None` 表示本进程（`forge`
   自己）；把本 crate 当库嵌进别的宿主才需要设置它。`extra_read` 是“workspace 之外
   仍可读”的路径，只对默认拒绝读的平台有意义（Windows 的 AppContainer 从零可读开始；
@@ -99,10 +100,10 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
   会成段时间拒绝新名字（本机攒到约九十个 `forge.sandbox.*` 后出现过），而采纳一个
   已存在的身份从不受影响；只有真的需要新身份时才付那 8 秒退避重试，最后才退到
   全用户共享的 `forge.sandbox`（共享身份不再隔离两个 workspace，必须在文档里说）。
-- 不要在 macOS 的能力文案里省略 `unverified on this host`：这个平台只在本机编译
-  检查过，没有实测。Linux 不是——`crates/sandbox/tests/linux.rs` 的五个用例在 CI
-  的 ubuntu job 里跑真实内核；把 Linux 也说成 "unverified" 同样是撒谎，只是方向
-  相反。
+- 不要把 macOS 说成 `unverified on this host`：`sandbox macos-latest` job 每次 push
+  都在真实内核上跑 `crates/sandbox/tests/macos.rs` 的五个用例（模式矩阵、workspace
+  内外写、read-only、`extra_write`、网络两向）。也不要走向另一个极端说"所有 macOS
+  版本都验证过"——CI 只覆盖 `macos-latest` 的 Apple Silicon 主机。
 - 不要把 `ERROR_ACCESS_DENIED` 一律当权限问题去改 ACL。进程的强制完整性级别取
   “父进程级别”和“自身镜像标签”中较低的那个：镜像放在打了 `Low` 标签的目录里
   （浏览器解压的下载常见），进程就以 Low 运行，而 Low 进程**写不了 `%LOCALAPPDATA%`**，
