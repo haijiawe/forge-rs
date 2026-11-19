@@ -120,19 +120,23 @@ cargo test -p forge-bench --offline
 cargo run -q -p archcheck --offline
 
 # report / gate / deliberate recording (never record from a noisy build)
-cargo run -q -p forge-bench --offline --
-cargo run -q -p forge-bench --offline -- -strict
-cargo run -q -p forge-bench --offline -- -out scripts/bench/baseline.json -baseline ""
+cargo run --release -q -p forge-bench --offline --
+cargo run --release -q -p forge-bench --offline -- -strict
+cargo run --release -q -p forge-bench --offline -- -out scripts/bench/baseline.json -baseline ""
 ```
 
-Required integration (outside this crate's write scope, done by the lead):
+`--release` is not an optimisation hint, it is part of the unit. Four of the six
+metrics are measured inside this process; a debug build measures the debug
+profile and lands 4–15× below every recorded number (`event_roundtrip` was
+91,792 ns/op in debug against 2,840 ns/op in release on the same machine).
+`Makefile`'s `bench-*` targets and `.github/workflows/bench.yml` both pass it;
+an operator following a command that does not pass it will see a regression for
+every metric and none of them will be real.
 
-- root `Cargo.toml` workspace `members`: add `"tools/bench"`;
-- `Makefile`: add `bench-run`, `bench-record`, `bench-check` targets calling
-  the three `cargo run` lines above, and add `bench-check` to `check` if CI
-  should gate on regressions;
-- update the stale line in `README.md` ("no benchmarks yet") and the W6 row in
-  `docs/08-rust-port.md` once a baseline has been deliberately recorded.
+Integration is in place: `tools/bench` is a workspace member, the `Makefile`
+has `bench-run` / `bench-record` / `bench-check`, and `bench.yml` records one
+artifact per runner. The workflow is manual (`workflow_dispatch`) so recording
+never rides along with an ordinary push.
 
 ## Boundaries
 

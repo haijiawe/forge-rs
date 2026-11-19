@@ -351,6 +351,12 @@ where
 
 /// Run all six metrics, skipping any that would exceed the 60s budget.
 pub fn run_all(root: &Path) -> Result<Vec<MetricRow>, String> {
+    // The first `version_startup` sample is what pays for `cargo build` on a
+    // cold runner. That is setup, not a measurement: on the first hosted bench
+    // run it took ~60 s, the budget below was already exhausted, and the
+    // recorded baseline contained a single metric. Build once, then start the
+    // clock.
+    find_forge_binary(root)?;
     let started = Instant::now();
     let mut rows = Vec::with_capacity(6);
 

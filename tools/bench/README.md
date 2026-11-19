@@ -25,11 +25,15 @@ document, one rule: **only `-strict` fails a regression**.
   and compare **only** the record for the current platform.
 
 ```
-cargo run -q -p forge-bench --offline --                                   # report
-cargo run -q -p forge-bench --offline -- -strict                           # CI gate
+cargo run --release -q -p forge-bench --offline --                          # report
+cargo run --release -q -p forge-bench --offline -- -strict                  # CI gate
 $env:FORGE_BENCH_OFFLINE = "1"   # only on the offline development box
-cargo run -q -p forge-bench --offline -- -out scripts/bench/baseline.json -baseline ""
+cargo run --release -q -p forge-bench --offline -- -out scripts/bench/baseline.json -baseline ""
 ```
+
+`--release` is part of the measurement, not a speed hint: four of the six
+metrics run inside this process, and a debug build lands 4–15× below the
+release baseline (91,792 vs 2,840 ns/op for `event_roundtrip` on one machine).
 
 The harness builds `forge-cli` with its own `cargo build`; `FORGE_BENCH_OFFLINE=1`
 makes that inner build pass `--offline`. Hosted runners leave it unset — an empty
