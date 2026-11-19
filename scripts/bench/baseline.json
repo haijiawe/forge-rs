@@ -2,63 +2,125 @@
   "version": 1,
   "baselines": [
     {
-      "os": "windows",
+      "os": "linux",
       "arch": "amd64",
-      "rustVersion": "rustc 1.96.0 (ac68faa20 2026-05-25)",
-      "timestamp": "2026-11-16T10:51:56Z",
+      "rustVersion": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+      "timestamp": "2026-11-19T17:58:45Z",
       "results": [
         {
           "name": "version_startup",
           "unit": "ms",
-          "value": 5.1368,
+          "value": 0.9194,
           "samples": 20,
-          "p50": 5.4614,
-          "p95": 5.7209,
+          "p50": 0.9509,
+          "p95": 1.0514,
           "tolerance": 0.1
         },
         {
           "name": "session_append_fsync",
           "unit": "events/sec",
-          "value": 4500.602,
+          "value": 4067.8775,
           "samples": 20,
-          "p50": 4213.4802,
-          "p95": 4373.6975,
+          "p50": 3351.7212,
+          "p95": 4056.296,
           "tolerance": 0.35
         },
         {
           "name": "session_append_batch",
           "unit": "events/sec",
-          "value": 76942.3125,
+          "value": 37756.5881,
           "samples": 20,
-          "p50": 73743.0497,
-          "p95": 76910.0614,
+          "p50": 34807.8192,
+          "p95": 37286.6073,
           "tolerance": 0.35
         },
         {
           "name": "session_replay_10k",
           "unit": "events/sec",
-          "value": 159765.8472,
+          "value": 135271.1594,
           "samples": 20,
-          "p50": 154943.3914,
-          "p95": 159234.1474,
+          "p50": 129005.2452,
+          "p95": 134422.7888,
           "tolerance": 0.1
         },
         {
           "name": "session_projection_10k",
           "unit": "events/sec",
-          "value": 92312.9186,
+          "value": 132076.3417,
           "samples": 20,
-          "p50": 89099.7186,
-          "p95": 92116.2323,
+          "p50": 96461.2291,
+          "p95": 131102.1444,
           "tolerance": 0.1
         },
         {
           "name": "event_roundtrip",
           "unit": "ns/op",
-          "value": 2843.4,
+          "value": 2263.604,
           "samples": 5,
-          "p50": 2862.1,
-          "p95": 3447.9,
+          "p50": 2276.403,
+          "p95": 2314.131,
+          "tolerance": 0.1
+        }
+      ]
+    },
+    {
+      "os": "windows",
+      "arch": "amd64",
+      "rustVersion": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+      "timestamp": "2026-11-19T17:36:04Z",
+      "results": [
+        {
+          "name": "version_startup",
+          "unit": "ms",
+          "value": 6.3663,
+          "samples": 20,
+          "p50": 6.8082,
+          "p95": 7.5947,
+          "tolerance": 0.1
+        },
+        {
+          "name": "session_append_fsync",
+          "unit": "events/sec",
+          "value": 4353.533,
+          "samples": 20,
+          "p50": 4028.2298,
+          "p95": 4257.2394,
+          "tolerance": 0.35
+        },
+        {
+          "name": "session_append_batch",
+          "unit": "events/sec",
+          "value": 89477.0514,
+          "samples": 20,
+          "p50": 83499.6368,
+          "p95": 87949.9741,
+          "tolerance": 0.35
+        },
+        {
+          "name": "session_replay_10k",
+          "unit": "events/sec",
+          "value": 148230.059,
+          "samples": 20,
+          "p50": 141188.0978,
+          "p95": 148010.0055,
+          "tolerance": 0.1
+        },
+        {
+          "name": "session_projection_10k",
+          "unit": "events/sec",
+          "value": 84630.1493,
+          "samples": 20,
+          "p50": 83258.1235,
+          "p95": 84614.8965,
+          "tolerance": 0.1
+        },
+        {
+          "name": "event_roundtrip",
+          "unit": "ns/op",
+          "value": 2849.3,
+          "samples": 5,
+          "p50": 2902.5,
+          "p95": 3083.5,
           "tolerance": 0.1
         }
       ]

@@ -135,6 +135,27 @@ is still below the retired Go tree's 7.2 ms and far below a JS harness.
 The record's job is to catch regressions from *today's* tree; keeping a stale
 record produces a gate that is red for reasons nobody intends to fix.
 
+## The Linux record, and why hosted numbers are informational
+
+`linux/amd64` was recorded on 2026-11-19 by `bench.yml` on `ubuntu-latest`
+(rustc 1.100.0). Two runs of the same job on the same runner label, an hour
+apart, disagreed by more than a factor of two on the I/O metrics:
+
+| metric | run A | run B |
+| --- | --- | --- |
+| session_append_batch | 77,828 /s | 37,756 /s |
+| session_replay_10k | 77,310 /s | 135,271 /s |
+
+The committed record is run B, taken with the single-build harness. Shared
+runners tell you the shape of a platform, not a metronome; the workflow's
+`-strict` step is `continue-on-error` for this reason, and a Linux record from a
+machine you control is what should gate Linux work.
+
+The `windows-latest` artifact from the same workflow is not committed: its
+`session_append_fsync` was 368/s against 4,354/s on the machine that produced
+the Windows record. Hosted Windows disks are that much slower, and putting two
+machines under one `windows/amd64` key would make the gate meaningless.
+
 ## Running and integrating
 
 ```powershell
