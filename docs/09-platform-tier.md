@@ -90,7 +90,7 @@ none of them put a compiler into our build:
 | attachments (file/image) | **Rust**, done in P1 | Bodies live in `<dataDir>/blobs/` (`crates/session/src/blobs.rs`), the event keeps a reference, and `GET /api/sessions/{id}/attachments/{id}` serves the bytes. Pixels reached the model in P4: the same `Attachment` list is read back through `crates/cli/src/attachments.rs` and handed to `forge_llm` as `ContentPart::Image` | 
 | `schedule` | **Rust**, new L2 crate `forge-schedule` | rrule is parsing, not compute. Write a **subset** (FREQ/INTERVAL/BYDAY/BYHOUR/BYMINUTE/COUNT/UNTIL) — no dependency. *Lost:* pulling a full rrule crate (new dep, new edge) |
 | `goal` | **Rust**, new L2 crate `forge-goal` | A state machine plus a continuation loop; persisted as events, so restart keeps it |
-| plugin runtime | **Rust host + out-of-process plugins over stdio JSON-RPC** | The MCP client (`crates/mcp`, L1) already does exactly this, and §2.3 measured the round trip on this stack at 37 µs empty / 56 µs for 4 KiB against a 1,203 ms model call. A plugin = MCP-shaped server plus lifecycle hooks. Language-agnostic *by construction*, zero new deps, and the sandbox already contains children. *Lost:* wasmtime (adds a large dependency and a second compile step), V8/deno_core (an order of magnitude larger than the whole binary), `cdylib` loading (ABI and version hell, and breaks `panic = "abort"`) |
+| plugin runtime | **Rust host + out-of-process plugins over stdio JSON-RPC** | The MCP client (`crates/mcp`, L1) already does exactly this, and §2.3 measured the round trip on this stack at 37 µs empty / 56 µs for 4 KiB against a 1,203 ms model call. A plugin = MCP-shaped server plus lifecycle hooks. Language-agnostic *by construction*, zero new deps, and the sandbox already contains children. *Lost:* see §2.4 — the embedded-engine options were re-priced with a real build, and the size argument against them turned out to be wrong |
 | plugin market | **Rust**, L2 `forge-market` | HTTP index + tarball + checksums; `ring` is already there for hashing |
 | experts, expert teams | **Rust loader** (`forge-experts`, L1) over **Markdown + YAML frontmatter** | Same shape as skills (`crates/skill` reads frontmatter today), so the format is already proven. Prompts are content, not code |
 | agent teams | **Rust**, extend `forge-subagent` into `forge-team` | Serial delegation already exists; teams add parallel workers, a shared task board and an inbox |
@@ -190,7 +190,7 @@ that show up in a profile are distribution (can it be installed), authoring (can
 it be written), and containment (can it be stopped) — and a child process wins all
 three.
 
-### 2.4 Rejected outright
+### 2.4 Rejected, and what each rejection is actually worth
 
 - **Go for the scheduler.** No throughput argument, and it re-introduces the
   toolchain we just deleted. The one thing Go bought us was build speed, and a
@@ -202,6 +202,79 @@ three.
   a licensing question.
 - **Rewriting the web UI in Rust/WASM.** The UI is 265 kB gzipped and its gates
   are green; a WASM rewrite buys nothing measurable.
+- **`cdylib` plugin loading.** ABI and version hell, and it breaks
+  `panic = "abort"`. Not re-measured; the objection is structural, not a size.
+
+#### Embedded engines: re-priced with a real build
+
+The first version of this document rejected embedded engines partly on size
+("adds a large dependency", "an order of magnitude larger than the whole
+binary"). **That was never measured, and for QuickJS it is wrong by about 30×.**
+`rquickjs 0.14` is in the offline cache, so it was built in a scratch crate
+outside this workspace with the same release profile (`lto = "thin"`,
+`codegen-units = 1`, `strip`, `panic = "abort"`):
+
+| | measured |
+| --- | --- |
+| plain hello binary | 122,368 B |
+| same, embedding QuickJS | 1,197,056 B |
+| **delta** | **1,074,688 B (1.02 MB)** |
+| one-time build cost | 13 s |
+| in-process `eval` + JSON, p50 | **3.0 µs** (the pipe is 37 µs) |
+
+So the size objection is withdrawn: 1 MB on an 8.5 MB binary is not a reason to
+reject anything, and the in-process call is ~12× faster than the pipe (which
+§2.3 already showed is irrelevant next to a 1,203 ms model call).
+
+**What actually disqualifies it is the API surface.** Probing what a plugin
+author can reach with no host bindings:
+
+```
+JSON object   Math object   Promise function   async/await Promise
+console undefined   fetch undefined   require undefined
+process undefined   setTimeout undefined   TextEncoder undefined
+```
+
+It provides the *syntax* and removes the *value*. An agent writing a plugin that
+fetches a URL writes `fetch(...)` and it works on Node 18+; on QuickJS it is
+`fetch is not defined` until someone binds it by hand. Every capability —
+timers, encoding, filesystem, sockets — becomes host API we would have to design,
+implement, document and keep stable. And containment moves from the OS (kill a
+child) into our code (QuickJS memory limits and interrupt handlers, wired
+correctly).
+
+That is a **different product**: a scripting sandbox with a host-defined API,
+not a plugin host that can use an existing ecosystem. It is a reasonable thing to
+build someday for untrusted in-process scripting; it is not a cheaper way to get
+the plugins this project wants.
+
+**Not measured, therefore not rejected:** `wasmtime` (WASM), `boa` (pure-Rust
+JS), `rhai`, `mlua`, `deno_core`/V8 are **absent from the 1,668-crate offline
+cache**, and crates.io is unreachable from this host. WASM in particular would
+answer the distribution problem in §2.6 — one artifact, every platform, no
+interpreter installed, language-agnostic — so it deserves a real evaluation when
+a network is available. Recording it as "rejected" without a build would repeat
+the mistake this section just corrected.
+
+Re-running the QuickJS measurement does not touch this workspace, and must not:
+adding `rquickjs` as a dev-dependency would put it in every `--all-targets` build
+and break the dependency budget. Make a scratch crate **outside** the repo with
+an ASCII `CARGO_TARGET_DIR`, give it `rquickjs = "0.14"` and the same
+`[profile.release]` as the root `Cargo.toml`, then compare against a crate whose
+`main` is only `println!("hello")`:
+
+```rust
+let rt = rquickjs::Runtime::new()?;
+let ctx = rquickjs::Context::full(&rt)?;
+ctx.with(|ctx| {
+    let out: String = ctx.eval("'hello, ' + (21 * 2)")?;   // "hello, 42"
+    let kind: String = ctx.eval("typeof fetch")?;          // "undefined"
+    Ok::<_, rquickjs::Error>(println!("{out} / fetch {kind}"))
+})?;
+```
+
+The size delta is the difference between the two stripped executables, not the
+absolute size of either.
 
 ### 2.5 How to make a choice like this
 
@@ -253,10 +326,39 @@ document a sales pitch instead of a decision record.
 §2.2 says "whatever the plugin author uses", which is right when the author is a
 person with a language they already know. It is incomplete when the author is an
 **agent**, because an agent has no familiarity to preserve. Its costs are the
-price of one iteration and the price of shipping one artifact. Those two costs
-point at a specific default.
+price of one iteration and the price of shipping one artifact.
 
-**Distribution decides it, and the constraint is in the code.**
+**First, three questions that were being answered as one.** "Which language" is
+really:
+
+1. What **runtime** executes plugin code? (`node`, `python`, or the entry itself)
+2. What **language** does the author type? (JS, TS, Python, Rust, …)
+3. What **artifact** gets distributed? (source tarball, or a per-platform binary)
+
+The protocol already separates them: `runtime` is a closed set of three and the
+entry is any file, so **the host is language-agnostic and no choice here is
+exclusive**. What is actually being decided is much smaller — *which one gets the
+paved road*: the scaffold, the examples, the docs, the first thing a stranger
+finds. Choosing a paved road does not remove the other two.
+
+**How many stacks are actually in the tree** (`git ls-files`, by extension):
+
+| Files | What it is | Status |
+| --- | --- | --- |
+| `.rs` 218 | the kernel, 23 crates | primary |
+| `.tsx` 21 + `.ts` 19 | the web UI | primary |
+| `.js` 2 | `crates/plugin/tests/reference-node/{index,slow}.js` | protocol reference, not a stack we develop in |
+| `.py` 1 | `crates/plugin/tests/reference-node/smoke.py` | 18-line second-runtime proof |
+| `.ps1` 2, `.sh` 1 | `check.ps1`, `scripts/install.{ps1,sh}` | glue |
+| `.yml` 2, `.yaml` 1 | CI workflows, `architecture.yaml` | config |
+| C | SQLite via `rusqlite` bundled, `ring` | already compiled today |
+
+So there are **two primary stacks — Rust and TypeScript** — and JS/Python appear
+as two reference implementations of one protocol. "Adding JS plugins" is
+therefore not obviously a third stack, but it *is* a second authoring language
+next to the frontend's TypeScript, and that cost is real.
+
+**Distribution is a hard constraint, and it is in the code.**
 `crates/market/src/index.rs:30` describes a bundle as
 `name/version/description/author/keywords/homepage/tarball/sha256/size/engines`.
 There is **no `os`, `arch` or `platform` field** — `engines` records "needs node
@@ -267,24 +369,50 @@ builds of `myplugin 1.0.0` cannot even be listed.
 
 A native plugin therefore **cannot be distributed through this market at all**
 without a contract change: add `os`/`arch` to `Bundle` *and* include them in the
-uniqueness key. A JS or Python plugin is one tarball that installs everywhere the
-interpreter exists. That is not a preference; it is what the shipped schema can
+uniqueness key. A source plugin is one tarball that installs everywhere its
+runtime exists. That is not a preference; it is what the shipped schema can
 express.
 
-**Authoring points the same way.** A JS plugin has no build step: write the file,
-`forge plugin call` runs it. A Rust plugin needs a compile per target, and the
-borrow checker sits inside the iteration loop. For an agent paying per round
-trip, that is the difference between one edit and several.
+**The paved road is TypeScript, and it needs no build step.** This was measured,
+not assumed: Node 24.21.0 executes `.ts` directly, and a plugin whose manifest
+says `runtime: "node"`, `entry: "index.ts"` — with `interface`, type annotations
+and `as Error` in it — completed the whole path through the **release binary**:
 
-So the default, in order:
+```
+forge plugin start tspeak   -> tspeak 0.1.0 speaks protocol 1
+forge plugin call tspeak greet --args {"name":"no build step"}
+                            -> hello from typescript, no build step
+```
 
-| Case | Language | Why |
+**Zero host changes.** `Runtime::Node` already runs `node <entry>`; the entry
+being `.ts` is not a special case. So TypeScript costs nothing extra to support
+and adds no language next to the frontend.
+
+Its limits, also measured — Node strips types, it does not compile them, so only
+*erasable* syntax works:
+
+| Construct | Result |
+| --- | --- |
+| `interface`, annotations, `as`, generics | works |
+| `import { x } from './lib.ts'` | works (the `.ts` extension is required) |
+| `enum` | `SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript enum is not supported in strip-only mode` |
+| constructor parameter properties | refused, same error class |
+
+Older Node needs `--experimental-strip-types` or a build; that is exactly what
+`engines.runtime` in the market index exists to declare.
+
+So the recommendation, in order:
+
+| Case | Author writes | Why |
 | --- | --- | --- |
-| Default for a new plugin | **JavaScript** (or TypeScript compiled to JS) | no build step, one artifact for every platform, `forge plugin new` already emits it, the market can ship it |
+| **Paved road** | **TypeScript** (`.ts`, no build) | same language as the UI, types an agent can act on, one artifact for every platform, already runs |
+| Plain JS is fine too | `.js` | identical runtime and distribution; use it when types buy nothing |
 | The work already lives in a library | **Python** | pandas/openpyxl/requests are the reason to be there; same distribution story |
-| CPU-bound, or must run with no interpreter installed | **Rust** via `runtime: "exec"` | ~5× faster cold start, half the per-call floor, no runtime dependency — but needs the market schema change above first |
+| CPU-bound, or no runtime may be assumed | **Rust** via `runtime: "exec"` | ~5× faster cold start, half the per-call floor, no runtime dependency — **needs the market schema change first** |
+| Untrusted in-process scripting, someday | embedded engine | see §2.4: 1.02 MB, but no `fetch`/`console`/`require` — a different product |
+| One artifact, no interpreter, any language | **WASM** | the strongest unexplored option; **not measured**, `wasmtime` is not in the offline cache |
 
-The third row is real and now tested: `crates/plugin/src/bin/forge-plugin-native.rs`
+The Rust row is real and tested: `crates/plugin/src/bin/forge-plugin-native.rs`
 is a working native plugin, and three integration cases in
 `crates/plugin/tests/host_it.rs` load it through `exec`. Before it existed,
 `Runtime::Exec` had only ever been tested as a string that parses — every other
@@ -293,9 +421,9 @@ the suite.
 
 **What does not change: the kernel stays Rust.** The two decisions are
 independent, and §2.3 is why: the boundary costs 0.003% of a turn, so a plugin's
-language cannot move the kernel's 8.4 MB, 5 ms or 6.3 MB idle. Choosing JS for
-plugins is not a partial retreat from Rust — it is the same decision that put the
-web UI in TypeScript.
+language cannot move the kernel's 8.5 MB, 5 ms or 6.3 MB idle. Choosing
+TypeScript for plugins is not a partial retreat from Rust — it is the *same*
+decision that put the web UI in TypeScript, which is why it costs no new stack.
 
 ## 3. Crate plan and the layer graph
 

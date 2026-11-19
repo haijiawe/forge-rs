@@ -92,6 +92,27 @@ fn python_available() -> bool {
     runtime_available("python")
 }
 
+/// Whether this Node can execute `.ts` without a flag or a build.
+///
+/// Type stripping arrived unflagged in Node 23.6. Below that the entry would
+/// need `--experimental-strip-types`, which the host does not pass, so the case
+/// is skipped rather than asserted — the version is a property of the machine.
+fn node_strips_types() -> bool {
+    let output = match std::process::Command::new("node").arg("--version").output() {
+        Ok(output) if output.status.success() => output,
+        _ => return false,
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let major: u32 = text
+        .trim()
+        .trim_start_matches('v')
+        .split('.')
+        .next()
+        .and_then(|part| part.parse().ok())
+        .unwrap_or(0);
+    major >= 23
+}
+
 /// Announce why a case did not run. `eprintln!` so `--nocapture` shows it and so
 /// a CI log keeps the reason next to the test name.
 fn skip(reason: &str) {
@@ -797,4 +818,99 @@ fn a_native_plugin_is_discovered_without_being_started_and_stops_cleanly() {
         "the plugin should answer shutdown: {stopped:?}"
     );
     assert!(host.loaded_names().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// A TypeScript entry, with no build step.
+// ---------------------------------------------------------------------------
+
+const TS_MANIFEST: &str = r#"{
+  "name": "typed",
+  "version": "0.1.0",
+  "description": "a TypeScript entry, executed as written",
+  "runtime": "node",
+  "entry": "index.ts"
+}"#;
+
+/// Types are erased by Node, so the entry is the source file itself.
+///
+/// This is not a new runtime and not a host feature: `Runtime::Node` already runs
+/// `node <entry>`, and the entry being `.ts` is not a special case. The case
+/// exists because "TypeScript works with no build step" is a claim about somebody
+/// else's binary, and a claim like that rots the moment the machine changes
+/// unless a test re-checks it.
+const TS_ENTRY: &str = r#"
+import * as readline from "node:readline";
+
+interface Params { name?: string; arguments?: Record<string, unknown> }
+interface Frame { jsonrpc: string; id?: unknown; method?: string; params?: Params }
+
+function greet(args: Record<string, unknown>): string {
+  const name: string = typeof args.name === "string" ? args.name : "";
+  if (!name) throw new Error("greet needs arguments.name");
+  return `typed hello, ${name}`;
+}
+
+function reply(id: unknown, result: unknown): void {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
+}
+
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", (line: string) => {
+  if (!line.trim()) return;
+  const frame: Frame = JSON.parse(line);
+  if (frame.id === undefined) return;
+  if (frame.method === "initialize") {
+    reply(frame.id, { protocolVersion: 1, name: "typed", version: "0.1.0",
+      capabilities: { tools: true, prompts: false, hooks: [] } });
+  } else if (frame.method === "tools/list") {
+    reply(frame.id, { tools: [{ name: "greet", description: "typed greeting",
+      schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } }] });
+  } else if (frame.method === "tools/call") {
+    try {
+      reply(frame.id, { output: greet(frame.params?.arguments ?? {}), isError: false });
+    } catch (err) {
+      reply(frame.id, { output: (err as Error).message, isError: true });
+    }
+  } else if (frame.method === "shutdown") {
+    reply(frame.id, {});
+    process.stdout.write("", () => process.exit(0));
+  }
+});
+"#;
+
+#[test]
+fn a_typescript_entry_runs_with_no_build_step() {
+    if !node_available() {
+        skip("node is not on PATH");
+        return;
+    }
+    if !node_strips_types() {
+        skip("node is older than 23.6, so .ts needs --experimental-strip-types");
+        return;
+    }
+    let scratch = Scratch::new("ts-entry");
+    scratch.install("typed", TS_MANIFEST, &[("index.ts", TS_ENTRY)]);
+    let host = scratch.host();
+
+    let loaded = host.load("typed").expect("a .ts entry must initialize");
+    assert_eq!(loaded.handshake.name, "typed");
+    assert_eq!(loaded.handshake.protocol_version, 1);
+    let tools = host.tools("typed").expect("tools/list");
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].name, "greet");
+
+    let out = host
+        .call_tool("typed", "greet", json!({"name": "no build step"}))
+        .expect("tools/call");
+    assert!(!out.is_error);
+    assert_eq!(out.output, "typed hello, no build step");
+
+    // The refusal path still works through the erased types.
+    let refused = host
+        .call_tool("typed", "greet", json!({}))
+        .expect("a refusal is a result");
+    assert!(refused.is_error);
+    assert!(refused.output.contains("arguments.name"));
+    host.unload_all();
 }
