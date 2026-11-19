@@ -208,7 +208,21 @@ fn parse(raw: RawManifest, directory: &Path, path: &Path) -> Result<Manifest> {
 }
 
 /// A relative path that never climbs out and never becomes absolute.
+///
+/// The rules are the same on every platform on purpose. A manifest is a
+/// portable document: `C:\evil.js` is an absolute path on Windows and a single
+/// harmless filename on Unix, so a per-platform reading would make the same
+/// bundle mean two different things. `\` is therefore refused everywhere (a
+/// manifest writes `/`, and no legitimate entry needs a backslash), and a drive
+/// prefix is refused even when the host has no drives.
 fn entry_stays_inside(entry: &str) -> bool {
+    if entry.contains('\\') {
+        return false;
+    }
+    let bytes = entry.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return false;
+    }
     let path = Path::new(entry);
     if path.is_absolute() {
         return false;
@@ -383,6 +397,8 @@ mod tests {
             "a/../../evil.js",
             "/etc/passwd",
             "C:\\evil.js",
+            "C:evil.js",
+            "sub\\index.js",
         ] {
             let error = parse(
                 raw("example", "node", bad),

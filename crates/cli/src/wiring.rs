@@ -1500,14 +1500,37 @@ mod tests {
     );
     const REFERENCE_ENTRY: &str = include_str!("../../plugin/tests/reference-node/index.js");
 
-    fn plugin_root(label: &str) -> PathBuf {
+    /// A scratch directory under the system temp root, canonicalised.
+    ///
+    /// Windows hands out 8.3 short names (`C:\Users\RUNNER~1\AppData\Local\Temp`)
+    /// in `TEMP` on some hosted runners. Rust creates files through one happily,
+    /// but the child process is a different reader: the hosted Windows job failed
+    /// with Node reporting it could not find an `index.js` that had just been
+    /// written. Resolving the root once — and trimming the `\\?\` prefix that
+    /// `canonicalize` adds on Windows — gives the test and the child the same
+    /// long path instead of two spellings of it.
+    fn scratch(label: &str) -> PathBuf {
         let root =
             std::env::temp_dir().join(format!("forge-wiring-{}-{label}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create the scratch root");
+        let canonical = std::fs::canonicalize(&root).expect("canonicalise the scratch root");
+        match canonical.to_string_lossy().strip_prefix(r"\\?\") {
+            Some(rest) => PathBuf::from(rest),
+            None => canonical,
+        }
+    }
+
+    fn plugin_root(label: &str) -> PathBuf {
+        let root = scratch(label);
         let dir = root.join("reference");
         std::fs::create_dir_all(&dir).expect("create plugin dir");
         std::fs::write(dir.join(REFERENCE_PLUGIN.0), REFERENCE_PLUGIN.1).expect("write manifest");
         std::fs::write(dir.join("index.js"), REFERENCE_ENTRY).expect("write entry");
+        assert!(
+            dir.join("index.js").is_file(),
+            "the entry must exist before the host is asked to run it"
+        );
         root
     }
 
@@ -1522,11 +1545,7 @@ mod tests {
 
     /// Copy the expert roster fixture into a scratch root.
     fn roster_root(label: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "forge-wiring-roster-{}-{label}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = scratch(label);
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../experts/tests/fixtures/good");
         copy_tree(&source, &root);
         root
@@ -1543,6 +1562,17 @@ mod tests {
             } else {
                 std::fs::copy(&path, &target).expect("copy a fixture file");
             }
+        }
+    }
+
+    /// The names in a directory, for failure messages that need ground truth.
+    fn entries(dir: &Path) -> Vec<String> {
+        match std::fs::read_dir(dir) {
+            Ok(read) => read
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect(),
+            Err(err) => vec![format!("<unreadable: {err}>")],
         }
     }
 
@@ -1584,8 +1614,10 @@ mod tests {
             .collect();
         assert!(
             plugin_tools.contains(&"reference.echo".to_string()),
-            "expected a namespaced plugin tool in {names:?}; notes: {:?}",
-            wired.notes
+            "expected a namespaced plugin tool in {names:?}; notes: {:?}; files under {}: {:?}",
+            wired.notes,
+            root.join("reference").display(),
+            entries(&root.join("reference"))
         );
         assert!(plugin_tools.contains(&"reference.add".to_string()));
         // The reference plugin advertises four tools (`echo`, `add`, `fail`,
