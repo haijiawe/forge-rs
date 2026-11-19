@@ -304,11 +304,15 @@ fn a_call_past_the_deadline_is_killed_and_the_next_call_says_the_child_is_gone()
     );
 
     let mut host = scratch.host();
-    host.set_timeout(Duration::from_millis(200));
+    // Load with the default timeout. A hosted Windows runner needs more than
+    // 200 ms just to start Node and finish the handshake; that is the machine's
+    // speed, not the behaviour under test. The short deadline belongs to the
+    // call that is supposed to hang, so it is set after the plugin is up.
     // It introduces itself fine; only tool calls hang. A plugin that hung during
     // `initialize` would be a different test (`load` refusing), and both are
     // covered by the same code path in `Connection::round_trip`.
     host.load("slow").expect("the slow plugin initializes");
+    host.set_timeout(Duration::from_millis(200));
 
     let started = std::time::Instant::now();
     let error = host.tools("slow").expect_err("no reply within 200 ms");
