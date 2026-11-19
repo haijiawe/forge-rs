@@ -1,11 +1,11 @@
 # CI: what runs, what it caught, and what is still not rehearsed
 
 The repository is `github.com/haijiawe/forge-rs` (private) and the tree is MIT.
-Every workflow here has executed on hosted runners except `release.yml`, which
-needs a version tag; `bench.yml` is manual and is covered below.
+Every workflow here has now executed on hosted runners, including `release.yml`
+(through its `workflow_dispatch` dry-run mode) and the manual `bench.yml`.
 
-The honest headline: **the first five CI runs were not a formality.** Each one
-found something the Windows development box could not see, and two of them were
+The honest headline: **the first eight CI runs were not a formality.** Each one
+found something the Windows development box could not see, and several were
 defects in tests that would have kept hiding indefinitely on a single machine.
 
 ## The jobs
@@ -137,11 +137,20 @@ weaker instant assertion and a stronger statement about the contract: after
 `turn/end` the log is quiescent, so agreement is permanent, and a permanent
 disagreement is still a failure.
 
-## Not rehearsed at all
+## Rehearsed once, and what it still does not prove
 
-- `release.yml` — needs a tag and a runner: native builds for three platforms,
-  `SHA256SUMS`, `gh release create`. Only its YAML was reviewed (see
-  `docs/release.md` §8). A `workflow_dispatch` dry run is possible and is the
-  next thing to try.
+- **`release.yml` has now run for real.** A `workflow_dispatch` dry run
+  ([44588872748](https://github.com/haijiawe/forge-rs/actions/runs/44588872748))
+  built, verified and uploaded all three native artifacts —
+  `forge-windows-amd64.exe` 4,183,350 B, `forge-linux-amd64` 4,584,901 B,
+  `forge-darwin-arm64` 3,985,780 B — and generated a `SHA256SUMS` that passed
+  `sha256sum --check`. The `Publish GitHub release` step was skipped because the
+  ref was not a tag. That proves the build path; it does not prove
+  `gh release create` itself, which needs a real `v*` tag and cannot be undone.
 - Anything about a machine that is neither Windows nor the runners above, e.g.
   Linux sandbox confinement under a non-Ubuntu kernel or macOS sandbox at all.
+- A macOS *bench* record: `bench.yml` asked for `macos-14` and the job was
+  cancelled with no runner assigned (`runner_id: 0`, empty steps), so the
+  account cannot get that runner even though `release.yml`'s `macos-latest`
+  job did run on 2026-11-20. Treat the two labels as different entitlements
+  until proven otherwise.

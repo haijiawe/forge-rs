@@ -78,10 +78,11 @@ shape and the expected OS/arch; it never assumes a tagged version appears.
 - Rust with the MSVC toolchain (GNU is not supported on this project — see
   `AGENTS.md`).
 - Node.js and npm for the web UI.
-- Cargo's target directory must be an **ASCII path**. `.cargo/config.toml`
-  already points it at `D:/forge-rs-target/forge-rs`; keep that, or set
-  `$env:CARGO_TARGET_DIR` to another ASCII directory. A non-ASCII path makes
-  `cl.exe` fail with `D8050`.
+- Cargo's target directory must be an **ASCII path**, set through the
+  environment: `.cargo/config.toml` deliberately pins nothing (a pinned
+  `D:/...` broke the first Linux CI job), so export
+  `$env:CARGO_TARGET_DIR` to an ASCII directory yourself, or let `check.ps1`
+  derive one. A non-ASCII path makes `cl.exe` fail with `D8050`.
 - Local crate access is offline through the configured mirror, so use
   `--offline`. Do not copy the CI command's lack of `--offline` to this box.
 
@@ -103,8 +104,10 @@ npm ci
 npm run build
 cd ..
 
-# Keep the target dir ASCII; .cargo/config.toml already sets this, but an
-# explicit override is fine and documents the requirement:
+# Keep the target dir ASCII. `.cargo/config.toml` deliberately pins nothing —
+# a pinned path broke the first Linux runner — so set it yourself for a raw
+# cargo build. A non-ASCII checkout path breaks MSVC's C compile (error D8050)
+# for the bundled SQLite and ring.
 $env:CARGO_TARGET_DIR = "D:\forge-rs-target\forge-rs"
 
 cargo build --release --offline
@@ -215,26 +218,39 @@ chmod +x ./forge-darwin-arm64
 
 Do this only after verifying the checksum (§5).
 
-## 8. No LICENSE
+## 8. License
 
-This workspace contains **no LICENSE file** and declares
-`license = "UNLICENSED"` in `Cargo.toml`. No copyright or redistribution grant
-is provided with these artifacts; do not redistribute them under an assumed
-license. Any third-party license notices under `web/node_modules/` belong to
-those dependencies and are not a license for this project.
+This workspace is MIT-licensed: `LICENSE` holds the MIT text and `Cargo.toml`
+declares `license = "MIT"`. The upstream DeepSeek Harness tree this project
+descends from is also MIT, so the grant is compatible with the provenance.
+
+Third-party licenses under `web/node_modules/` and inside the dependency set
+belong to those projects; the MIT grant here covers this project's own code.
 
 ## 9. What CI verifies vs. what was never verified locally
 
-**Verified on hosted runners every release run:** native compile+link for the
-three targets, `npm ci && npm run build`, non-empty `index.html`, existence of
-JS bundles, the `assets/index-` marker inside each binary, `--version` shape and
-OS/arch, SHA256SUMS generation and `sha256sum --check`, and on tags the
-`gh release create --verify-tag` call.
+**Rehearsed end to end on 2026-11-20** by a `workflow_dispatch` run
+([44588872748](https://github.com/haijiawe/forge-rs/actions/runs/44588872748)),
+which is the dry-run mode the workflow documents: it builds, verifies and
+uploads but skips `gh release create` because the ref is not a tag. Three
+native jobs succeeded:
 
-**Never verified on the developer Windows host** (and therefore not claimed
-here): execution of the Linux and macOS binaries, any `windows-arm64` /
-`linux-arm64` / `darwin-amd64` artifact (none is produced), cross-linking with
-`ring`'s C code, signing/notarization, installer behaviour, and self-update
-(neither exists). The local box uses MSVC + offline mirror + an ASCII target
-dir; the CI path differs (online Cargo, `CARGO_TARGET_DIR=target`) and is
-described here from the workflow, not from a local run of the full pipeline.
+| artifact | bytes | sha256 (first 16) |
+| --- | --- | --- |
+| `forge-windows-amd64.exe` | 4,183,350 | `01984073a5253399` |
+| `forge-linux-amd64` | 4,584,901 | `b23c70ba319db59d` |
+| `forge-darwin-arm64` | 3,985,780 | `c4bd1fbfb582b66c` |
+
+Each job printed its own `--version` (`… windows/amd64 rustc 1.100.0`,
+`… linux/amd64 rustc 1.100.0`, `… darwin/arm64 rustc 1.100.0`) and passed the
+`assets/index-` marker check; the publish job then generated `SHA256SUMS`,
+verified it with `sha256sum --check`, and uploaded the combined 12,754,274-byte
+artifact set. The `Publish GitHub release` step shows as **skipped**, which is
+the guard doing its job.
+
+**Never verified on the developer Windows host**, and therefore not claimed:
+execution of the Linux and macOS binaries beyond `--version`, any
+`windows-arm64` / `linux-arm64` / `darwin-amd64` artifact (none is produced),
+signing/notarization, installer behaviour, and self-update (neither exists).
+The local box uses MSVC with an ASCII target dir; the CI path uses online Cargo
+with `CARGO_TARGET_DIR=target`, and both are now known to produce a binary.

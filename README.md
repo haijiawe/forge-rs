@@ -11,12 +11,18 @@ as provenance for the behaviour in question; the frozen contracts in
 `docs/contracts/` and the corpora under `tests/` are what `cargo test` checks
 against.
 
-The workspace is arranged as fifteen product crates, one per boundary that should be
+The workspace is arranged as twenty-three product crates, one per boundary that should be
 violated loudly, plus `tools/archcheck` and `tools/bench` gates. `architecture.yaml`
 states the layer map, and `tools/archcheck` fails the build when a `Cargo.toml`
 dependency points to a higher layer or a crate has no boundary README. Cargo
 already enforces that the graph compiles; these gates enforce that it points the
 right way and is written down.
+
+CI runs on GitHub Actions: `ci.yml` on every push (test on Windows and Ubuntu at
+the 1.89 floor, lint and web on current stable), `bench.yml` on demand, and
+`release.yml` on tags or as a dry run — the dry run was rehearsed on 2026-11-20
+and produced all three native artifacts. `docs/ci.md` records what each run
+caught, including the defects that only a second machine could see.
 
 ## Crate map
 
@@ -52,19 +58,17 @@ These were measured on this host, not chosen:
   `rustc 1.85.1 is not supported by the following packages` before compiling a
   single line. Verified both ways: the whole suite passes on 1.89
   (`cargo +1.89.0 test --workspace --offline`, 64 suites) and on 1.96.
-- **The target directory must be all-ASCII.** `.cargo/config.toml` sets
-  `target-dir = "D:/forge-rs-target/forge-rs"`. With the target inside
-  `D:\魔改版Agent框架\...`, every crate that compiles C dies in `cl.exe` with
-  `D8050 ... 未能将命令行放入调试记录中`. The source tree may keep its name;
-  only the target must move.
-- **The same path is also exported as `CARGO_TARGET_DIR`** — in the same
-  `.cargo/config.toml`, via `[env]`. `build.target-dir` is cargo's private
-  business and is not passed to the programs cargo runs, but the e2e harness
-  spawns a real `forge` binary and finds it through that variable. Without it,
-  `pwsh -File check.ps1` fails with `forge binary not found at
-  ...\forge-rs\target\debug\forge.exe` while the same command from a shell that
-  exports the variable passes. Two adjacent lines on purpose: change one, change
-  both.
+- **The target directory must be all-ASCII, and it is set per environment, not
+  in the tree.** With the target inside `D:\魔改版Agent框架\...`, every crate that
+  compiles C dies in `cl.exe` with `D8050 ... 未能将命令行放入调试记录中`. A
+  committed `target-dir = "D:/forge-rs-target/forge-rs"` looked like the fix and
+  broke the first Linux CI job instead, because there `D:/...` is one path
+  segment containing a colon. `.cargo/config.toml` therefore pins nothing:
+  `check.ps1` derives `CARGO_TARGET_DIR` when this checkout's path is not
+  all-ASCII, CI sets `target` per job, and a bare `cargo build` from a shell
+  must export it yourself. It has to be an environment variable and not only
+  `build.target-dir`, because the e2e harness spawns a real `forge` binary and
+  finds it through `CARGO_TARGET_DIR`.
 - **MSVC only.** The GNU toolchain is installed but broken:
   `error calling dlltool 'dlltool.exe': program not found`. A build failure must
   not be "fixed" by switching to GNU.
@@ -81,9 +85,12 @@ These were measured on this host, not chosen:
 
 ## Quick start
 
-From a fresh shell, with only `.cargo/config.toml` in effect:
+From a fresh shell, with only `.cargo/config.toml` in effect — on this
+checkout, set the ASCII target directory first (or use `check.ps1`, which
+derives it):
 
 ```powershell
+$env:CARGO_TARGET_DIR = 'D:\forge-rs-target\forge-rs'
 cargo build --release --offline
 cargo test --offline
 cargo run -q -p archcheck --offline
