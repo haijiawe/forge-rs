@@ -1521,8 +1521,18 @@ mod tests {
         }
     }
 
+    /// A plugin root inside a scratch base directory.
+    ///
+    /// The base, not the plugin root, is what callers pass as `data_dir`, and
+    /// each test removes only its own base at the end. That distinction is
+    /// load-bearing: an earlier version handed `root.parent()` — the system
+    /// temp directory itself — to `build`, and the cleanup then tried to
+    /// delete all of `TEMP`. It passed locally because Windows refuses to
+    /// remove files that are open, and destroyed the neighbouring scratch
+    /// directories on CI, where the Linux job really does own `/tmp`.
     fn plugin_root(label: &str) -> PathBuf {
-        let root = scratch(label);
+        let base = scratch(label);
+        let root = base.join("plugins");
         let dir = root.join("reference");
         std::fs::create_dir_all(&dir).expect("create plugin dir");
         std::fs::write(dir.join(REFERENCE_PLUGIN.0), REFERENCE_PLUGIN.1).expect("write manifest");
@@ -1543,9 +1553,9 @@ mod tests {
             .is_ok()
     }
 
-    /// Copy the expert roster fixture into a scratch root.
+    /// Copy the expert roster fixture into a scratch base's `experts/`.
     fn roster_root(label: &str) -> PathBuf {
-        let root = scratch(label);
+        let root = scratch(label).join("experts");
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../experts/tests/fixtures/good");
         copy_tree(&source, &root);
         root
