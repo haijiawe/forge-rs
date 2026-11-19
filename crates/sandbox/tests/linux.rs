@@ -223,7 +223,7 @@ fn network_is_confined_only_when_the_kernel_can_confine_it() {
     );
     let outcome = std::fs::read_to_string(&denied_marker).expect("read the outcome");
     assert!(
-        outcome.contains("PermissionDenied"),
+        outcome.to_lowercase().contains("permission denied"),
         "allow_net = false must be refused by the kernel, got {outcome:?}"
     );
 
