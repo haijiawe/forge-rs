@@ -4,7 +4,7 @@ The repository is `github.com/haijiawe/forge-rs` (private) and the tree is MIT.
 Every workflow here has now executed on hosted runners, including `release.yml`
 (through its `workflow_dispatch` dry-run mode) and the manual `bench.yml`.
 
-The honest headline: **the first eight CI runs were not a formality.** Each one
+The honest headline: **the first ten CI runs were not a formality.** Each one
 found something the Windows development box could not see, and several were
 defects in tests that would have kept hiding indefinitely on a single machine.
 
@@ -32,8 +32,11 @@ knows (`is_multiple_of` was exactly that kind of lint).
 | 44564786342 | `46e9188` | ✓ | ✓ | ✓ | ✗ | 8 |
 | 44582690666 | `0065fff` | ✓ | ✓ | ✓ | ✗ | 9 |
 | 44585759279 | `d05c4c5` | ✓ | ✓ | ✓ | ✓ | — |
+| 44596952813 | `fe762e9` | ✓ | ✓ | ✓ | ✓ | — |
+| 44603497179 | `58e6046` | ✓ | ✓ | ✗ | ✓ | 10 |
+| 44606471925 | `7aaf73f` | ✓ | ✓ | ✓ | ✓ | — |
 
-The nine defects, in the order they surfaced:
+The ten defects, in the order they surfaced:
 
 1. **A pinned target directory is not portable.** `.cargo/config.toml` carried
    `target-dir = "D:/forge-rs-target/forge-rs"` — a workaround for MSVC error
@@ -78,6 +81,14 @@ The nine defects, in the order they surfaced:
    200 ms before `load`, so starting Node had to fit inside it. On a hosted
    Windows runner it did not. The deadline now covers only the call that is
    supposed to hang, which is what the test is named after.
+10. **An assertion that compared a different spelling than the code printed.**
+    The first real Ubuntu run of the new Landlock tests had four of five pass;
+    the fifth failed with `got "refused: permission denied"` — the kernel *had*
+    refused the connect, but the assertion looked for Rust's Debug spelling
+    `PermissionDenied` while the helper prints the Display form. The comparison
+    is now case-insensitive on the text. Worth keeping in the list because the
+    product was right and the test was wrong: a red CI run is a claim to
+    investigate, not a verdict.
 
 Defects 4–9 are all one class: **a second machine is a second reader.** A test
 that passes on Windows because a delete silently fails, because a backslash is

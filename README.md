@@ -234,9 +234,13 @@ no `gh`. Both were rehearsed step by step locally instead (see `docs/ci.md`).
   reference, so their code samples are Go; the behaviour they pin is what the
   Rust crates implement, and the corpora under `tests/conformance/cases/` are the
   proof. `src/` has no `unsafe` (every crate denies it).
-- Linux and macOS containment (Landlock, `sandbox-exec`) is compile-checked only;
-  only the Windows path was measured. `forge doctor` says so in its `sandbox` line
-  rather than claiming containment it has not shown.
+- Linux containment (Landlock) is verified at runtime on every push: the Ubuntu CI
+  job runs `crates/sandbox/tests/linux.rs`, which writes inside the workspace, is
+  refused outside it, is refused a write in `read-only`, is granted an `extra_write`
+  path by name, and gets `permission denied` from the kernel with `allow_net = false`
+  (and `connected` with it). macOS `sandbox-exec` is compile-checked only; `forge
+  doctor` says so in its `sandbox` line rather than claiming containment it has not
+  shown.
 - **On Windows containment is two rings, and the second one narrows what tools can
   do.** A Job Object caps the process tree, per-process/job memory and process
   count; an AppContainer decides which files and networks the child can reach

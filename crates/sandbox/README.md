@@ -36,8 +36,10 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
   `NetworkIsolationSetAppContainerConfig`（`Firewallapi.dll`，需管理员、进程级、影响所有
   AppContainer）的豁免，本 crate 刻意不建这种豁免，所以 loopback 只能用作“拒绝”那一半。
   macOS 对应的是一行 `(allow network*)`，Linux 是 Landlock ABI ≥ 4（更低版本时
-  `Support.network` 为 false 并拒绝非 full-access）。macOS 与 Landlock 的这两句是
-  `unverified on this host`。`wrapper` 是“`main`
+  `Support.network` 为 false 并拒绝非 full-access）。macOS 的这句是
+  `unverified on this host`；Linux 不是——Ubuntu CI 每次 push 跑
+  `crates/sandbox/tests/linux.rs` 的五个用例（workspace 内外写、read-only、
+  `extra_write`、网络两向），所以它的 `Support.Detail` 不再带这句话。`wrapper` 是“`main`
   第一句调用 `maybe_exec_helper` 的可执行文件”，默认 `None` 表示本进程（`forge`
   自己）；把本 crate 当库嵌进别的宿主才需要设置它。`extra_read` 是“workspace 之外
   仍可读”的路径，只对默认拒绝读的平台有意义（Windows 的 AppContainer 从零可读开始；
