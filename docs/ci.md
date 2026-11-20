@@ -4,7 +4,7 @@ The repository is `github.com/haijiawe/forge-rs` (private) and the tree is MIT.
 Every workflow here has now executed on hosted runners, including `release.yml`
 (through its `workflow_dispatch` dry-run mode) and the manual `bench.yml`.
 
-The honest headline: **the first twenty-two CI runs were not a formality.** Each one
+The honest headline: **the first twenty-four CI runs were not a formality.** Each one
 found something the Windows development box could not see, and several were
 defects in tests that would have kept hiding indefinitely on a single machine.
 
@@ -47,6 +47,8 @@ knows (`is_multiple_of` was exactly that kind of lint).
 | 44657019817 | `64c401c` | ✓ | ✓ | ✓ | ✓ | — (recording that run) |
 | 44660397468 | `e7a4f96` | ✓ | ✓ | ✓ | ✓ | — (the goal pill, and `nextRound` as the round the loop would open) |
 | 44661935829 | `72da233` | ✓ | ✓ | ✓ | ✓ | — (the browser reads the handoff manifest) |
+| 44663090396 | `790c157` | ✓ | ✓ | ✓ | ✓ | — (counting the commands the binary actually prints) |
+| 44676607395 | `1924819` | ✓ | ✓ | ✓ | ✓ | — (the DSH rc.5 source comparison; a duplicate trigger was cancelled by concurrency) |
 
 The eleven defects, in the order they surfaced:
 
