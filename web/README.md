@@ -71,8 +71,12 @@ the sources in the binary).
 | `src/api/transport.ts` | the WebSocket itself: reconnect with backoff, `?after=<lastSeq>`, pings |
 | `src/state/rows.ts` | events → transcript rows (tool call/result and approval request/decision merge) |
 | `src/state/sessionStore.ts` | per-session store for `useSyncExternalStore`, one render per animation frame |
+| `src/state/capabilities.ts` | tool names from the last request → the capability panel's sections |
+| `src/state/workbench.ts` | the workbench store: open tabs, drafts, the digest each tab was read at, save and conflict state |
+| `src/api/workbench.ts` | `files`/`file`/`diff`/`PUT file` — listing, reading, saving, and the parsers that reject a malformed answer instead of rendering it |
 | `src/virtual/` | the virtualizer: Fenwick offset index, measured heights by row key, anchor restore |
-| `src/components/` | the screens and rows (`Transcript`, `TranscriptRow`, `ToolCard`, `ApprovalDialog`, `Composer`, `StatusBar`, `SessionList`, `SessionView`) |
+| `src/components/` | the screens and rows (`Transcript`, `TranscriptRow`, `ToolCard`, `ApprovalDialog`, `Composer`, `StatusBar`, `SessionList`, `SessionView`, `CapabilityPanel`, `SubagentPanel`) |
+| `src/components/ide/` | the three-column workbench: `Workbench`, `FileTree`, `Tabs`, `EditorPane` (Monaco, loaded lazily), `DiffList` |
 | `src/markdown/parse.ts` | block-level markdown parser (no syntax highlighting in M3) |
 
 ## Rendering rules this UI is held to
