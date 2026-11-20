@@ -1,6 +1,13 @@
-# Build output lives outside the tree on purpose: this project's path contains
-# non-ASCII characters and cl.exe cannot write a debug record into such a path.
-# See .cargo/config.toml and docs/08-rust-port.md §4.
+# Build output is not committed. `target/` is cargo's; `bin/` holds the release
+# binary rebuilt by hand (`npx vite build` → `cargo build --release -p hearth-cli`
+# → copy), because the binary embeds web/dist and cargo knows nothing about that.
+# See docs/13-handover.md "Rebuilding the binary".
+#
+# Historical note: this used to say the target directory must leave the tree
+# because the checkout path contained non-ASCII characters and cl.exe cannot
+# write a debug record into such a path. The checkout is ASCII now (D:\hearth),
+# so building in place is fine. The rule survives for the case where the tree is
+# moved somewhere non-ASCII: set CARGO_TARGET_DIR then — see AGENTS.md.
 /target
 /bin
 *.exe

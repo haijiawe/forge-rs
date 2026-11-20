@@ -767,6 +767,11 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
         addr: opts.addr.trim().to_string(),
         data_dir: PathBuf::from(cfg.data_dir.trim()),
         version: VERSION.to_string(),
+        // Saving a buffer is allowed exactly when the session's own sandbox is
+        // allowed to write. A read-only session whose tools cannot change a file
+        // must not offer an editor that can: the two surfaces would then disagree
+        // about what the session is, and the quieter one would win.
+        workspace_write: sandbox != SandboxMode::ReadOnly,
         // A snapshot, not a query: plugins are loaded once, so what the model
         // can reach does not change while this process runs. Discovering it here
         // keeps `hearth-server` free of the four crates that would be needed.

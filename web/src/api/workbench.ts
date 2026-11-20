@@ -1,8 +1,17 @@
-// The workbench routes: one directory listing, one file's text, one diff list.
+// The workbench routes: one directory listing, one file's text, one diff list,
+// and one save.
 //
 //   GET /api/sessions/{id}/files?path=<relative, empty = root>
 //   GET /api/sessions/{id}/file?path=<relative>
 //   GET /api/sessions/{id}/diff
+//   PUT /api/sessions/{id}/file   {path, text, expectedSha256?}
+//
+// The save is the only one that changes anything, and the only one that can be
+// refused for a reason the operator has to act on: `conflict` means the file
+// moved under the buffer (someone else saved it, or the agent wrote it), and
+// the answer is to reload rather than to overwrite. `expectedSha256` is what
+// makes that detectable — it is the digest of the bytes the buffer was built
+// from, and the server compares it against the file as it is now.
 //
 // Two rules, both inherited from api/capabilities.ts:
 //
@@ -42,6 +51,23 @@ export interface FileText {
   truncated: boolean;
   /** Binary files answer `text: ""` and this flag. */
   binary: boolean;
+  /**
+   * Digest of the bytes this text was decoded from, or `""` when the server
+   * could not describe them (truncated or binary).
+   *
+   * Empty is not "unchanged": it is "no token to compare", so a save built on
+   * such a read carries no `expectedSha256` and the server accepts it as an
+   * ordinary overwrite. That is the honest trade — a token that described only
+   * the first megabyte would authorise replacing bytes nobody has looked at.
+   */
+  sha256: string;
+}
+
+/** What a save reports: the bytes it wrote and the digest it produced. */
+export interface SaveResult {
+  path: string;
+  bytes: number;
+  sha256: string;
 }
 
 export interface DiffEntry {
@@ -111,6 +137,25 @@ export async function listDiff(sessionId: string): Promise<DiffEntry[]> {
   return parseDiff(value);
 }
 
+/**
+ * Save a buffer. `expectedSha256` empty means "I have no token, overwrite".
+ *
+ * The call can fail with `conflict` (the file moved), `forbidden` (the server
+ * was started read-only), `unprocessable` (over 1 MiB) or `bad_request` (the
+ * path climbs out of the workspace); each arrives as an ApiError whose `code`
+ * the caller switches on, so the pane can say which of the four happened
+ * instead of "save failed".
+ */
+export async function writeFile(
+  sessionId: string,
+  path: string,
+  text: string,
+  expectedSha256?: string,
+): Promise<SaveResult> {
+  const value = await http().saveFile(sessionId, path, text, expectedSha256);
+  return parseSave(value, path);
+}
+
 /** Decode `{path, entries[]}`; unknown entries are skipped, not guessed at. */
 export function parseListing(value: unknown, requested = ''): DirListing {
   const body = asRecord(value);
@@ -154,7 +199,28 @@ export function parseFile(value: unknown, requested = ''): FileText {
     text: body.text,
     truncated: body.truncated === true,
     binary: body.binary === true,
+    // Absent or empty both mean "no token": an older server never sends it, and
+    // a truncated read legitimately has none. Nothing here may invent a digest.
+    sha256: text(body.sha256),
   };
+}
+
+/**
+ * Decode `{path, bytes, sha256}` from a save.
+ *
+ * It throws when the digest is missing: the editor keeps that value as its next
+ * `expectedSha256`, and a save that answered without one would leave the buffer
+ * unable to save again without a reload — a failure the operator would meet two
+ * keystrokes later, at the worst moment.
+ */
+export function parseSave(value: unknown, requested = ''): SaveResult {
+  const body = asRecord(value);
+  const sha256 = text(body?.sha256);
+  if (sha256 === '') {
+    throw new Error(`the server saved ${requested === '' ? 'the file' : requested} but named no digest`);
+  }
+  const echo = text(body?.path);
+  return { path: echo === '' ? requested : echo, bytes: count(body?.bytes), sha256 };
 }
 
 /** Decode `{files[]}`; an answer without the key is the empty list, not an error. */

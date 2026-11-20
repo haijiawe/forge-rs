@@ -146,6 +146,7 @@ All paths are under `{base}`. `{id}` is a session id; an unknown id is
 | 17 | `GET` | `/api/sessions/{id}/files` | One directory of the session's workspace | `200` |
 | 18 | `GET` | `/api/sessions/{id}/file` | One file of that workspace, as text | `200` |
 | 19 | `GET` | `/api/sessions/{id}/diff` | The changes git knows about in that workspace | `200` |
+| 20 | `PUT` | `/api/sessions/{id}/file` | Save an edited buffer into that workspace | `200` |
 
 ### 4.1 `GET /healthz`
 
@@ -848,7 +849,7 @@ the agent was told it may touch.
 - Directories sort before files, then case-insensitively by name. `.git` is
   omitted.
 - `size` is present for files only.
-- Path rules (shared by §4.17–4.19): no leading `/` or `\`, no drive letter or
+- Path rules (shared by §4.17–4.20): no leading `/` or `\`, no drive letter or
   `:`, no `..` component, and — after the path exists — it must canonicalise
   inside the workspace, so a symlink out of the tree is refused too. A refused
   path is `400 bad_request`. A path that is well formed but absent is
@@ -868,7 +869,7 @@ One file of that workspace, as text.
 
 ```
 200 OK
-{ "path": "src/main.rs", "size": 13, "text": "fn main() {}\n", "truncated": false, "binary": false }
+{ "path": "src/main.rs", "size": 13, "text": "fn main() {}\n", "truncated": false, "binary": false, "sha256": "…64 hex…" }
 ```
 
 - `?path=` is required; a missing or empty one is `400 bad_request`.
@@ -880,8 +881,12 @@ One file of that workspace, as text.
   file exists, and the UI is entitled to be told that rather than told its path
   was wrong.
 - `size` is the size on disk, not the size of `text`.
-- Same path rules, same refusal to write, and the same 404 shapes as §4.17. A
-  directory asked for as a file is `400 bad_request`.
+- `sha256` is the digest of the bytes in `text`, and it is the token §4.20 wants
+  back on save. It is **empty** when the answer is not the whole file
+  (`truncated` or `binary`): a token describing only the first megabyte would
+  authorise a save that replaced the rest of a file nobody saw.
+- Same path rules and the same 404 shapes as §4.17. A directory asked for as a
+  file is `400 bad_request`.
 
 ### 4.19 `GET /api/sessions/{id}/diff`
 
@@ -905,6 +910,45 @@ counts a review pane needs to decide what to open.
   answer: that is `git diff`'s own format, and re-encoding it here would make
   this contract responsible for a format it does not own.
 - Same 404 shapes as §4.17. `GET` only.
+
+### 4.20 `PUT /api/sessions/{id}/file`
+
+Save an edited buffer. This is the one route in this contract that changes the
+workspace, and it is a **person's** act rather than the model's: no turn is
+started, no approval prompt is raised, and no `tool/call` is recorded.
+
+```
+PUT /api/sessions/abc/file
+{ "path": "src/main.rs", "text": "fn main() {}\n", "expectedSha256": "…64 hex…" }
+
+200 OK
+{ "path": "src/main.rs", "bytes": 13, "sha256": "…64 hex…" }
+```
+
+- `expectedSha256` is the digest §4.18 handed back with the body. When present
+  the file must still hash to it. A mismatch, or a file that has since been
+  deleted, is `409 conflict` with nothing written: an editor that opened a file
+  ten minutes ago must not silently undo an agent that rewrote it. Omit it to
+  create a new file.
+- `path` and `text` are required; a body that is not JSON, or a body without
+  either, is `400 bad_request`. The path follows §4.17's rules, and every way out
+  of the workspace is `400 bad_request`.
+- 403 when the server was started without permission to edit the workspace. The
+  rule is that a session started `read-only` refuses here for the same reason its
+  tools refuse: a UI that can write what the tools cannot would be a quieter,
+  wider sandbox.
+- 422 for a `text` larger than 1 MiB, and for a save over an existing file larger
+  than 1 MiB — the reader only ever had a prefix of that one, so it has no
+  authority over the rest.
+- 409 for a save that would replace a file whose first block contains a NUL byte.
+  A buffer the editor could not render must not replace bytes nobody saw.
+- 404 for a missing parent directory: creating a tree from a typo is not what a
+  save means.
+- On success the bytes are written through a temporary file in the same directory
+  and renamed into place, so a reader never observes a half-written file.
+- **A refused save appends nothing.** Only a successful one writes a `file/write`
+  event (see `events-v1.md` §4.0.10), and it is appended *after* the bytes land: a
+  line describing bytes that never landed is worse than a failed save.
 
 ---
 

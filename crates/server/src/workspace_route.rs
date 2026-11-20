@@ -1,21 +1,26 @@
-//! The workspace as a reader sees it: list a directory, read a file, list the
-//! changes git knows about.
+//! The workspace as a reader and as a writer see it: list a directory, read a
+//! file, list the changes git knows about, and save an edited buffer.
 //!
-//! Three GETs, and none of them can write. The editor UI needs to show the tree
-//! the agent is working in, and until this route existed the only way to read a
-//! file from a browser was to ask the *model* to read it and parse the tool
-//! result — which costs a turn, records a tool call in the log, and answers a
-//! question the UI was already able to ask.
+//! The UI needs the tree the agent is working in. Until these routes existed the
+//! only way to read a file from a browser was to ask the *model* to read it and
+//! parse the tool result — which costs a turn, records a tool call in the log,
+//! and answers a question the UI was already able to ask.
 //!
-//! Two decisions worth stating:
+//! Three decisions worth stating:
 //!
 //! * **The workspace comes from the session's own log**, not from the process
 //!   or the request. `session/start.workspace` is what the agent was told it may
 //!   touch; reading anything else here would give the UI a wider reach than the
 //!   tools it is drawing.
-//! * **Writing stays out.** A file written by the UI would bypass the policy,
-//!   the approval prompt and the `tool/call` record — three things that make a
-//!   session reviewable. Edits go through the agent, as they always did.
+//! * **Saving is a person's act, not the model's**, so it is not a `tool/call`.
+//!   The policy and the approval prompt exist to constrain what the *model* may
+//!   do without being watched; a person at a keyboard is not that. What a save
+//!   needs is to be *reviewable*, and that is what the `file/write` event buys:
+//!   a record of which bytes replaced which, so a later disagreement between
+//!   "what the agent read" and "what is on disk" has an explanation.
+//! * **A refused save records nothing.** A read-only session, an escaping path
+//!   and a stale `expectedSha256` all fail before anything is written, and a
+//!   line describing something that did not happen is worse than no line.
 //!
 //! Path checks are the ones a containment boundary needs: no absolute paths, no
 //! `..`, no drive letters or UNC prefixes, and — after the path exists — a
@@ -23,9 +28,10 @@
 //! outside it.
 
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use hearth_core::Event;
 use serde_json::{json, Value};
@@ -36,6 +42,23 @@ use serde_json::{json, Value};
 /// whose bytes an editor would not render anyway, and the response stays small
 /// enough that a phone browser can open it.
 pub const MAX_TEXT_BYTES: u64 = 1 << 20;
+
+/// The largest buffer a save may carry.
+///
+/// The same megabyte as the read cap, for the same reason: the editor can only
+/// have shown what a read handed it, so accepting more than it can display would
+/// be accepting a body nobody reviewed.
+pub const MAX_WRITE_BYTES: usize = MAX_TEXT_BYTES as usize;
+
+/// How much of an existing file is inspected before it is overwritten.
+///
+/// A NUL byte anywhere in the first block means the file is not text, and a
+/// buffer the editor never rendered should not be replaced by one it did.
+const SNIFF_BYTES: usize = 8 << 10;
+
+/// A counter for temporary file names, so two saves in one process cannot
+/// collide even when they land in the same directory within the same second.
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// What went wrong, in the shape the route layer turns into a status code.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +74,14 @@ pub enum Problem {
     /// The path is acceptable but is not a file/directory as asked.
     NotAFile,
     NotADirectory,
+    /// A save carried more bytes than a request may.
+    TooLarge,
+    /// A save would have replaced a file the editor never rendered as text.
+    Binary,
+    /// The file changed since the reader was given its digest.
+    Conflict,
+    /// The bytes did not land.
+    Write,
 }
 
 /// One entry in a directory listing.
@@ -76,6 +107,22 @@ pub struct FileBody {
     pub text: String,
     pub truncated: bool,
     pub binary: bool,
+    /// The digest of the bytes the reader now holds, or empty when the answer is
+    /// not the whole file.
+    ///
+    /// An editor hands this back on save so a write cannot land on top of bytes
+    /// nobody saw. It is empty — rather than the digest of a prefix — when the
+    /// body was truncated or binary, because a token that describes only the
+    /// first megabyte would let a save replace the rest of a file unseen.
+    pub sha256: String,
+}
+
+/// What a successful save reports back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Written {
+    pub path: String,
+    pub bytes: u64,
+    pub sha256: String,
 }
 
 /// One row of `GET /diff`.
@@ -280,6 +327,13 @@ pub fn read_file(workspace: &str, relative: &str) -> Result<FileBody, Problem> {
         bytes.truncate(MAX_TEXT_BYTES as usize);
     }
     let binary = bytes.contains(&0) || std::str::from_utf8(&bytes).is_err();
+    // A digest is only a token the editor can hand back if it describes the
+    // whole file; a truncated or binary body has no such token.
+    let sha256 = if truncated || binary {
+        String::new()
+    } else {
+        hearth_core::sha256_hex(&bytes)
+    };
     let text = if binary {
         String::new()
     } else {
@@ -293,7 +347,152 @@ pub fn read_file(workspace: &str, relative: &str) -> Result<FileBody, Problem> {
         text,
         truncated,
         binary,
+        sha256,
     })
+}
+
+/// Save an edited buffer back into the workspace.
+///
+/// `expected` is the digest the reader was given when it opened the file. When
+/// it is present the file must still hash to it: an editor that opened a file
+/// ten minutes ago must not silently undo an agent that rewrote it since. When
+/// it is present and the file is gone, that is a conflict too — the reader is
+/// describing a file that no longer exists.
+pub fn write_file(
+    workspace: &str,
+    relative: &str,
+    text: &str,
+    expected: Option<&str>,
+) -> Result<Written, Problem> {
+    let parts = components(relative)?;
+    if parts.is_empty() {
+        // The workspace root is a directory, and no buffer replaces one.
+        return Err(Problem::NotAFile);
+    }
+    if text.len() > MAX_WRITE_BYTES {
+        return Err(Problem::TooLarge);
+    }
+    let (clean, path) = resolve(workspace, relative)?;
+    let parent = match path.parent() {
+        Some(parent) => parent.to_path_buf(),
+        None => return Err(Problem::BadPath),
+    };
+    // Saving a new file into a directory that is not there is almost always a
+    // typo in the path rather than a request to build a tree; say so.
+    match fs::metadata(&parent) {
+        Ok(meta) if meta.is_dir() => {}
+        Ok(_) => return Err(Problem::NotADirectory),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(Problem::NotFound)
+        }
+        Err(_) => return Err(Problem::Read),
+    }
+
+    let wanted = expected.filter(|text| !text.is_empty());
+    match fs::metadata(&path) {
+        Ok(meta) => {
+            if meta.is_dir() {
+                return Err(Problem::NotAFile);
+            }
+            if meta.len() > MAX_TEXT_BYTES {
+                // The reader was handed a prefix, so it has no authority over
+                // the rest of the file.
+                return Err(Problem::TooLarge);
+            }
+            if smells_binary(&path)? {
+                return Err(Problem::Binary);
+            }
+            if let Some(wanted) = wanted {
+                let actual = digest_file(&path)?;
+                if actual != wanted {
+                    return Err(Problem::Conflict);
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if wanted.is_some() {
+                // The buffer claims to be editing a file that is no longer
+                // there; writing it would be a create nobody asked for.
+                return Err(Problem::Conflict);
+            }
+        }
+        Err(_) => return Err(Problem::Read),
+    }
+
+    write_atomically(&parent, &path, text.as_bytes())?;
+    Ok(Written {
+        path: clean,
+        bytes: text.len() as u64,
+        sha256: hearth_core::sha256_hex(text.as_bytes()),
+    })
+}
+
+/// Does the first block of this file look like something an editor cannot show?
+///
+/// Only the first block is inspected: a NUL byte anywhere in it settles the
+/// question, and reading a large file to answer "is this text" would charge the
+/// whole file for a decision the editor already made on the read side.
+fn smells_binary(path: &Path) -> Result<bool, Problem> {
+    let mut handle = fs::File::open(path).map_err(|_| Problem::Read)?;
+    // Empty, not a pre-sized buffer: `read_to_end` appends, so a zero-filled
+    // buffer would put its own zeros in front of the file and every text file
+    // would then look binary.
+    let mut head = Vec::new();
+    std::io::Read::by_ref(&mut handle)
+        .take(SNIFF_BYTES as u64)
+        .read_to_end(&mut head)
+        .map_err(|_| Problem::Read)?;
+    Ok(head.contains(&0))
+}
+
+/// The digest of a whole file, read in blocks so a large one need not be held.
+fn digest_file(path: &Path) -> Result<String, Problem> {
+    let mut handle = fs::File::open(path).map_err(|_| Problem::Read)?;
+    let mut context = hearth_core::Sha256::new();
+    let mut chunk = vec![0u8; SNIFF_BYTES];
+    loop {
+        let read = std::io::Read::read(&mut handle, &mut chunk).map_err(|_| Problem::Read)?;
+        if read == 0 {
+            break;
+        }
+        context.update(&chunk[..read]);
+    }
+    Ok(context.finish())
+}
+
+/// Write bytes by way of a temporary file in the same directory, then rename.
+///
+/// A partial write that is visible under the target name is the one failure
+/// mode an editor cannot recover from: the reader would see a file that is
+/// half old and half new with no way to tell. `rename` over an existing file is
+/// atomic on both platforms this runs on.
+fn write_atomically(parent: &Path, path: &Path, bytes: &[u8]) -> Result<(), Problem> {
+    let name = match path.file_name() {
+        Some(name) => name.to_string_lossy().into_owned(),
+        None => return Err(Problem::BadPath),
+    };
+    let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temp = parent.join(format!(
+        ".{name}.hearth-{}-{counter}.tmp",
+        std::process::id()
+    ));
+    let written = (|| -> std::io::Result<()> {
+        let mut file = fs::File::create(&temp)?;
+        file.write_all(bytes)?;
+        // The rename is the commit point; without this the name can point at
+        // bytes the filesystem has not been told about.
+        file.sync_all()?;
+        Ok(())
+    })();
+    if written.is_err() {
+        let _ = fs::remove_file(&temp);
+        return Err(Problem::Write);
+    }
+    if fs::rename(&temp, path).is_err() {
+        let _ = fs::remove_file(&temp);
+        return Err(Problem::Write);
+    }
+    Ok(())
 }
 
 /// The changes git knows about in the workspace.
@@ -421,6 +620,17 @@ impl FileBody {
             "text": self.text,
             "truncated": self.truncated,
             "binary": self.binary,
+            "sha256": self.sha256,
+        })
+    }
+}
+
+impl Written {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "path": self.path,
+            "bytes": self.bytes,
+            "sha256": self.sha256,
         })
     }
 }
@@ -547,5 +757,138 @@ mod tests {
     fn a_directory_with_no_git_repository_reports_no_changes() {
         let root = scratch("nogit");
         assert_eq!(list_diff(root.to_str().expect("utf8")), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn a_save_replaces_the_bytes_and_reports_the_new_digest() {
+        let root = scratch("write");
+        fs::write(root.join("note.txt"), "before\n").expect("file");
+        let workspace = root.to_str().expect("utf8");
+        let opened = read_file(workspace, "note.txt").expect("read");
+        let saved =
+            write_file(workspace, "note.txt", "after\n", Some(&opened.sha256)).expect("save");
+        assert_eq!(saved.path, "note.txt");
+        assert_eq!(saved.bytes, 6);
+        assert_eq!(
+            fs::read_to_string(root.join("note.txt")).expect("disk"),
+            "after\n"
+        );
+        assert_eq!(saved.sha256, hearth_core::sha256_hex(b"after\n"));
+        // The digest the save reported is the one a later read will hand back,
+        // which is what makes it usable as a token.
+        assert_eq!(
+            read_file(workspace, "note.txt").expect("read").sha256,
+            saved.sha256
+        );
+    }
+
+    #[test]
+    fn a_save_creates_a_file_that_is_not_there_yet() {
+        let root = scratch("create");
+        let workspace = root.to_str().expect("utf8");
+        let saved = write_file(workspace, "fresh.txt", "hello", None).expect("save");
+        assert_eq!(saved.bytes, 5);
+        assert_eq!(
+            fs::read_to_string(root.join("fresh.txt")).expect("disk"),
+            "hello"
+        );
+    }
+
+    #[test]
+    fn a_stale_digest_is_a_conflict_and_the_file_is_left_alone() {
+        let root = scratch("conflict");
+        fs::write(root.join("note.txt"), "original\n").expect("file");
+        let workspace = root.to_str().expect("utf8");
+        let stale = hearth_core::sha256_hex(b"something else");
+        assert_eq!(
+            write_file(workspace, "note.txt", "mine\n", Some(&stale)),
+            Err(Problem::Conflict)
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("note.txt")).expect("disk"),
+            "original\n"
+        );
+        // A digest for a file that is gone is the same disagreement.
+        assert_eq!(
+            write_file(workspace, "gone.txt", "x", Some(&stale)),
+            Err(Problem::Conflict)
+        );
+        assert!(!root.join("gone.txt").exists());
+    }
+
+    #[test]
+    fn a_save_may_not_climb_out_of_the_workspace_nor_replace_a_directory() {
+        let root = scratch("write-bounds");
+        fs::create_dir_all(root.join("ws")).expect("ws");
+        fs::create_dir_all(root.join("ws").join("dir")).expect("dir");
+        fs::write(root.join("inside.txt"), "a").expect("file");
+        let workspace = root.join("ws");
+        let workspace = workspace.to_str().expect("utf8");
+        assert_eq!(
+            write_file(workspace, "../inside.txt", "x", None),
+            Err(Problem::BadPath)
+        );
+        assert_eq!(
+            write_file(workspace, "C:/Windows/win.ini", "x", None),
+            Err(Problem::BadPath)
+        );
+        assert_eq!(write_file(workspace, "", "x", None), Err(Problem::NotAFile));
+        assert_eq!(
+            write_file(workspace, "dir", "x", None),
+            Err(Problem::NotAFile)
+        );
+        // The file outside the workspace must still hold its original bytes.
+        assert_eq!(
+            fs::read_to_string(root.join("inside.txt")).expect("disk"),
+            "a"
+        );
+    }
+
+    #[test]
+    fn a_save_refuses_to_overwrite_a_binary_or_oversized_file() {
+        let root = scratch("write-guards");
+        fs::write(root.join("blob.bin"), [0u8, 1, 2, 3]).expect("file");
+        let big = vec![b'x'; (MAX_TEXT_BYTES + 8) as usize];
+        fs::write(root.join("big.txt"), &big).expect("file");
+        let workspace = root.to_str().expect("utf8");
+        assert_eq!(
+            write_file(workspace, "blob.bin", "text", None),
+            Err(Problem::Binary)
+        );
+        assert_eq!(
+            write_file(workspace, "big.txt", "text", None),
+            Err(Problem::TooLarge)
+        );
+        let oversized = "x".repeat(MAX_WRITE_BYTES + 1);
+        assert_eq!(
+            write_file(workspace, "note.txt", &oversized, None),
+            Err(Problem::TooLarge)
+        );
+    }
+
+    #[test]
+    fn a_save_leaves_no_temporary_file_behind() {
+        let root = scratch("write-temp");
+        fs::write(root.join("note.txt"), "before").expect("file");
+        let workspace = root.to_str().expect("utf8");
+        write_file(workspace, "note.txt", "after", None).expect("save");
+        let names: Vec<String> = fs::read_dir(&root)
+            .expect("dir")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["note.txt".to_string()]);
+    }
+
+    #[test]
+    fn a_read_of_a_file_that_is_too_large_to_hold_carries_no_digest() {
+        let root = scratch("write-token");
+        let big = vec![b'x'; (MAX_TEXT_BYTES + 8) as usize];
+        fs::write(root.join("big.txt"), &big).expect("file");
+        let read = read_file(root.to_str().expect("utf8"), "big.txt").expect("read");
+        assert!(read.truncated);
+        // Empty, not the digest of the prefix: a token describing the first
+        // megabyte would authorise replacing the rest unseen.
+        assert_eq!(read.sha256, "");
     }
 }

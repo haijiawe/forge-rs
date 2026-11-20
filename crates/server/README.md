@@ -93,6 +93,15 @@ in-flight connections finish before their thread exits.
   `.../events`, `POST .../messages`, `.../cancel`, `.../steer`,
   `GET .../stream`, `POST .../approvals/{id}`. Unsupported methods return
   `405` with an `Allow` header and `code=method_not_allowed`.
+- **Workspace routes**: `GET .../files`, `GET .../file`, `GET .../diff` and
+  `PUT .../file`, implemented in [`workspace_route`](src/workspace_route.rs).
+  The workspace comes from `session/start`; `..`, absolute paths and symlink
+  escapes are refused; text is capped at 1 MiB. The write path is the only route
+  that mutates anything outside the log: it is refused with `403` unless
+  `Options.workspace_write` is set (the CLI derives it from `--sandbox`), it takes
+  an optional `expectedSha256` as an optimistic token, it writes through a
+  temporary file and a rename, and it appends exactly one `file/write` event
+  afterwards — a save that is refused appends nothing.
 - **Idempotency**: `POST .../messages` requires `Idempotency-Key`; the first
   delivery is `202`, a replay is `200` with `deduplicated: true`. The server —
   not the runner — appends `turn/start(number)` then `user/message` with matching

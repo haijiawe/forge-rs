@@ -378,6 +378,25 @@ fn workspace_failure(problem: crate::workspace_route::Problem) -> ApiFailure {
         Problem::NotADirectory => {
             ApiFailure::new(400, code::BAD_REQUEST, "that path is not a directory")
         }
+        // A session started in a read-only sandbox did not agree to be edited
+        // through a side door; that refusal happens before this mapping (the
+        // handler answers 403 itself, because the server option is what knows).
+        Problem::TooLarge => ApiFailure::new(
+            422,
+            code::UNPROCESSABLE,
+            "the body is larger than the megabyte an editor buffer may carry",
+        ),
+        Problem::Binary => ApiFailure::new(
+            409,
+            code::CONFLICT,
+            "that file is not text, so a buffer would replace bytes nobody saw",
+        ),
+        Problem::Conflict => ApiFailure::new(
+            409,
+            code::CONFLICT,
+            "the file changed since it was opened; reload it before saving",
+        ),
+        Problem::Write => ApiFailure::new(500, code::INTERNAL, "the file could not be written"),
     }
 }
 
@@ -1558,6 +1577,9 @@ impl Server {
                 "file" if request.method == "GET" => {
                     self.handle_workspace_file(request, segments[1])
                 }
+                "file" if request.method == "PUT" => {
+                    self.handle_workspace_write(request, segments[1])
+                }
                 "diff" if request.method == "GET" => self.handle_workspace_diff(segments[1]),
                 "stream" => Err(method_not_allowed("GET")),
                 "events" => Err(method_not_allowed("GET")),
@@ -1567,7 +1589,7 @@ impl Server {
                 "goal" => Err(method_not_allowed("GET")),
                 "subagents" => Err(method_not_allowed("GET")),
                 "files" => Err(method_not_allowed("GET")),
-                "file" => Err(method_not_allowed("GET")),
+                "file" => Err(method_not_allowed("GET, PUT")),
                 "diff" => Err(method_not_allowed("GET")),
                 _ => Err(ApiFailure::new(404, code::NOT_FOUND, "no such endpoint")),
             },
@@ -1666,6 +1688,76 @@ impl Server {
         let body =
             crate::workspace_route::read_file(&workspace, path).map_err(workspace_failure)?;
         Ok(Response::json(200, &body.to_json()))
+    }
+
+    /// Save an edited buffer back into the session's workspace.
+    ///
+    /// A person saving a file is not the model calling a tool, so this is not a
+    /// `tool/call`: the policy and the approval prompt constrain what the model
+    /// may do unwatched, and the person at the keyboard is who they protect. What
+    /// a save does need is to be reviewable, which is what the `file/write` event
+    /// buys — a record of which bytes replaced which digest, so a later
+    /// disagreement between "what the agent read" and "what is on disk" has an
+    /// explanation instead of only a suspicion.
+    ///
+    /// A refused save appends nothing. The write happens first and the event
+    /// second, because a line describing bytes that never landed is worse than a
+    /// file whose save failed loudly.
+    fn handle_workspace_write(&self, request: &Request, id: &str) -> ApiResult<Response> {
+        if !self.shared.options.workspace_write {
+            return Err(ApiFailure::new(
+                403,
+                code::FORBIDDEN,
+                "this server was started without permission to edit the workspace",
+            ));
+        }
+        self.prepare_post(request)?;
+        let workspace = self.session_workspace(id)?;
+        let Some(body) = self.parse_json::<FileWriteRequest>(request)? else {
+            return Err(ApiFailure::new(
+                400,
+                code::BAD_REQUEST,
+                "a body with path and text is required",
+            ));
+        };
+        if body.path.trim().is_empty() {
+            return Err(ApiFailure::new(
+                400,
+                code::BAD_REQUEST,
+                "the path is required",
+            ));
+        }
+        let written = crate::workspace_route::write_file(
+            &workspace,
+            &body.path,
+            &body.text,
+            body.expected_sha256.as_deref(),
+        )
+        .map_err(workspace_failure)?;
+
+        let _guard = lock_append(&self.shared.append_lock);
+        let state = self.fold_session(id).map_err(fold_failure)?;
+        let mut event = Event::new(
+            id,
+            EventType::FILE_WRITE,
+            Some(json!({
+                "path": written.path,
+                "bytes": written.bytes,
+                "sha256": written.sha256,
+            })),
+        );
+        // The turn in flight, or nothing when the session is idle: a save is not
+        // part of a turn and saying it was one would be a claim about ordering
+        // the log cannot support.
+        event.turn = state.running;
+        self.append_locked(id, &event).map_err(|error| {
+            ApiFailure::new(
+                500,
+                code::INTERNAL,
+                format!("the file was saved but its record could not be appended: {error}"),
+            )
+        })?;
+        Ok(Response::json(200, &written.to_json()))
     }
 
     /// The changes git knows about in the session's workspace.

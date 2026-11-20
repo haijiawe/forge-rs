@@ -781,6 +781,21 @@ is broken. Closing a browser tab does not end anything: the server runs until it
 is interrupted, one turn per accepted message, and it does **not** compact the
 event log (§2.3 "Compaction" is `hearth chat`-only).
 
+**Saving from the editor.** The UI can open a file from the session's workspace
+and save it back (§4.18 and §4.20 of [`api.md`](api.md)). A save appends one
+`file/write` event naming the path, the byte count and the SHA-256 of the bytes
+that were written — it is **not** a `tool/call`, because no model was involved and
+the transcript must not claim otherwise (see §4.0.10 of
+[`events-v1.md`](events-v1.md)). Two consequences the operator can observe:
+
+- Saving is refused with `403` unless the session was started with a sandbox mode
+  other than `read-only`. A read-only session's tools cannot write, so its editor
+  cannot either; two faces describing one session differently is the failure this
+  rule prevents.
+- A save that is refused — read-only, a path outside the workspace, a stale
+  `expectedSha256` — appends **nothing**. A record of something that did not happen
+  is worse than a missing record.
+
 ---
 
 ## 3. Reserved, not implemented

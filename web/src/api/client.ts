@@ -251,6 +251,37 @@ export class HearthClient implements HearthApi {
     );
   }
 
+  /**
+   * Save an edited buffer into a session's workspace (§4.20).
+   *
+   * Deliberately not part of `HearthApi`: that interface is what a session view
+   * needs, and every one of its fakes would have to grow a method none of them
+   * call. The workbench has its own seam (`WorkbenchApi`), and this is behind
+   * it.
+   *
+   * No `Idempotency-Key`: a save is not retried by the transport, and a retry
+   * that did land twice would be caught by `expectedSha256` on the second
+   * attempt — the digest of the bytes the buffer was built from no longer
+   * matches the file, which is exactly the case that key protects against on
+   * `postMessage`. The answer carries the new digest so the editor can keep
+   * saving without reloading.
+   */
+  saveFile(
+    id: string,
+    path: string,
+    text: string,
+    expectedSha256?: string,
+  ): Promise<{ path: string; bytes: number; sha256: string }> {
+    const body =
+      expectedSha256 === undefined || expectedSha256 === ''
+        ? { path, text }
+        : { path, text, expectedSha256 };
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/file`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  }
+
   capabilities(): Promise<CapabilityReport> {
     // Decoded through parseReport rather than cast: this endpoint is newer than
     // the frozen protocol module, so an older or partial server must degrade to

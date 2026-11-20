@@ -21,7 +21,7 @@ pub mod event;
 pub mod ids;
 pub mod json;
 
-pub use digest::fingerprint;
+pub use digest::{fingerprint, sha256_hex, Sha256};
 pub use error::{Error, ErrorKind, Result};
 pub use event::{Event, EventType};
 pub use ids::{new_id, SessionId};

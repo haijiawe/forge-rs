@@ -1699,6 +1699,25 @@ body {
   color: var(--text);
 }
 
+/* Monaco's host. It sizes itself from this box, so the box must have a real
+   height: `flex: 1` plus `min-height: 0` is what stops the editor from
+   collapsing to nothing inside a column that is itself a flex child. The
+   `overflow: hidden` keeps Monaco's own scrollbars inside the pane. */
+.wb-editor-monaco {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Monaco renders a 1px focus outline of its own on the wrapper, which reads as
+   a second border against the pane's. Its `aria-label` is on the host element,
+   so the outline is not what makes the pane reachable by keyboard. */
+.wb-editor-monaco .monaco-editor,
+.wb-editor-monaco .monaco-editor .overflow-guard {
+  outline: none;
+}
+
 .wb-diff {
   display: flex;
   flex-direction: column;

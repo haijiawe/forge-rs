@@ -1,56 +1,20 @@
 //! SHA-256 in the one form this crate needs: a lowercase hex string.
 //!
-//! `ring` is already in the dependency budget because `rustls` needs a digest,
-//! so `sha2` would put a second implementation of the same function in the same
-//! binary. The wrapper exists because every comparison in this crate is between
-//! hex strings read from a JSON document and hex strings produced here, and a
-//! byte-array comparison would need its own formatting rule anyway.
+//! The function itself lives in `hearth-core` now, because it is no longer only
+//! a market concern: a `file/write` record states the digest of the bytes it
+//! saved, and a reader anywhere is invited to check it against the file. Two
+//! implementations of the same wire-format value is exactly the second truth
+//! `hearth-core` exists to prevent, so this module keeps only the parts that are
+//! specific to how a market compares digests.
 
-use ring::digest::{Context, SHA256};
-
-/// The digest of `bytes`, lowercase hex, 64 characters.
-pub fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = ring::digest::digest(&SHA256, bytes);
-    hex_lower(digest.as_ref())
-}
+pub use hearth_core::digest::sha256_hex;
 
 /// A streaming digest, for a file too large to hold twice in memory.
 ///
 /// Why not just read the file: the caller that digests a recorded file also
 /// wants its length, and reading a 200 MB file into a `Vec` to hash it is the
 /// kind of allocation a market should not need.
-pub struct Sha256(Context);
-
-impl Sha256 {
-    pub fn new() -> Self {
-        Sha256(Context::new(&SHA256))
-    }
-
-    pub fn update(&mut self, bytes: &[u8]) {
-        self.0.update(bytes);
-    }
-
-    pub fn finish(self) -> String {
-        hex_lower(self.0.finish().as_ref())
-    }
-}
-
-impl Default for Sha256 {
-    fn default() -> Self {
-        Sha256::new()
-    }
-}
-
-/// Lowercase hex, two characters per byte.
-pub fn hex_lower(bytes: &[u8]) -> String {
-    const DIGITS: [u8; 16] = *b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(DIGITS[(byte >> 4) as usize] as char);
-        out.push(DIGITS[(byte & 0x0f) as usize] as char);
-    }
-    out
-}
+pub type Sha256 = hearth_core::Sha256;
 
 /// Is this 64 lowercase hex characters? The index's `sha256` is compared as
 /// text, so its shape is checked as text.

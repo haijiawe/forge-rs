@@ -143,7 +143,7 @@ the condition, and the substring above is what the conformance suite asserts.
 
 ## 4. Event types
 
-The v1 type catalogue is **open**. These thirty-one types have producers in `hearth` today:
+The v1 type catalogue is **open**. These thirty-two types have producers in `hearth` today:
 
 | `type` | Emitted when | Payload members in current producers |
 | --- | --- | --- |
@@ -178,6 +178,7 @@ The v1 type catalogue is **open**. These thirty-one types have producers in `hea
 | `assistant/attempt` | a provider attempt that did **not** become the visible answer (§4.0.7) | `attempt` (0-based), `outcome` (`retry` \| `error` \| `cancelled`), `retryable` (bool), optional `message`, optional `code` |
 | `agent/inbox` | one change to the durable input queues (§4.0.8) | `target` (`next-turn` \| `next-step`), `start`, `removed`, `inserted` (`[{id,text}]`) |
 | `agent/status` | a resident loop entered or left a phase (§4.0.8) | `phase` (`running` \| `maintenance` \| `idle`) |
+| `file/write` | a person saved a buffer through the editor (§4.0.10) | `path` (workspace-relative), `bytes`, `sha256` |
 
 The optional `revision` on the three `goal/*` payloads is the version a
 multi-writer continuation uses to decide, *before it writes*, whether it is still
@@ -642,6 +643,38 @@ result, which is why a background delegation cannot also ask for a schema.
 Both rows are log-only. Neither ever enters model history: the queues decide
 *when* a message reaches the model, and the message itself is still a
 `user/message` row.
+
+### 4.0.10 `file/write`
+
+`file/write{path, bytes, sha256}` records that **a person** saved a buffer through
+the editor. `path` is workspace-relative and never absolute; `bytes` is the size
+of what was written, including zero; `sha256` is the digest of the bytes written,
+lowercase hex, so a later reader can ask whether the file still matches what was
+saved.
+
+It is not a `tool/call`, and the difference is the reason the type exists. The
+tool channel is a conversation: `tool/call` is what the loop asked a tool to do
+and `tool/result` is the answer it gave the model. A human saving a file has no
+model in the loop, and recording it as a tool call would make the transcript
+claim the agent wrote a file it never touched — a reader cannot tell that apart
+from the agent actually writing it.
+
+What the row buys is the ability to explain a disagreement. The log says the
+agent read `main.rs` and saw X; the disk says Y; without this row the only
+hypothesis available is a bug. With it, a reader can say when the file changed
+and by whose hand. That is law 1 applied to the workspace: after a restart the
+file is the only surviving evidence, and evidence without a timestamp is a
+rumour.
+
+Two consequences worth stating:
+
+- The projection **ignores** it and model history never sees it. It is a fact
+  about the workspace, not about the conversation; putting it in front of the
+  model would spend tokens on something no tool result depends on.
+- A write that the harness refuses (read-only mode, a path outside the
+  workspace, a stale `expectedSha256`) appends **nothing**, because no file
+  changed. A row that describes a write which did not happen is worse than a
+  missing row.
 
 ## 5. Append-only, never rewrite
 

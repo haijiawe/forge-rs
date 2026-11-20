@@ -12,18 +12,19 @@
 // "empty" text a statement about the workspace rather than about the network.
 
 import { ApiError } from '../api/client';
-import { listDir, listDiff, readFile } from '../api/workbench';
-import type { DiffEntry, DirListing, FileText } from '../api/workbench';
+import { listDir, listDiff, readFile, writeFile } from '../api/workbench';
+import type { DiffEntry, DirListing, FileText, SaveResult } from '../api/workbench';
 
-/** The three reads the workbench performs, faked whole in tests. */
+/** The reads and the one write the workbench performs, faked whole in tests. */
 export interface WorkbenchApi {
   listDir(sessionId: string, path: string): Promise<DirListing>;
   readFile(sessionId: string, path: string): Promise<FileText>;
   listDiff(sessionId: string): Promise<DiffEntry[]>;
+  saveFile(sessionId: string, path: string, text: string, expectedSha256: string): Promise<SaveResult>;
 }
 
 /** The real HTTP module; a module constant so a prop default keeps its identity. */
-export const defaultWorkbenchApi: WorkbenchApi = { listDir, readFile, listDiff };
+export const defaultWorkbenchApi: WorkbenchApi = { listDir, readFile, listDiff, saveFile: writeFile };
 
 /** One directory in the tree, keyed by its relative path ('' is the root). */
 export interface DirState {
@@ -38,6 +39,19 @@ export interface FileTab {
   file: FileText | null;
   loading: boolean;
   error: string | null;
+  /**
+   * The buffer, once it differs from `file.text`.
+   *
+   * Edits live here rather than being written into `file.text`: `file` is the
+   * server's answer, and the moment the two are the same field a save cannot
+   * tell "nothing changed" from "everything changed". `null` means clean, which
+   * is also the state right after a successful save.
+   */
+  draft: string | null;
+  /** True while a save is in flight; a second Ctrl+S must not race the first. */
+  saving: boolean;
+  /** The last save's failure, cleared by the next attempt or a reload. */
+  saveError: string | null;
 }
 
 export interface WorkbenchState {
@@ -132,7 +146,15 @@ export class WorkbenchStore {
       if (existing.file === null) void this.loadFile(path);
       return;
     }
-    const tab: FileTab = { path, file: null, loading: false, error: null };
+    const tab: FileTab = {
+      path,
+      file: null,
+      loading: false,
+      error: null,
+      draft: null,
+      saving: false,
+      saveError: null,
+    };
     this.publish({ open: [...this.state.open, tab], activePath: path });
     void this.loadFile(path);
   }
@@ -167,6 +189,66 @@ export class WorkbenchStore {
     if (path === this.state.activePath) return;
     if (!this.state.open.some((tab) => tab.path === path)) return;
     this.publish({ activePath: path });
+  }
+
+  /**
+   * Record an edit. Nothing reaches the disk until `save` is called.
+   *
+   * Typing back to the exact bytes that were read clears the draft rather than
+   * keeping an identical copy: a tab that says "unsaved" while its text equals
+   * the file is a lie about work that does not exist.
+   */
+  editFile(path: string, text: string): void {
+    const tab = this.state.open.find((entry) => entry.path === path);
+    if (tab === undefined || tab.file === null) return;
+    if (tab.draft === text) return;
+    this.patchTab(path, { draft: text === tab.file.text ? null : text, saveError: null });
+  }
+
+  /** Discard the draft and show the bytes that were read. */
+  revertFile(path: string): void {
+    this.patchTab(path, { draft: null, saveError: null });
+  }
+
+  /**
+   * Write the draft back. A clean tab is a no-op, not an error.
+   *
+   * The digest of the bytes the buffer was built from rides along as
+   * `expectedSha256`, so a file that changed underneath the editor is refused
+   * with `conflict` instead of silently overwritten. After a successful save
+   * the tab adopts the answer: `file.text` becomes the saved text and its
+   * digest becomes the next token, which is what lets a second save work
+   * without a reload.
+   */
+  async saveFile(path: string): Promise<void> {
+    const tab = this.state.open.find((entry) => entry.path === path);
+    if (tab === undefined || tab.file === null) return;
+    if (tab.draft === null || tab.saving) return;
+    const draft = tab.draft;
+    this.patchTab(path, { saving: true, saveError: null });
+    try {
+      const saved = await this.api.saveFile(
+        this.state.sessionId,
+        path,
+        draft,
+        tab.file.sha256,
+      );
+      // The tab may have been closed while the request was in flight; writing
+      // through `patchTab` on a path that is gone is harmless, but adopting the
+      // answer would resurrect nothing, so the update is skipped.
+      const live = this.state.open.find((entry) => entry.path === path);
+      if (live === undefined || live.file === null) return;
+      this.patchTab(path, {
+        file: { ...live.file, text: draft, size: saved.bytes, sha256: saved.sha256, truncated: false },
+        // Only clear the draft if no further edit arrived during the save;
+        // otherwise the newer keystrokes would be replaced by what was sent.
+        draft: live.draft === draft ? null : live.draft,
+        saving: false,
+        saveError: null,
+      });
+    } catch (error) {
+      this.patchTab(path, { saving: false, saveError: errorMessage(error) });
+    }
   }
 
   /** Flip the centre pane between the editor and the diff list, reading once. */
@@ -204,7 +286,10 @@ export class WorkbenchStore {
     this.patchTab(path, { loading: true, error: null });
     try {
       const file = await this.api.readFile(this.state.sessionId, path);
-      this.patchTab(path, { file, loading: false, error: null });
+      // A read replaces the buffer outright: any draft was built on bytes that
+      // no longer exist, and a reload is exactly what the conflict message asks
+      // the operator to do.
+      this.patchTab(path, { file, loading: false, error: null, draft: null, saveError: null });
     } catch (error) {
       this.patchTab(path, { file: null, loading: false, error: errorMessage(error) });
     }

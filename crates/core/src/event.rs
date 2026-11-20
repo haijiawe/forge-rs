@@ -105,6 +105,23 @@ impl EventType {
     /// `maintenance`). Log-only: it describes the agent's own liveness, not
     /// anything the model said, so it never enters model history.
     pub const AGENT_STATUS: EventType = EventType("agent/status");
+    /// One row per file written through the editor, by the person, not the model.
+    ///
+    /// It is deliberately not a `tool/call`: the tool channel records what the
+    /// loop asked a tool to do, and its `result` answers the model. A human
+    /// saving a buffer has no model in the loop, and dressing it as a tool call
+    /// would make the transcript claim the agent wrote a file it never touched.
+    ///
+    /// The row exists because of law 1: after a restart the file on disk is the
+    /// only surviving evidence, and "the agent read `main.rs` and it said X, but
+    /// the disk says Y" is a discrepancy a reader should be able to explain
+    /// without guessing at which process wrote last. Payload:
+    /// `{path, bytes, sha256}` — the digest is of the bytes written, so a later
+    /// reader can tell whether the file still matches what was saved.
+    ///
+    /// The projection ignores it and model history never sees it; it is a fact
+    /// about the workspace, not about the conversation.
+    pub const FILE_WRITE: EventType = EventType("file/write");
 
     /// Every type this build knows. A test asserts it matches the contract
     /// document, and the reader uses it to decide what it can fold.
@@ -140,6 +157,7 @@ impl EventType {
         EventType::ASSISTANT_ATTEMPT,
         EventType::AGENT_INBOX,
         EventType::AGENT_STATUS,
+        EventType::FILE_WRITE,
     ];
 
     pub fn as_str(self) -> &'static str {

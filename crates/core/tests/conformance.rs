@@ -90,12 +90,14 @@ fn every_case_file_is_present() {
     // eighth: H1 added `request/context`, which names a request's inputs rather
     // than copying them. The cancelled-by case is the ninth: H2 gave the
     // cancellation token a cause, and `turn/end.cancelledBy` was already a
-    // free-form member the recovery path filled in.
+    // free-form member the recovery path filled in. The file-write case is the
+    // tenth: the IDE's write route added `file/write`, the first event type that
+    // records an act by the person rather than by the loop.
     let found = cases();
     assert_eq!(
         found.len(),
-        32,
-        "expected 32 conformance cases, found {}: {:?}",
+        33,
+        "expected 33 conformance cases, found {}: {:?}",
         found.len(),
         found.iter().map(|c| c.name.as_str()).collect::<Vec<_>>()
     );

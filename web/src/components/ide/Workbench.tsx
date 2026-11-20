@@ -3,9 +3,10 @@
 //
 // This component owns layout and nothing else. Every read goes through
 // state/workbench.ts, every piece of chat markup arrives already rendered as
-// `agent` (from SessionView, which owns the session store), and the editor is a
-// placeholder behind EditorPane. That split is what lets the same session
-// screen degrade to one column below 900px without duplicating the transcript.
+// `agent` (from SessionView, which owns the session store), and the editor is
+// EditorPane's business — Monaco when the environment can host it, a textarea
+// when it cannot. That split is what lets the same session screen degrade to one
+// column below 900px without duplicating the transcript.
 //
 // The width switch lives here, in `useWideLayout`, because the decision is the
 // layout's: in a browser without matchMedia (jsdom, an old embedded view) it
@@ -14,7 +15,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent, PointerEvent, ReactNode } from 'react';
 import { WorkbenchStore } from '../../state/workbench';
-import type { WorkbenchApi } from '../../state/workbench';
+import type { FileTab, WorkbenchApi } from '../../state/workbench';
 import { DiffList } from './DiffList';
 import { EditorPane } from './EditorPane';
 import { FileTree } from './FileTree';
@@ -56,6 +57,32 @@ export function useWideLayout(query: string = WIDE_QUERY): boolean {
     };
   }, [query]);
   return wide;
+}
+
+/**
+ * The one sentence above the text, in priority order.
+ *
+ * A binary file and a truncated read both take the editor out of the writing
+ * business, and a save failure is the thing the operator has to act on — so it
+ * comes first. All three can be true at once; showing one honestly beats
+ * showing three lines nobody reads.
+ */
+function editorNotice(tab: FileTab): string | null {
+  if (tab.saveError !== null) {
+    // `conflict` is the one the operator can fix, and the fix is not obvious
+    // from the word: it means the file moved under the buffer.
+    return tab.saveError.startsWith('conflict:')
+      ? `${tab.saveError} — the file changed on disk since this tab was read. Close the tab and open it again to see what is there now.`
+      : tab.saveError;
+  }
+  if (tab.file === null) return null;
+  if (tab.file.binary) return 'this file is not text — the server sent no characters for it';
+  if (tab.file.truncated) {
+    return 'the server truncated this file; only its first 1 MiB is shown, and reading a file back is required before saving';
+  }
+  if (tab.saving) return 'saving…';
+  if (tab.draft !== null) return 'unsaved changes — Ctrl+S saves (Cmd+S on macOS)';
+  return null;
 }
 
 export interface WorkbenchProps {
@@ -212,8 +239,9 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
                 {tab === null && (
                   <p className="wb-empty">
                     no file is open. Pick one in the files pane: the centre column shows a single
-                    file at a time, read-only for now. The diff button above swaps it for the list
-                    of changed files.
+                    file at a time. Edits are saved with Ctrl+S (Cmd+S on macOS) and are recorded in
+                    the session log as `file/write`, separately from anything the agent does. The
+                    diff button above swaps the editor for the list of changed files.
                   </p>
                 )}
                 {tab !== null && tab.loading && <p className="wb-empty">reading {tab.path}…</p>}
@@ -234,19 +262,15 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
                 {tab !== null && tab.file !== null && (
                   <EditorPane
                     path={tab.file.path}
-                    text={tab.file.text}
-                    readOnly
-                    onChange={() => {
-                      // Read-only for this pass: Monaco arrives behind the same
-                      // props, and until then a discarded edit would be a lie.
+                    text={tab.draft ?? tab.file.text}
+                    readOnly={tab.file.binary || tab.file.truncated}
+                    onChange={(text) => {
+                      store.editFile(tab.path, text);
                     }}
-                    notice={
-                      tab.file.binary
-                        ? 'this file is not text — the server sent no characters for it'
-                        : tab.file.truncated
-                          ? 'the server truncated this file; only its first 1 MiB is shown'
-                          : null
-                    }
+                    onSave={() => {
+                      void store.saveFile(tab.path);
+                    }}
+                    notice={editorNotice(tab)}
                   />
                 )}
               </div>

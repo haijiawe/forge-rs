@@ -199,6 +199,20 @@ pub struct PostMessageRequest {
     pub attachments: Option<Vec<Attachment>>,
 }
 
+/// `PUT /api/sessions/{id}/file`: save an edited buffer.
+///
+/// `expectedSha256` is the digest `GET /api/sessions/{id}/file` handed back with
+/// the body. When it is present the file must still hash to it, so an editor that
+/// opened a file ten minutes ago cannot silently undo an agent that rewrote it.
+/// Absent means "this is a new file, and I am not claiming to have read it".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileWriteRequest {
+    pub path: String,
+    pub text: String,
+    #[serde(rename = "expectedSha256", skip_serializing_if = "Option::is_none")]
+    pub expected_sha256: Option<String>,
+}
+
 /// What a `user/message` event records about an attachment.
 ///
 /// The body is not in the event: it lives under a name in the data

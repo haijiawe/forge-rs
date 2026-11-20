@@ -20,7 +20,16 @@ function listing(path: string, entries: DirListing['entries']): DirListing {
 }
 
 function textFile(path: string, text: string): FileText {
-  return { path, size: text.length, text, truncated: false, binary: false };
+  return { path, size: text.length, text, truncated: false, binary: false, sha256: digestOf(text) };
+}
+
+/** A stand-in digest: the tests care that a token round-trips, not what it is. */
+function digestOf(text: string): string {
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return String(hash).padStart(8, '0').repeat(8).slice(0, 64);
 }
 
 /** A workspace with one directory and one file at the root. */
@@ -48,6 +57,8 @@ function workspace(overrides: Partial<WorkbenchApi> = {}): WorkbenchApi {
         : Promise.resolve(file);
     },
     listDiff: () => Promise.resolve([]),
+    saveFile: (_sessionId, path, text) =>
+      Promise.resolve({ path, bytes: text.length, sha256: digestOf(text) }),
     ...overrides,
   };
 }
@@ -112,7 +123,9 @@ describe('Workbench', () => {
     expect(tab?.textContent).toContain('main.ts');
     const editor = view.container.querySelector<HTMLTextAreaElement>('.wb-textarea');
     expect(editor?.value).toBe('export const x = 1;\n');
-    expect(editor?.readOnly).toBe(true);
+    // Editable: the server in this fixture was started writable, and a pane that
+    // refuses keystrokes without saying why is the bug this replaced.
+    expect(editor?.readOnly).toBe(false);
 
     // The row marks the active file, and the header names its path.
     expect(view.container.querySelector('.wb-row-active')?.getAttribute('title')).toContain('src/main.ts');
@@ -145,8 +158,53 @@ describe('Workbench', () => {
     view.unmount();
   });
 
+  it('marks a typed buffer unsaved and saves it with Ctrl+S', async () => {
+    const saveFile = vi.fn((_sessionId: string, path: string, text: string) =>
+      Promise.resolve({ path, bytes: text.length, sha256: digestOf(text) }),
+    );
+    const view = mount(
+      <Workbench
+        sessionId={SESSION}
+        head={<span>head</span>}
+        agent={<span>agent</span>}
+        connecting={false}
+        needsResync={false}
+        api={workspace({ saveFile })}
+      />,
+    );
+    await waitFor(() => view.container.querySelector('.wb-row-file') !== null);
+    const file = view.container.querySelector<HTMLButtonElement>('.wb-row-file[title^="readme.md"]');
+    if (file === null) throw new Error('the readme row was not drawn');
+    click(file);
+    await waitFor(() => view.container.querySelector('.wb-textarea') !== null);
+
+    const editor = view.container.querySelector<HTMLTextAreaElement>('.wb-textarea');
+    if (editor === null) throw new Error('no editor was drawn');
+    // React's onChange listens for `input`, so the value and the event both have
+    // to be set; assigning alone would leave the store believing nothing changed.
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      'value',
+    )?.set;
+    interact(() => {
+      setValue?.call(editor, '# hearth, edited\n');
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    await waitFor(() => (view.container.textContent ?? '').includes('unsaved changes'));
+
+    interact(() => {
+      editor.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }),
+      );
+    });
+    await waitFor(() => saveFile.mock.calls.length === 1);
+    expect(saveFile).toHaveBeenCalledWith(SESSION, 'readme.md', '# hearth, edited\n', digestOf('# hearth\n'));
+    await waitFor(() => !(view.container.textContent ?? '').includes('unsaved changes'));
+    view.unmount();
+  });
+
   it('shows the server sentence when a tab cannot be read', async () => {
-    // The tree only lists names the listing carried, so a failing read is
     // simulated by a workspace whose file is gone after being listed — the same
     // race a real workspace has when a file is deleted while the tab is open.
     const view = mount(
@@ -266,8 +324,17 @@ describe('Workbench', () => {
           readFile: (_sessionId, path) =>
             Promise.resolve(
               path === 'src/main.ts'
-                ? { path, size: 2_000_000, text: 'x', truncated: true, binary: false }
-                : { path, size: 4, text: '', truncated: false, binary: true },
+                ? {
+                    path,
+                    size: 2_000_000,
+                    text: 'x',
+                    truncated: true,
+                    binary: false,
+                    // No token, deliberately: a truncated read has no digest to
+                    // compare, which is exactly the case the server names.
+                    sha256: '',
+                  }
+                : { path, size: 4, text: '', truncated: false, binary: true, sha256: '' },
             ),
         })}
       />,

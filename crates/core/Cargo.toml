@@ -10,3 +10,6 @@ license.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 getrandom.workspace = true
+# `sha256_hex`, the content digest that appears in `file/write` and in a market
+# record. ring is already in the binary for rustls, so this adds no new code.
+ring.workspace = true

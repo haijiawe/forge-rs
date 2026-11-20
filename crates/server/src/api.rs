@@ -110,6 +110,13 @@ pub struct Options {
     /// not depend on; the default is an empty report, which is honest for a
     /// server embedded in a test.
     pub capabilities: crate::capabilities::Report,
+    /// May `PUT /file` write into the workspace?
+    ///
+    /// The default is `false`: a server started without being told it may edit
+    /// files is not allowed to, so a missing wire in a caller fails closed
+    /// instead of quietly handing every session a write surface. The CLI turns it
+    /// on for sessions whose sandbox mode is not read-only.
+    pub workspace_write: bool,
 }
 
 impl Default for Options {
@@ -126,6 +133,7 @@ impl Default for Options {
             delta_interval: Duration::from_millis(50),
             rate_limit: RateLimit::default(),
             capabilities: crate::capabilities::Report::default(),
+            workspace_write: false,
         }
     }
 }

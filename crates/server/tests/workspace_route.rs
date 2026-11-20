@@ -51,6 +51,12 @@ struct Fixture {
 
 impl Fixture {
     fn start(label: &str) -> Self {
+        Self::start_with(label, false)
+    }
+
+    /// `write` turns on `PUT /file`, the way `hearth web` does for a session
+    /// whose sandbox is not read-only.
+    fn start_with(label: &str, write: bool) -> Self {
         let data_dir = unique_dir(label);
         let options = Options {
             addr: "127.0.0.1:0".to_string(),
@@ -58,6 +64,7 @@ impl Fixture {
             version: "workspace-route-test".to_string(),
             poll_interval: Duration::from_millis(2),
             delta_interval: Duration::from_millis(2),
+            workspace_write: write,
             ..Options::default()
         };
         let stop = Arc::new(AtomicBool::new(false));
@@ -330,4 +337,181 @@ fn a_write_method_on_a_read_route_is_refused() {
         );
         assert_eq!(status, 405, "{route} should not accept POST");
     }
+}
+
+/// The log lines of one session, so a test can prove a refusal appended nothing.
+fn log_lines(fixture: &Fixture, session: &str) -> Vec<String> {
+    let path = fixture.server.path(session);
+    match fs::read_to_string(path) {
+        Ok(text) => text.lines().map(|line| line.to_string()).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[test]
+fn a_save_writes_the_bytes_and_records_which_digest_they_replaced() {
+    let fixture = Fixture::start_with("write", true);
+    seed_workspace(&fixture);
+    let session = fixture.create_session();
+
+    // Read first: the digest that comes back is the token a save must hand in.
+    let (status, body) = fixture.get(&session, "file?path=src/main.rs");
+    assert_eq!(status, 200, "read failed: {body}");
+    let before = body["sha256"].as_str().expect("digest").to_string();
+    assert!(!before.is_empty(), "an untruncated text file has a digest");
+
+    let (status, _, body) = fixture.api(
+        "PUT",
+        &format!("/api/sessions/{session}/file"),
+        Some(&json!({
+            "path": "src/main.rs",
+            "text": "fn main() { println!(\"hi\"); }\n",
+            "expectedSha256": before,
+        })),
+    );
+    assert_eq!(
+        status,
+        200,
+        "save failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let on_disk = fs::read_to_string(fixture.workspace.join("src/main.rs")).expect("disk");
+    assert_eq!(on_disk, "fn main() { println!(\"hi\"); }\n");
+
+    // The record names the path, the size and the digest of what landed, and it
+    // is not a tool call: a person saved a buffer, no model was asked.
+    let lines = log_lines(&fixture, &session);
+    let record = lines
+        .iter()
+        .find(|line| line.contains("file/write"))
+        .unwrap_or_else(|| panic!("no file/write record in {lines:?}"));
+    let event: Value = serde_json::from_str(record).expect("record json");
+    assert_eq!(event["type"], "file/write");
+    assert_eq!(event["payload"]["path"], "src/main.rs");
+    assert_eq!(event["payload"]["bytes"], on_disk.len() as u64);
+    assert_eq!(
+        event["payload"]["sha256"].as_str().expect("digest"),
+        hearth_core::sha256_hex(on_disk.as_bytes())
+    );
+    assert!(
+        !lines.iter().any(|line| line.contains("tool/call")),
+        "a save is not a tool call"
+    );
+
+    // A second read agrees with the save, which is what makes the token usable.
+    let (status, body) = fixture.get(&session, "file?path=src/main.rs");
+    assert_eq!(status, 200);
+    assert_eq!(body["sha256"], event["payload"]["sha256"]);
+}
+
+#[test]
+fn a_save_without_the_server_permission_is_forbidden_and_changes_nothing() {
+    let fixture = Fixture::start_with("readonly", false);
+    seed_workspace(&fixture);
+    let session = fixture.create_session();
+    let before_tree = snapshot(&fixture.workspace);
+    let before_log = log_lines(&fixture, &session);
+
+    let (status, _, bytes) = fixture.api(
+        "PUT",
+        &format!("/api/sessions/{session}/file"),
+        Some(&json!({"path": "src/main.rs", "text": "overwritten\n"})),
+    );
+    assert_eq!(
+        status,
+        403,
+        "read-only save: {}",
+        String::from_utf8_lossy(&bytes)
+    );
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    assert_eq!(body["error"]["code"], "forbidden");
+
+    assert_eq!(
+        snapshot(&fixture.workspace),
+        before_tree,
+        "the file changed"
+    );
+    assert_eq!(
+        log_lines(&fixture, &session),
+        before_log,
+        "a refusal was recorded"
+    );
+}
+
+#[test]
+fn a_save_with_a_stale_digest_is_a_conflict_and_leaves_the_file_alone() {
+    let fixture = Fixture::start_with("stale", true);
+    seed_workspace(&fixture);
+    let session = fixture.create_session();
+    let before_tree = snapshot(&fixture.workspace);
+    let before_log = log_lines(&fixture, &session);
+
+    let (status, _, bytes) = fixture.api(
+        "PUT",
+        &format!("/api/sessions/{session}/file"),
+        Some(&json!({
+            "path": "README.md",
+            "text": "# mine\n",
+            "expectedSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        })),
+    );
+    assert_eq!(
+        status,
+        409,
+        "stale digest: {}",
+        String::from_utf8_lossy(&bytes)
+    );
+    let value: Value = serde_json::from_slice(&bytes).expect("json");
+    assert_eq!(value["error"]["code"], "conflict");
+
+    assert_eq!(snapshot(&fixture.workspace), before_tree);
+    assert_eq!(log_lines(&fixture, &session), before_log);
+}
+
+#[test]
+fn a_save_refuses_every_way_out_of_the_workspace() {
+    let fixture = Fixture::start_with("write-escape", true);
+    seed_workspace(&fixture);
+    let session = fixture.create_session();
+    let before = snapshot(&fixture.workspace);
+
+    for path in [
+        "../secret.txt",
+        "src/../../secret.txt",
+        "/etc/passwd",
+        "C:/Windows/win.ini",
+    ] {
+        let (status, _, bytes) = fixture.api(
+            "PUT",
+            &format!("/api/sessions/{session}/file"),
+            Some(&json!({"path": path, "text": "x"})),
+        );
+        assert_eq!(status, 400, "{path}: {}", String::from_utf8_lossy(&bytes));
+    }
+    assert_eq!(snapshot(&fixture.workspace), before);
+}
+
+#[test]
+fn a_save_needs_a_path_and_a_body() {
+    let fixture = Fixture::start_with("write-shape", true);
+    seed_workspace(&fixture);
+    let session = fixture.create_session();
+
+    let (status, _, _) = fixture.api(
+        "PUT",
+        &format!("/api/sessions/{session}/file"),
+        Some(&json!({"text": "no path"})),
+    );
+    assert_eq!(status, 400, "a save without a path");
+
+    let (status, _, _) = fixture.api("PUT", &format!("/api/sessions/{session}/file"), None);
+    assert_eq!(status, 400, "a save without a body");
+
+    let (status, _, _) = fixture.api(
+        "PUT",
+        &format!("/api/sessions/{session}/files"),
+        Some(&json!({"path": "x", "text": "y"})),
+    );
+    assert_eq!(status, 405, "the listing route is not a save route");
 }

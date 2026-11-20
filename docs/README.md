@@ -19,6 +19,19 @@ numbers, and is expected to be closed rather than extended. A plan that has been
 executed stays in the tree as a record, because the acceptance criteria in it are
 the only place the shape of that work is written down.
 
+The numbering starts at 08 because 01–07 were written in the Go tree that this
+one replaces, and were deleted with it on 2026-11-17. The numbers are kept rather
+than compacted so that existing citations (in `docs/contracts/`, in the crate
+READMEs, and in commits) still resolve; nothing is missing from this directory —
+there simply was never an 01 here to lose. Where a later document refers to one of
+the retired numbers, it says so and gives the section it meant.
+
+`ls docs` shows sixteen filenames with nothing to tell them apart; the sections
+below are the index that the directory listing cannot be. They are, in order:
+decisions (why it is like this), execution records (what was built and the
+evidence), comparisons (how this tree relates to DSH), operations (how it is
+built, shipped and measured), and the frozen contracts.
+
 ## Start here
 
 | If you want to | Read |

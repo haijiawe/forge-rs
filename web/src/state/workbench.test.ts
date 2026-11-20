@@ -18,7 +18,16 @@ function listing(path: string, entries: DirListing['entries']): DirListing {
 }
 
 function textFile(path: string, text: string): FileText {
-  return { path, size: text.length, text, truncated: false, binary: false };
+  return { path, size: text.length, text, truncated: false, binary: false, sha256: digestOf(text) };
+}
+
+/** A stand-in digest: the tests care that a token round-trips, not what it is. */
+function digestOf(text: string): string {
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return String(hash).padStart(8, '0').repeat(8).slice(0, 64);
 }
 
 function fakeApi(overrides: Partial<WorkbenchApi> = {}): WorkbenchApi {
@@ -26,6 +35,8 @@ function fakeApi(overrides: Partial<WorkbenchApi> = {}): WorkbenchApi {
     listDir: () => Promise.resolve(listing('', [])),
     readFile: (_sessionId, path) => Promise.resolve(textFile(path, '')),
     listDiff: () => Promise.resolve([]),
+    saveFile: (_sessionId, path, text) =>
+      Promise.resolve({ path, bytes: text.length, sha256: digestOf(text) }),
     ...overrides,
   };
 }
@@ -196,5 +207,94 @@ describe('WorkbenchStore', () => {
     await settle();
     expect(store.getSnapshot().diffError).toBeNull();
     expect(store.getSnapshot().diff).toEqual([]);
+  });
+
+  /** Open one file and leave the store settled with that tab active. */
+  async function openOne(api: WorkbenchApi): Promise<WorkbenchStore> {
+    const store = new WorkbenchStore({ sessionId: SESSION, api });
+    store.start();
+    await settle();
+    store.openFile('a.ts');
+    await settle();
+    return store;
+  }
+
+  it('keeps an edit as a draft and sends the digest it was built from', async () => {
+    const original = 'let x = 1;\n';
+    const saveFile = vi.fn((_sessionId: string, path: string, text: string) =>
+      Promise.resolve({ path, bytes: text.length, sha256: digestOf(text) }),
+    );
+    const api = fakeApi({
+      readFile: (_sessionId, path) => Promise.resolve(textFile(path, original)),
+      saveFile,
+    });
+    const store = await openOne(api);
+
+    store.editFile('a.ts', 'let x = 2;\n');
+    expect(store.getSnapshot().open[0]?.draft).toBe('let x = 2;\n');
+
+    await store.saveFile('a.ts');
+    await settle();
+
+    // The token is what makes a stale save detectable, so it must be the digest
+    // of the bytes that were read — not of the bytes being written.
+    expect(saveFile).toHaveBeenCalledWith(SESSION, 'a.ts', 'let x = 2;\n', digestOf(original));
+    const tab = store.getSnapshot().open[0];
+    expect(tab?.draft).toBeNull();
+    expect(tab?.saveError).toBeNull();
+    // The tab adopts the answer, which is what lets a second save work.
+    expect(tab?.file?.text).toBe('let x = 2;\n');
+    expect(tab?.file?.sha256).toBe(digestOf('let x = 2;\n'));
+  });
+
+  it('a save that lands on a file that moved keeps the draft and says conflict', async () => {
+    const api = fakeApi({
+      readFile: (_sessionId, path) => Promise.resolve(textFile(path, 'one\n')),
+      saveFile: () =>
+        Promise.reject(
+          new ApiError('conflict', 'the file changed since it was opened; reload it before saving', 409),
+        ),
+    });
+    const store = await openOne(api);
+    store.editFile('a.ts', 'two\n');
+
+    await store.saveFile('a.ts');
+    await settle();
+
+    const tab = store.getSnapshot().open[0];
+    // The work is still here: a refused save that discarded the buffer would
+    // throw away the only copy of what the operator typed.
+    expect(tab?.draft).toBe('two\n');
+    expect(tab?.saveError).toBe(
+      'conflict: the file changed since it was opened; reload it before saving',
+    );
+    // And the file as read is unchanged: nothing was adopted from a refusal.
+    expect(tab?.file?.text).toBe('one\n');
+  });
+
+  it('typing back to the bytes that were read is clean, not an unsaved change', async () => {
+    const store = await openOne(
+      fakeApi({ readFile: (_sessionId, path) => Promise.resolve(textFile(path, 'same\n')) }),
+    );
+    store.editFile('a.ts', 'other\n');
+    expect(store.getSnapshot().open[0]?.draft).toBe('other\n');
+    store.editFile('a.ts', 'same\n');
+    expect(store.getSnapshot().open[0]?.draft).toBeNull();
+  });
+
+  it('saving a clean tab sends nothing at all', async () => {
+    const saveFile = vi.fn();
+    const store = await openOne(
+      fakeApi({
+        readFile: (_sessionId, path) => Promise.resolve(textFile(path, 'x\n')),
+        saveFile: (sessionId, path, text) => {
+          saveFile(sessionId, path, text);
+          return Promise.resolve({ path, bytes: text.length, sha256: digestOf(text) });
+        },
+      }),
+    );
+    await store.saveFile('a.ts');
+    await settle();
+    expect(saveFile).not.toHaveBeenCalled();
   });
 });

@@ -139,6 +139,12 @@ which changed three things and left the harness alone:
 - **The window can read the workspace** over `GET /api/sessions/{id}/files`,
   `/file` and `/diff`, which resolve the workspace from `session/start`, refuse
   `..` and symlink escapes, cap text at 1 MiB, and never write.
+- **The window can write it back**, through `PUT /api/sessions/{id}/file` behind
+  an optimistic `expectedSha256` token and a Monaco editor. A save appends one
+  `file/write` event — deliberately not a `tool/call`, because no model was
+  involved and a transcript that says otherwise is unreadable; a save that is
+  refused (read-only session, escape, stale digest) appends nothing at all.
+  Monaco is bundled, not fetched from a CDN: the desktop shell has no network.
 
 ## What is deliberately not built
 
@@ -238,6 +244,14 @@ the abstract.
     UI was fine; the opposite trap is reading a blank DOM and blaming the browser.
     When a picture and the API disagree, query the page itself (`--remote-debugging-port`
     plus `Runtime.evaluate`) before changing either side.
+13. **You cannot type into Monaco through the DevTools protocol.** Monaco 0.54
+    listens on `textarea.ime-text-area`, and Chrome 146+ routes text through
+    `EditContext`, so `Input.insertText` and `Input.dispatchKeyEvent` with `text`
+    both report success and insert nothing. Import the bundle the page already
+    loaded — `await import('/assets/monacoSetup-*.js')` hits the module cache and
+    returns the same singleton — then call `monaco.editor.getEditors()[0].setValue`
+    to exercise the real change handler. `window.monaco` is `undefined`; bundles
+    do not publish globals.
 
 ## First three things to do
 

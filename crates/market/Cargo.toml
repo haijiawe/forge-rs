@@ -12,6 +12,5 @@ hearth-net = { path = "../net" }
 # SHA-256 of a downloaded tarball, and of every extracted file. Already in the
 # budget because rustls needs a digest; `sha2` would be a second implementation
 # of the same function in the same binary.
-ring.workspace = true
 serde.workspace = true
 serde_json.workspace = true

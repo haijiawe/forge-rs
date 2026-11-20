@@ -1,0 +1,61 @@
+{
+  "name": "ok_file_write",
+  "description": "file/write, the record that a person saved a buffer through the editor. It is not a tool/call: the tool channel answers the model, and a human save has no model in the loop. The row exists because after a restart the file on disk is the only surviving evidence of it, and a reader that finds the disk disagreeing with an earlier fs_read should be able to say when and by whom the file last changed. Payload is {path, bytes, sha256}; the digest is of the bytes written, so a later reader can tell whether the file still matches what was saved. `path` is workspace-relative and never absolute.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "b6c7d8091021324354657687990301",
+      "ts": 1794787200600,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "file/write",
+      "payload": {
+        "path": "crates/core/src/event.rs",
+        "bytes": 18422,
+        "sha256": "9f2c1d3e4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "b6c7d8091021324354657687990302",
+      "ts": 1794787200601,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "file/write",
+      "payload": {
+        "path": "README.md",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "b6c7d8091021324354657687990301",
+      "ts": 1794787200600,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "file/write",
+      "payload": {
+        "path": "crates/core/src/event.rs",
+        "bytes": 18422,
+        "sha256": "9f2c1d3e4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "b6c7d8091021324354657687990302",
+      "ts": 1794787200601,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "file/write",
+      "payload": {
+        "path": "README.md",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ]
+}

@@ -222,6 +222,7 @@ name = "hearth-core"
 version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
+ "ring",
  "serde",
  "serde_json",
 ]
@@ -281,7 +282,6 @@ version = "0.1.0"
 dependencies = [
  "hearth-core",
  "hearth-net",
- "ring",
  "serde",
  "serde_json",
 ]

@@ -193,11 +193,15 @@ Its arguments are forwarded to `hearth web` (`hearth-desktop --model deepseek-ch
 listener is left behind. Details, including the two window-creation defects this cost, are
 in [apps/desktop/README.md](apps/desktop/README.md).
 
-The web UI itself is a three-column workbench: the file tree, a read-only editor with line
-numbers, and the agent panel. The editor reads through `GET /api/sessions/{id}/files|file|diff`
-— read-only on purpose, because a write from the window would bypass the policy, the
-approval prompt and `tool/call`. Everything the model does still shows up in the transcript
-and in the event log.
+The web UI itself is a three-column workbench: the file tree, a Monaco editor, and the
+agent panel. The editor reads through `GET /api/sessions/{id}/files|file|diff` and saves
+through `PUT /api/sessions/{id}/file`; when the buffer on screen is not what the digest in
+the tab was taken from, the save is refused as a conflict and the draft stays on screen.
+A save appends one `file/write` event naming the path, the byte count and the SHA-256 of
+what was written — not a `tool/call`, because no model was involved and the transcript
+must not claim one was. Saving is refused outright when the session's sandbox mode is
+`read-only`, so the tools and the editor never describe the same session differently.
+Everything the model does still shows up in the transcript and in the event log.
 
 ## Documentation map
 
