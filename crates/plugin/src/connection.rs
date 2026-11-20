@@ -38,6 +38,60 @@ const STDERR_TAIL: usize = 200;
 /// How long `close` waits for the child to exit on its own before killing it.
 pub const CLOSE_GRACE: Duration = Duration::from_secs(2);
 
+/// How long a spawn keeps retrying while the kernel says the binary is busy.
+///
+/// `ETXTBSY` is not a permanent condition: it clears as soon as the last writer
+/// closes the file, which for the race this exists for is microseconds later.
+/// One second is far longer than any such window and still short enough that a
+/// genuinely broken install fails while the user is watching.
+///
+/// Unix-only, like the retry itself: no other platform has this failure, and an
+/// unused constant is a build error under `-D warnings`.
+#[cfg(unix)]
+const BUSY_BUDGET: Duration = Duration::from_secs(1);
+/// Pause between spawn attempts. The window is a fork-to-exec gap, not a lock,
+/// so polling quickly is cheap and stops as soon as it succeeds.
+#[cfg(unix)]
+const BUSY_PAUSE: Duration = Duration::from_millis(5);
+
+/// Spawn, retrying while the kernel reports the executable as written-to.
+///
+/// Linux refuses `execve` with `ETXTBSY` ("Text file busy") while *any* process
+/// holds the file open for writing. That is usually a real mistake, but there is
+/// one benign way to hit it: a program that has just been copied or linked is
+/// executed immediately, and a concurrently forked child inherits the writer's
+/// descriptor for the instant between `fork` and `exec`. Test suites that run in
+/// parallel threads do exactly that, and so does a build script that installs a
+/// plugin and starts it in the same breath.
+///
+/// The condition clears on its own, so a bounded retry is the honest fix: the
+/// alternative is telling a user their plugin "could not run" because it was
+/// three milliseconds too early. Every other spawn error is returned untouched —
+/// retrying `ENOENT` for a second would only delay a message that will not
+/// change.
+fn spawn_retrying_busy(command: &mut Command) -> std::io::Result<Child> {
+    #[cfg(unix)]
+    {
+        let deadline = Instant::now() + BUSY_BUDGET;
+        loop {
+            match command.spawn() {
+                Ok(child) => return Ok(child),
+                // 26 is ETXTBSY on every unix we build for; matching the number
+                // keeps this working on the MSRV, where the stable ErrorKind
+                // does not name it.
+                Err(error) if error.raw_os_error() == Some(26) && Instant::now() < deadline => {
+                    std::thread::sleep(BUSY_PAUSE);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        command.spawn()
+    }
+}
+
 /// The id `close` uses for its `shutdown` request.
 ///
 /// Reserved rather than allocated: the host's own ids start at 1, so 0 is never
@@ -117,7 +171,7 @@ impl Connection {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = command.spawn().map_err(|error| {
+        let mut child = spawn_retrying_busy(&mut command).map_err(|error| {
             Error::new(
                 Kind::SpawnFailed,
                 format!(
@@ -744,6 +798,72 @@ fn record_stderr(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A spawn that loses the ETXTBSY race must wait, not fail.
+    ///
+    /// The race is reproduced deliberately: the executable is held open for
+    /// writing from a second thread for a moment, which is exactly what a copy
+    /// in another thread looks like to the kernel. The first attempt has to be
+    /// refused (or the filesystem does not implement the lock, in which case
+    /// there is nothing here to test and the test says so), and the retry has to
+    /// succeed once the writer closes.
+    #[cfg(unix)]
+    #[test]
+    fn a_busy_executable_is_retried_until_the_writer_closes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("hearth-busy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create the scratch directory");
+        let script = dir.join("busy.sh");
+        std::fs::write(&script, "#!/bin/sh\nexit 0\n").expect("write the script");
+        let mut perms = std::fs::metadata(&script)
+            .expect("stat the script")
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script, perms).expect("make the script executable");
+
+        let writer = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&script)
+            .expect("hold the file open for writing");
+
+        // Control: without the retry this is the failure the test exists for.
+        let mut probe = Command::new(&script);
+        probe.stdout(Stdio::null()).stderr(Stdio::null());
+        match probe.spawn() {
+            Ok(mut child) => {
+                let _ = child.wait();
+                eprintln!(
+                    "note: this filesystem does not raise ETXTBSY for a written-to binary; \
+                     the retry path cannot be exercised here"
+                );
+                return;
+            }
+            Err(error) => assert_eq!(
+                error.raw_os_error(),
+                Some(26),
+                "expected ETXTBSY while the writer holds the file, got {error}"
+            ),
+        }
+
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(60));
+            drop(writer);
+        });
+
+        let mut command = Command::new(&script);
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+        let mut child = spawn_retrying_busy(&mut command).expect("spawns once the writer closes");
+        release.join().expect("join the releasing thread");
+        let status = child.wait().expect("reap the child");
+        assert!(
+            status.success(),
+            "the script exits 0 once it can run at all"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn drain_events<R: Read>(stream: R, max_bytes: usize) -> Vec<Event> {
         let (sender, receiver) = mpsc::channel();
