@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 
-use forge_net::{Client, ClientOptions};
+use hearth_net::{Client, ClientOptions};
 
 /// A one-shot HTTP server: each accepted connection is answered by `handler`,
 /// which receives the request head and returns the raw bytes to write.

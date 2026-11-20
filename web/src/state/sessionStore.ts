@@ -8,7 +8,7 @@
 // docs/05-roadmap.md M3 ("no jank while streaming").
 
 import { ApiError } from '../api/client';
-import type { ForgeApi, OutgoingAttachment } from '../api/client';
+import type { HearthApi, OutgoingAttachment } from '../api/client';
 import type { Event } from '../api/events';
 import { latestToolNames } from './capabilities';
 import { StreamMachine, type StreamInput, type StreamState } from '../api/stream';
@@ -42,7 +42,7 @@ export interface SessionViewState {
 }
 
 export interface SessionStoreOptions {
-  api: ForgeApi;
+  api: HearthApi;
   sessionId: string;
   token: string;
   baseUrl?: string;

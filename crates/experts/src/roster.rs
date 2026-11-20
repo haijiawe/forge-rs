@@ -6,7 +6,7 @@
 //! treat three states as normal: the root is absent (a machine that never had an
 //! experts directory), the root is deep and nested, and some entries are not
 //! definitions at all. Absent root is an **empty set**, not an error, because a
-//! fresh checkout that has never run `forge expert new` must still start.
+//! fresh checkout that has never run `hearth expert new` must still start.
 //!
 //! **Refuse.** Every check below exists because the alternative is a persona
 //! that quietly changed. A duplicate slug means "which file wins" is decided by
@@ -211,10 +211,10 @@ pub fn prompt_for(set: &Set, slug: &str) -> Option<String> {
     prompt.push('\n');
     if tools.is_empty() {
         prompt.push_str(
-            "[forge-experts] Tool restriction: this expert may not call any tool. Answer from what you are given.\n",
+            "[hearth-experts] Tool restriction: this expert may not call any tool. Answer from what you are given.\n",
         );
     } else {
-        prompt.push_str("[forge-experts] Tool restriction: ");
+        prompt.push_str("[hearth-experts] Tool restriction: ");
         prompt.push_str(&tools.join(", "));
         prompt.push_str(". This expert must not call any other tool.\n");
     }
@@ -230,7 +230,7 @@ pub fn team_prompt(set: &Set, slug: &str) -> Option<String> {
     let team = set.team(slug)?;
     let mut prompt = team.prompt.clone();
     prompt.push('\n');
-    prompt.push_str("[forge-experts] Coordinate this team as expert ");
+    prompt.push_str("[hearth-experts] Coordinate this team as expert ");
     prompt.push_str(&team.coordinator);
     prompt.push_str(
         ". You direct the members listed below, in this order, and you answer for the combined result. Each line gives a member's slug, its duty in this team, and what that expert is for.\n",
@@ -251,7 +251,7 @@ pub fn team_prompt(set: &Set, slug: &str) -> Option<String> {
 ///
 /// Why so strict, and why this shape: the slug is a **file name** (`<slug>.md`
 /// beside its neighbours, and the stem of an exported prompt) and a **command
-/// line argument** (`forge expert show <slug>`). Lowercase letters, digits and
+/// line argument** (`hearth expert show <slug>`). Lowercase letters, digits and
 /// dashes survive both without quoting rules, without a case-insensitive
 /// filesystem collapse (`Review` and `review` are one file on Windows) and
 /// without the ambiguity a leading dash would create for an argument parser.
@@ -290,7 +290,7 @@ impl Definition {
 /// The scan with the filesystem handed in, so the refusal branches are testable.
 pub(crate) fn scan_with(fs: &dyn Fs, root: &Path) -> Result<Set> {
     // An absent roster directory is a normal machine, not a failure: the next
-    // `forge expert new` creates it. Only a *real* I/O error is an error here.
+    // `hearth expert new` creates it. Only a *real* I/O error is an error here.
     match fs.metadata(root) {
         Ok(meta) if meta.is_dir => {}
         Ok(_) => {
@@ -1027,7 +1027,7 @@ mod tests {
     impl Scratch {
         fn new(tag: &str) -> Self {
             let path = std::env::temp_dir().join(format!(
-                "forge-experts-{tag}-{}-{:?}",
+                "hearth-experts-{tag}-{}-{:?}",
                 std::process::id(),
                 std::thread::current().id()
             ));
@@ -1431,13 +1431,13 @@ mod tests {
         assert_eq!(
             prompt_for(&set, "limited").as_deref(),
             Some(
-                "Be careful.\n\n[forge-experts] Tool restriction: fs_read, fs_grep. This expert must not call any other tool.\n"
+                "Be careful.\n\n[hearth-experts] Tool restriction: fs_read, fs_grep. This expert must not call any other tool.\n"
             )
         );
         assert_eq!(
             prompt_for(&set, "toothless").as_deref(),
             Some(
-                "Answer only.\n\n[forge-experts] Tool restriction: this expert may not call any tool. Answer from what you are given.\n"
+                "Answer only.\n\n[hearth-experts] Tool restriction: this expert may not call any tool. Answer from what you are given.\n"
             )
         );
         assert_eq!(prompt_for(&set, "ghost"), None);

@@ -95,7 +95,7 @@ pub(crate) fn civil_from_month_index(index: i64) -> (i64, u32) {
 /// A UTC civil time as milliseconds since the epoch.
 ///
 /// Out-of-range components are carried the way a calendar would carry them. The
-/// command (`forge schedule --start`) validates its fields before calling this,
+/// command (`hearth schedule --start`) validates its fields before calling this,
 /// so a rejection there is a usage error and not something this function has to
 /// report twice.
 pub fn from_civil(year: i64, month: u32, day: u32, hour: u32, minute: u32, second: u32) -> i64 {

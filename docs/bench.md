@@ -1,4 +1,4 @@
-# forge-bench — performance harness and baseline gate
+# hearth-bench — performance harness and baseline gate
 
 Rust port of the retired Go tree's `scripts/bench`. That tree was deleted on
 2026-11-17, but its decisions stayed: metric names, units, tolerances, document
@@ -7,7 +7,7 @@ shape and gate policy are preserved, with `goVersion` renamed to `rustVersion`.
 ## Why a second harness
 
 `cargo bench` measures functions inside one crate. This harness measures the
-user-visible product: the `forge` executable, the session log on disk, and the
+user-visible product: the `hearth` executable, the session log on disk, and the
 JSON codec. It writes one language-neutral document so a Rust run and a Go run
 can be compared on the same platform without sharing a schema.
 
@@ -29,7 +29,7 @@ Go's `flag` package. Parsing stops at the first positional argument.
 
 | Name | Unit | Better | Workload |
 | --- | --- | --- | --- |
-| `version_startup` | ms | lower | 20 cold `forge --version` launches, one per phase |
+| `version_startup` | ms | lower | 20 cold `hearth --version` launches, one per phase |
 | `session_append_fsync` | events/sec | higher | 200 appends, one fsync per event, 20 phases |
 | `session_append_batch` | events/sec | higher | 2,000 appends, `sync_every=100`, 20 phases |
 | `session_replay_10k` | events/sec | higher | one 10,000 × 3,800-byte log; reopen and read back, 20 phases |
@@ -193,16 +193,16 @@ job had run fine the day before. The two labels are not interchangeable.
 ## Running and integrating
 
 ```powershell
-$env:CARGO_TARGET_DIR = "D:\forge-rs-target\forge-rs"
-cargo fmt -p forge-bench -- --check
-cargo clippy -p forge-bench --all-targets --offline -- -D warnings
-cargo test -p forge-bench --offline
+$env:CARGO_TARGET_DIR = "D:\hearth-target\hearth"
+cargo fmt -p hearth-bench -- --check
+cargo clippy -p hearth-bench --all-targets --offline -- -D warnings
+cargo test -p hearth-bench --offline
 cargo run -q -p archcheck --offline
 
 # report / gate / deliberate recording (never record from a noisy build)
-cargo run --release -q -p forge-bench --offline --
-cargo run --release -q -p forge-bench --offline -- -strict
-cargo run --release -q -p forge-bench --offline -- -out scripts/bench/baseline.json -baseline ""
+cargo run --release -q -p hearth-bench --offline --
+cargo run --release -q -p hearth-bench --offline -- -strict
+cargo run --release -q -p hearth-bench --offline -- -out scripts/bench/baseline.json -baseline ""
 ```
 
 `--release` is not an optimisation hint, it is part of the unit. Four of the six
@@ -220,7 +220,7 @@ never rides along with an ordinary push.
 
 ## Boundaries
 
-The crate may import `forge-core` and `forge-session` only. Everything else
+The crate may import `hearth-core` and `hearth-session` only. Everything else
 is std plus the workspace's existing `serde`/`serde_json` (baseline document
 and 4KB payload). No CLI framework, no async runtime, no new workspace
 dependency. The tool never edits `crates/**`, the root `Cargo.toml`, the

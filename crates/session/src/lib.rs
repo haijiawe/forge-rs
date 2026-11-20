@@ -1,4 +1,4 @@
-//! `forge-session`: the append-only log and the views built from it.
+//! `hearth-session`: the append-only log and the views built from it.
 //!
 //! The log is the only truth. Everything else in this crate is a pure function
 //! of a prefix of that log: [`projection`] folds it into a snapshot, [`fork`]
@@ -32,4 +32,4 @@ pub use store::{Options, Store};
 
 // The envelope is shared vocabulary, not this crate's type: re-export it so a
 // caller can use one import for the store and the records it reads.
-pub use forge_core::{Error, ErrorKind, Event, EventType, Result, SessionId};
+pub use hearth_core::{Error, ErrorKind, Event, EventType, Result, SessionId};

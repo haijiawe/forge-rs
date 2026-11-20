@@ -32,7 +32,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::{lock, valid_name, write_atomic};
@@ -892,7 +892,7 @@ fn normalise_scope(scope: &str) -> String {
 
 /// Mint a task id: `t` plus 12 hex characters of a fresh random id.
 fn mint_id() -> Result<String> {
-    let id = forge_core::new_id()?;
+    let id = hearth_core::new_id()?;
     let suffix: String = id
         .chars()
         .filter(|ch| ch.is_ascii_hexdigit())

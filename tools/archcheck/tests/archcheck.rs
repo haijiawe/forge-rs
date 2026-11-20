@@ -60,7 +60,7 @@ impl Fixture {
         fs::create_dir_all(&src).expect("create cli src");
         fs::write(
             src.join("lib.rs"),
-            format!("pub const USAGE: &str = \"forge — an agent harness\n\n{docs_line}\";\n"),
+            format!("pub const USAGE: &str = \"hearth — an agent harness\n\n{docs_line}\";\n"),
         )
         .expect("write cli lib.rs");
     }
@@ -94,8 +94,8 @@ fn readme(dir: &str, layer: &str) -> String {
          layer: {layer}\n\
          role: {dir} crate\n\
          public: [Demo]\n\
-         may_import: [forge-core]\n\
-         must_not: [forge-server]\n\
+         may_import: [hearth-core]\n\
+         must_not: [hearth-server]\n\
          gate: make arch\n\
          ---\n\
          \n\
@@ -116,8 +116,8 @@ fn readme(dir: &str, layer: &str) -> String {
 fn two_layer_arch() -> &'static str {
     "version: 1\n\
      layers:\n\
-     \x20 L0: [forge-core]\n\
-     \x20 L1: [forge-exec]\n\
+     \x20 L0: [hearth-core]\n\
+     \x20 L1: [hearth-exec]\n\
      ignore_dirs: [.git, target, node_modules]\n"
 }
 
@@ -132,8 +132,8 @@ fn json(output: &Output) -> serde_json::Value {
 fn clean_two_crates(name: &str) -> Fixture {
     let fixture = Fixture::new(name);
     fixture.write_arch(two_layer_arch());
-    fixture.write_crate("core", "forge-core", &[]);
-    fixture.write_crate("exec", "forge-exec", &["forge-core"]);
+    fixture.write_crate("core", "hearth-core", &[]);
+    fixture.write_crate("exec", "hearth-exec", &["hearth-core"]);
     fixture.write_readme("core", "L0");
     fixture.write_readme("exec", "L1");
     fixture
@@ -160,8 +160,8 @@ fn upward_edge_is_caught_and_exits_one() {
     let fixture = Fixture::new("upward");
     fixture.write_arch(two_layer_arch());
     // L0 depending on L1 is the exact mistake the layer map exists to stop.
-    fixture.write_crate("core", "forge-core", &["forge-exec"]);
-    fixture.write_crate("exec", "forge-exec", &[]);
+    fixture.write_crate("core", "hearth-core", &["hearth-exec"]);
+    fixture.write_crate("exec", "hearth-exec", &[]);
     fixture.write_readme("core", "L0");
     fixture.write_readme("exec", "L1");
 
@@ -175,8 +175,8 @@ fn upward_edge_is_caught_and_exits_one() {
         .find(|finding| finding["rule"] == "edge.upward")
         .expect("upward finding");
     let message = upward["message"].as_str().unwrap_or("");
-    assert!(message.contains("forge-core (L0)"), "{message}");
-    assert!(message.contains("forge-exec (L1)"), "{message}");
+    assert!(message.contains("hearth-core (L0)"), "{message}");
+    assert!(message.contains("hearth-exec (L1)"), "{message}");
 }
 
 #[test]
@@ -219,13 +219,13 @@ fn same_layer_forbidden_edge_is_caught() {
     fixture.write_arch(
         "version: 1\n\
          layers:\n\
-         \x20 L0: [forge-core, forge-config]\n\
+         \x20 L0: [hearth-core, hearth-config]\n\
          forbidden_edges:\n\
-         \x20 - [forge-core, forge-config]\n\
+         \x20 - [hearth-core, hearth-config]\n\
          ignore_dirs: [target]\n",
     );
-    fixture.write_crate("core", "forge-core", &["forge-config"]);
-    fixture.write_crate("config", "forge-config", &[]);
+    fixture.write_crate("core", "hearth-core", &["hearth-config"]);
+    fixture.write_crate("config", "hearth-config", &[]);
     fixture.write_readme("core", "L0");
     fixture.write_readme("config", "L0");
 
@@ -243,8 +243,8 @@ fn same_layer_forbidden_edge_is_caught() {
 fn json_report_is_byte_stable() {
     let fixture = Fixture::new("byte-stable");
     fixture.write_arch(two_layer_arch());
-    fixture.write_crate("core", "forge-core", &["forge-exec"]);
-    fixture.write_crate("exec", "forge-exec", &[]);
+    fixture.write_crate("core", "hearth-core", &["hearth-exec"]);
+    fixture.write_crate("exec", "hearth-exec", &[]);
     fixture.write_readme("core", "L0");
     fixture.write_readme("exec", "L1");
 
@@ -355,11 +355,11 @@ fn duplicate_package_name_is_caught_and_exits_one() {
     fixture.write_arch(
         "version: 1\n\
          layers:\n\
-         \x20 L0: [forge-core]\n\
+         \x20 L0: [hearth-core]\n\
          ignore_dirs: [target]\n",
     );
-    fixture.write_crate("core", "forge-core", &[]);
-    fixture.write_crate("other", "forge-core", &[]);
+    fixture.write_crate("core", "hearth-core", &[]);
+    fixture.write_crate("other", "hearth-core", &[]);
     fixture.write_readme("core", "L0");
     fixture.write_readme("other", "L0");
 
@@ -379,11 +379,11 @@ fn undeclared_crate_is_caught_and_exits_one() {
     fixture.write_arch(
         "version: 1\n\
          layers:\n\
-         \x20 L0: [forge-core]\n\
+         \x20 L0: [hearth-core]\n\
          ignore_dirs: [target]\n",
     );
-    fixture.write_crate("core", "forge-core", &[]);
-    fixture.write_crate("rogue", "forge-rogue", &[]);
+    fixture.write_crate("core", "hearth-core", &[]);
+    fixture.write_crate("rogue", "hearth-rogue", &[]);
     fixture.write_readme("core", "L0");
     fixture.write_readme("rogue", "L0");
 
@@ -401,7 +401,7 @@ fn undeclared_crate_is_caught_and_exits_one() {
 fn declared_crate_with_no_directory_is_caught_and_exits_one() {
     let fixture = Fixture::new("missing-crate");
     fixture.write_arch(two_layer_arch());
-    fixture.write_crate("core", "forge-core", &[]);
+    fixture.write_crate("core", "hearth-core", &[]);
     fixture.write_readme("core", "L0");
 
     let output = fixture.run(&["-json"]);
@@ -415,11 +415,11 @@ fn declared_crate_with_no_directory_is_caught_and_exits_one() {
 }
 
 #[test]
-fn edge_to_undeclared_forge_crate_is_caught_and_exits_one() {
+fn edge_to_undeclared_hearth_crate_is_caught_and_exits_one() {
     let fixture = clean_two_crates("unknown-edge");
     let path = fixture.root.join("crates/core/Cargo.toml");
     let mut text = fs::read_to_string(&path).expect("read Cargo.toml");
-    text.push_str("forge-ghost = { path = \"../ghost\" }\n");
+    text.push_str("hearth-ghost = { path = \"../ghost\" }\n");
     fs::write(&path, text).expect("write Cargo.toml");
 
     let output = fixture.run(&["-json"]);
@@ -451,7 +451,7 @@ fn unreadable_readme_is_caught_and_exits_one() {
 
 #[test]
 fn a_docs_path_the_help_text_promises_but_the_tree_lacks_is_caught_and_exits_one() {
-    // The defect: `forge help` ends with `docs: docs/README.md`, and nothing
+    // The defect: `hearth help` ends with `docs: docs/README.md`, and nothing
     // opened that file, so the index could be absent with every gate green.
     let fixture = clean_two_crates("missing-docs");
     fixture.write_cli_usage("docs: docs/README.md\n");

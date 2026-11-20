@@ -112,7 +112,7 @@ describe('CapabilityPanel', () => {
   it('points at the CLI when the configured set could not be read', () => {
     const { container, unmount } = render(['expert'], null, 'connection refused');
     expect(container.textContent).toContain('connection refused');
-    expect(container.textContent).toContain('forge plugin list');
+    expect(container.textContent).toContain('hearth plugin list');
     unmount();
   });
 

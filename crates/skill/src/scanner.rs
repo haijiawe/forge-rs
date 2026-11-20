@@ -454,8 +454,10 @@ mod tests {
     impl TempTree {
         fn new(tag: &str) -> Self {
             let serial = NEXT_TREE.fetch_add(1, Ordering::Relaxed);
-            let root = std::env::temp_dir()
-                .join(format!("forge-skill-{tag}-{}-{serial}", std::process::id()));
+            let root = std::env::temp_dir().join(format!(
+                "hearth-skill-{tag}-{}-{serial}",
+                std::process::id()
+            ));
             fs::create_dir_all(&root).expect("create temp root");
             Self { root }
         }

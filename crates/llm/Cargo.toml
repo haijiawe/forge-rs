@@ -1,5 +1,5 @@
 [package]
-name = "forge-llm"
+name = "hearth-llm"
 description = "provider contract and the OpenAI-compatible SSE client"
 version.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-forge-core = { path = "../core" }
+hearth-core = { path = "../core" }
 serde.workspace = true
 serde_json.workspace = true
 rustls.workspace = true

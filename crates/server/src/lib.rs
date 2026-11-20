@@ -25,7 +25,7 @@ pub mod server;
 /// The subagent tree of one session joined with each child's timing. Private:
 /// a wire shape for one route, not part of this crate's boundary.
 mod subagent_route;
-/// Reads the boards `forge team run` leaves in the data dir. Private: it is
+/// Reads the boards `hearth team run` leaves in the data dir. Private: it is
 /// a wire shape for one route, not part of this crate's public boundary.
 mod teams;
 

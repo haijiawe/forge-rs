@@ -3,16 +3,16 @@ dir: crates/session
 layer: L2
 role: session log store, projection, compaction, decision watching, and fork
 public: [Store, Options, Projection, Snapshot, DecisionWatcher, Decision, ForkOptions, ForkResult, fork, CompactPlan, Summarizer, TruncatingSummarizer, plan_compaction, compact, compact_log, last_compacted_span, DEFAULT_KEEP_TURNS, DEFAULT_SUMMARY_BYTES]
-may_import: [forge-core, forge-config]
-must_not: [forge-llm, forge-tool, forge-protocol, forge-server, forge-cli]
+may_import: [hearth-core, hearth-config]
+must_not: [hearth-llm, hearth-tool, hearth-protocol, hearth-server, hearth-cli]
 gate: make arch
 ---
 
-# forge-session
+# hearth-session
 
 ## 做什么
 
-`forge-session` 拥有会话日志这一唯一事实来源：`<dataDir>/sessions/<id>.jsonl`。
+`hearth-session` 拥有会话日志这一唯一事实来源：`<dataDir>/sessions/<id>.jsonl`。
 它负责按行追加事件、在打开时修复被中断写入留下的半行、按序回读、把日志折叠成
 `Snapshot`、在日志增长时轮询审批决定、把完整轮次之前的前缀复制成一份新会话，以及
 把最早一段完整历史替换成一条摘要记录。
@@ -56,7 +56,7 @@ gate: make arch
 
 ## 依赖与边界
 
-只依赖 `forge-core`（事件包络、错误种类、ID、canonical JSON）和标准库；`forge-config`
+只依赖 `hearth-core`（事件包络、错误种类、ID、canonical JSON）和标准库；`hearth-config`
 是允许的同层依赖，目前不需要。不得导入 L2 以上的 crate，也不得知道 LLM、工具策略或
 HTTP 的存在。所有文件 I/O 都限定在打开的那一份日志和 fork 目标文件内，不遍历目录、
 不读取配置、不写日志之外的状态。

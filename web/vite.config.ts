@@ -6,10 +6,10 @@ import { defineConfig } from 'vitest/config';
 const nodeEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
   ?.env;
 
-// The UI is served by `forge serve` from web/dist under '/', and the dev server
+// The UI is served by `hearth serve` from web/dist under '/', and the dev server
 // proxies /api to the Go server on 127.0.0.1:8848 (override with
-// FORGE_DEV_API, e.g. FORGE_DEV_API=http://127.0.0.1:9000).
-const devApiTarget = nodeEnv?.['FORGE_DEV_API'] ?? 'http://127.0.0.1:8848';
+// HEARTH_DEV_API, e.g. HEARTH_DEV_API=http://127.0.0.1:9000).
+const devApiTarget = nodeEnv?.['HEARTH_DEV_API'] ?? 'http://127.0.0.1:8848';
 
 export default defineConfig({
   base: '/',

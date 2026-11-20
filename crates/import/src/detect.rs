@@ -9,7 +9,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 use serde_json::Value;
 
 use crate::error::{
@@ -26,7 +26,7 @@ pub(crate) const OLD_FORMAT_MAX: i64 = 4;
 pub struct Source {
     /// The directory the caller passed to `Detect`, unchanged.
     pub dir: PathBuf,
-    /// Selected generation, e.g. `"forge-session-v4"`.
+    /// Selected generation, e.g. `"hearth-session-v4"`.
     pub format: String,
     /// Number of old session directories found under `dir`.
     pub sessions: usize,
@@ -140,7 +140,7 @@ pub(crate) fn locate(dir: &Path) -> Result<Located> {
     Ok(Located {
         source: Source {
             dir: dir.to_path_buf(),
-            format: format!("forge-session-v{}", header.version),
+            format: format!("hearth-session-v{}", header.version),
             sessions,
             events: records.len(),
             warnings,

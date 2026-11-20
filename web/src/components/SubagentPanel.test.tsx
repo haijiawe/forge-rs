@@ -105,7 +105,7 @@ describe('SubagentPanel', () => {
     );
     const text = container.textContent ?? '';
     expect(text).toContain('could not be read');
-    expect(text).toContain('forge subagent tree');
+    expect(text).toContain('hearth subagent tree');
     unmount();
   });
 });

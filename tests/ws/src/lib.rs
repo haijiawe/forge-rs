@@ -3,12 +3,12 @@
 //!
 //! The corpus is a byte-for-byte mirror of the Go oracle's
 //! `forge-go/tests/conformance/cases/ws` at
-//! `forge-rs/tests/conformance/cases/ws` (SHA256-verified when mirrored).
+//! `hearth/tests/conformance/cases/ws` (SHA256-verified when mirrored).
 //! Nothing in this file rewrites a case: when the Rust server disagrees with the
 //! frozen contract the assertion fails, and the disagreement is reported to the
 //! lead rather than weakened here.
 //!
-//! Only `std::net` and `serde_json` are used for the client. `forge-server` is a
+//! Only `std::net` and `serde_json` are used for the client. `hearth-server` is a
 //! path dependency on the crate under test, not a new external dependency; the
 //! runner needs it to set `ping_interval`/`delta_interval` without wall-clock
 //! flake.
@@ -24,8 +24,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use forge_core::Result as ForgeResult;
-use forge_server::{Options, Server, TurnContext, TurnRunner};
+use hearth_core::Result as HearthResult;
+use hearth_server::{Options, Server, TurnContext, TurnRunner};
 use serde_json::Value;
 
 const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -45,7 +45,7 @@ struct Runner {
 }
 
 impl TurnRunner for Runner {
-    fn run_turn(&self, ctx: &TurnContext, _session_id: &str, _text: &str) -> ForgeResult<()> {
+    fn run_turn(&self, ctx: &TurnContext, _session_id: &str, _text: &str) -> HearthResult<()> {
         let receiver = self.release.lock().expect("release lock");
         let _ = receiver.recv();
         if let Some(delta) = &self.delta {
@@ -54,7 +54,7 @@ impl TurnRunner for Runner {
         Ok(())
     }
 
-    fn cancel(&self) -> ForgeResult<()> {
+    fn cancel(&self) -> HearthResult<()> {
         Ok(())
     }
 }
@@ -197,8 +197,8 @@ fn canonical_bytes(bytes: &[u8]) -> String {
 fn temp_root() -> PathBuf {
     env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| env::temp_dir().join("forge-rs-target"))
-        .join("forge-ws-tmp")
+        .unwrap_or_else(|| env::temp_dir().join("hearth-target"))
+        .join("hearth-ws-tmp")
 }
 
 struct TempDir(PathBuf);
@@ -319,7 +319,7 @@ impl Harness {
     fn post_message(&self, session_id: &str, text: &str) {
         let body = format!("{{\"text\":{}}}", serde_json::to_string(text).unwrap());
         let request = format!(
-            "POST /api/sessions/{session_id}/messages HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nAuthorization: Bearer {TOKEN}\r\nX-Forge-Protocol: 1\r\nOrigin: http://{addr}\r\nIdempotency-Key: ws-golden-{session_id}\r\nConnection: close\r\n\r\n{body}",
+            "POST /api/sessions/{session_id}/messages HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nAuthorization: Bearer {TOKEN}\r\nX-Hearth-Protocol: 1\r\nOrigin: http://{addr}\r\nIdempotency-Key: ws-golden-{session_id}\r\nConnection: close\r\n\r\n{body}",
             self.addr,
             body.len(),
             addr = self.addr
@@ -396,7 +396,7 @@ fn dial(addr: &str, session_id: &str, after: u64, token: &str) -> (Option<WsClie
     stream.set_read_timeout(Some(WAIT)).unwrap();
     let key = format!("ws-golden-{session_id}-{after}");
     let request = format!(
-        "GET /api/sessions/{session_id}/stream?after={after} HTTP/1.1\r\nHost: {addr}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: {key}\r\nX-Forge-Protocol: 1\r\nOrigin: http://{addr}\r\nAuthorization: Bearer {token}\r\n\r\n"
+        "GET /api/sessions/{session_id}/stream?after={after} HTTP/1.1\r\nHost: {addr}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: {key}\r\nX-Hearth-Protocol: 1\r\nOrigin: http://{addr}\r\nAuthorization: Bearer {token}\r\n\r\n"
     );
     stream
         .write_all(request.as_bytes())
@@ -406,7 +406,10 @@ fn dial(addr: &str, session_id: &str, after: u64, token: &str) -> (Option<WsClie
         return (None, response);
     }
     assert_eq!(
-        response.headers.get("x-forge-protocol").map(String::as_str),
+        response
+            .headers
+            .get("x-hearth-protocol")
+            .map(String::as_str),
         Some("1")
     );
     let accept = response

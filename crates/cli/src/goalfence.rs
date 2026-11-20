@@ -2,9 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-use forge_agent::{Hook, HookCall, HookOutcome};
-use forge_core::{Error, ErrorKind};
-use forge_goal::{fence, FenceOutcome, Reservation};
+use hearth_agent::{Hook, HookCall, HookOutcome};
+use hearth_core::{Error, ErrorKind};
+use hearth_goal::{fence, FenceOutcome, Reservation};
 
 /// Build a `pre-step` hook that fences a continuation round.
 ///
@@ -55,15 +55,15 @@ pub fn hook(log: &Path, reservation: Reservation) -> Hook {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use forge_goal::{goal_created, goal_ended, Goal, StopReason};
+    use hearth_goal::{goal_created, goal_ended, Goal, StopReason};
 
-    fn log_with(label: &str, events: &[forge_core::Event]) -> std::path::PathBuf {
+    fn log_with(label: &str, events: &[hearth_core::Event]) -> std::path::PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("forge-goalfence-{label}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("hearth-goalfence-{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         let path = dir.join("s.jsonl");
-        let store = forge_session::Store::open(&path, forge_session::Options::default())
+        let store = hearth_session::Store::open(&path, hearth_session::Options::default())
             .expect("open store");
         for event in events {
             store.append(event).expect("append");
@@ -83,7 +83,7 @@ mod tests {
     fn a_current_round_passes_the_fence() {
         let goal = Goal::new("g1", "keep going", 3);
         let path = log_with("valid", &[goal_created("s", &goal)]);
-        let mut hooks = forge_agent::Hooks::none();
+        let mut hooks = hearth_agent::Hooks::none();
         hooks.push(hook(&path, reservation(&goal)));
         let (messages, changed) = hooks
             .run_pre_step(1, 1, Vec::new())
@@ -98,14 +98,14 @@ mod tests {
         let created = goal_created("s", &goal);
         let ended = goal_ended("s", &goal, StopReason::Cancelled, None);
         let path = log_with("ended", &[created, ended]);
-        let mut hooks = forge_agent::Hooks::none();
+        let mut hooks = hearth_agent::Hooks::none();
         hooks.push(hook(&path, reservation(&goal)));
         let err = hooks
             .run_pre_step(1, 1, Vec::new())
             .expect_err("ended goal must fence");
         // `Hooks` re-wraps a hook error as `hook_failed` (ErrorKind::Invalid) with the
         // hook's name; the goal verdict is still in the message.
-        assert_eq!(err.kind(), forge_core::ErrorKind::Invalid);
+        assert_eq!(err.kind(), hearth_core::ErrorKind::Invalid);
         assert!(err.message().contains("goal-fence"));
         assert!(err.message().contains("cancelled"));
     }

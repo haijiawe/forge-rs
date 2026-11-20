@@ -12,7 +12,7 @@ use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use forge_llm::ToolSpec;
+use hearth_llm::ToolSpec;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -36,7 +36,7 @@ const MAX_PRESENT_BYTES: u64 = 8 << 20;
 /// The manifest the user interface reads. One JSON object per line, appended.
 const MANIFEST_NAME: &str = "presented.jsonl";
 /// Where the manifest goes when no data directory was configured.
-const FALLBACK_MANIFEST_DIR: &str = ".forge";
+const FALLBACK_MANIFEST_DIR: &str = ".hearth";
 /// The description is one line by contract. Cap it so a runaway model cannot
 /// write a multi-megabyte line into the manifest.
 const MAX_DESCRIPTION_CHARS: usize = 500;
@@ -87,7 +87,7 @@ impl Tool for PresentTool {
              in your reply instead. Do not use it to read a file back: it returns no contents. Do not \
              use it for a file outside the workspace: it refuses those rather than copying them in.\n\n\
              What it does: checks that {MANIFEST_NAME} can record the file (inside the data directory, \
-             or `<workspace>/.forge` when none is configured), then appends one JSON line \
+             or `<workspace>/.hearth` when none is configured), then appends one JSON line \
              {{\"ts\":<unix millis>,\"path\":<absolute path>,\"size\":<bytes>,\"description\":<text>}} \
              to the manifest. A refused call (missing path, a directory, more than 8 MiB) records \
              nothing and says why, so read the error instead of retrying the same arguments.\n\n\
@@ -97,7 +97,7 @@ impl Tool for PresentTool {
              Example arguments:\n\
              {{\"path\":\"reports/q3-summary.md\",\"description\":\"Q3 summary report with the revenue table\"}}"
         );
-        forge_llm::ToolSpec {
+        hearth_llm::ToolSpec {
             name: "present".to_string(),
             description,
             schema: json!({
@@ -583,7 +583,7 @@ mod tests {
                 .map(|elapsed| elapsed.as_nanos())
                 .unwrap_or(0);
             let unique = format!(
-                "forge-present-{tag}-{}-{nanos}-{}",
+                "hearth-present-{tag}-{}-{nanos}-{}",
                 std::process::id(),
                 COUNTER.fetch_add(1, Ordering::SeqCst)
             );
@@ -846,7 +846,7 @@ mod tests {
 
         assert!(result.is_ok(), "{}", result.output);
         assert!(
-            result.output.contains(".forge"),
+            result.output.contains(".hearth"),
             "the fallback location is named: {}",
             result.output
         );
@@ -856,7 +856,7 @@ mod tests {
             result.output
         );
         assert_eq!(result.meta.get("fallbackToWorkspace"), Some(&json!(true)));
-        let manifest = workspace.join(".forge").join("presented.jsonl");
+        let manifest = workspace.join(".hearth").join("presented.jsonl");
         assert!(manifest.is_file(), "manifest at {}", manifest.display());
         assert_eq!(manifest_records(&manifest).len(), 1);
     }

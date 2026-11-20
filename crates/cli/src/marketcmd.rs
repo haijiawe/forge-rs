@@ -1,4 +1,4 @@
-//! `forge market`: search an index, install a bundle, and take it back out.
+//! `hearth market`: search an index, install a bundle, and take it back out.
 //!
 //! A bundle is a gzipped tarball whose digest is published in the index. The
 //! crate does the verifying (`crates/market`); this command is the part that
@@ -12,13 +12,13 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use forge_market::{Bundle, Removed, Store};
+use hearth_market::{Bundle, Removed, Store};
 
 const EXIT_OK: i32 = 0;
 const EXIT_FAILURE: i32 = 1;
 const EXIT_USAGE: i32 = 2;
 
-pub const USAGE: &str = "usage: forge market <command> [flags]
+pub const USAGE: &str = "usage: hearth market <command> [flags]
 
 Install plugin bundles from an index into <dataDir>/market. A bundle is a gzipped
 tarball; the index publishes its SHA-256 and the install refuses any tarball that
@@ -34,7 +34,7 @@ commands:
 
 flags:
   --json               machine-readable output
-  --data-dir <dir>     data directory (default: the forge home's configured one)
+  --data-dir <dir>     data directory (default: the hearth home's configured one)
   --root <dir>         market root (default: <dataDir>/market)
   --index <url>        index URL; required by `search` and `install`
   --force              uninstall before installing (refuses edits either way)
@@ -83,7 +83,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     };
     let store = match store_of(&opt) {
         Ok(store) => store,
-        Err(err) => return fail(stderr, "forge market", &err),
+        Err(err) => return fail(stderr, "hearth market", &err),
     };
 
     let positional = positional(&reordered, &command);
@@ -95,7 +95,10 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         "verify" => verify(&store, &opt, &positional, stdout, stderr),
         "pack" => pack(&opt, &positional, stdout, stderr),
         other => {
-            let _ = writeln!(stderr, "forge market: unknown command {other:?}\n\n{USAGE}");
+            let _ = writeln!(
+                stderr,
+                "hearth market: unknown command {other:?}\n\n{USAGE}"
+            );
             EXIT_USAGE
         }
     }
@@ -106,7 +109,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
-        // Positionals belong to the dispatch arm (`forge market install <name>`).
+        // Positionals belong to the dispatch arm (`hearth market install <name>`).
         if !arg.starts_with('-') {
             i += 1;
             continue;
@@ -124,7 +127,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
                     match args.get(*index) {
                         Some(value) => Ok(value.clone()),
                         None => {
-                            let _ = writeln!(stderr, "forge market: --{name} needs a value");
+                            let _ = writeln!(stderr, "hearth market: --{name} needs a value");
                             Err(EXIT_USAGE)
                         }
                     }
@@ -143,7 +146,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
             "arch" => opt.arch = take(&mut i)?,
             "" => {}
             other => {
-                let _ = writeln!(stderr, "forge market: unknown flag --{other}");
+                let _ = writeln!(stderr, "hearth market: unknown flag --{other}");
                 return Err(EXIT_USAGE);
             }
         }
@@ -152,7 +155,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
     Ok(opt)
 }
 
-fn store_of(opt: &Options) -> forge_core::Result<Store> {
+fn store_of(opt: &Options) -> hearth_core::Result<Store> {
     if !opt.root.trim().is_empty() {
         return Ok(Store::new(PathBuf::from(opt.root.trim())));
     }
@@ -202,15 +205,15 @@ fn positional<'a>(args: &'a [String], command: &str) -> Vec<&'a str> {
     out
 }
 
-fn fail(stderr: &mut dyn Write, command: &str, err: &forge_core::Error) -> i32 {
+fn fail(stderr: &mut dyn Write, command: &str, err: &hearth_core::Error) -> i32 {
     let _ = writeln!(stderr, "{command}: {}", err.message());
     EXIT_FAILURE
 }
 
 fn list(store: &Store, opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
-    let records = match forge_market::list(store) {
+    let records = match hearth_market::list(store) {
         Ok(records) => records,
-        Err(err) => return fail(stderr, "forge market", &err),
+        Err(err) => return fail(stderr, "hearth market", &err),
     };
     if opt.json {
         let rows: Vec<serde_json::Value> = records
@@ -229,7 +232,7 @@ fn list(store: &Store, opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn W
         return crate::write_json(
             stdout,
             stderr,
-            "forge market",
+            "hearth market",
             &serde_json::json!({
                 "root": store.root().display().to_string(),
                 "bundles": rows,
@@ -269,7 +272,7 @@ fn search(
     stderr: &mut dyn Write,
 ) -> i32 {
     let Some(needle) = positional.first() else {
-        let _ = writeln!(stderr, "forge market: search needs a word to look for");
+        let _ = writeln!(stderr, "hearth market: search needs a word to look for");
         return EXIT_USAGE;
     };
     let index = match fetch_index(opt, stdout, stderr) {
@@ -288,7 +291,7 @@ fn search(
     // The host platform is reported alongside the rows, because "is there a
     // build for me" is the first question a native bundle raises and the answer
     // is not visible in a name and a version.
-    let here = forge_market::host_platform();
+    let here = hearth_market::host_platform();
     if opt.json {
         let rows: Vec<serde_json::Value> = hits
             .iter()
@@ -307,7 +310,7 @@ fn search(
         return crate::write_json(
             stdout,
             stderr,
-            "forge market",
+            "hearth market",
             &serde_json::json!({
                 "query": needle,
                 "host": here.label(),
@@ -340,7 +343,7 @@ fn search(
     if unusable > 0 {
         let _ = writeln!(
             stderr,
-            "forge market: {unusable} of {} row(s) have no build for {}; install would refuse them",
+            "hearth market: {unusable} of {} row(s) have no build for {}; install would refuse them",
             hits.len(),
             here.label()
         );
@@ -356,7 +359,7 @@ fn install(
     stderr: &mut dyn Write,
 ) -> i32 {
     let Some(spec) = positional.first() else {
-        let _ = writeln!(stderr, "forge market: install needs a bundle name");
+        let _ = writeln!(stderr, "hearth market: install needs a bundle name");
         return EXIT_USAGE;
     };
     let (name, requirement) = match spec.split_once('@') {
@@ -364,7 +367,7 @@ fn install(
         None => (*spec, "*"),
     };
     if name.trim().is_empty() {
-        let _ = writeln!(stderr, "forge market: install needs a bundle name");
+        let _ = writeln!(stderr, "hearth market: install needs a bundle name");
         return EXIT_USAGE;
     }
     let index = match fetch_index(opt, stdout, stderr) {
@@ -373,39 +376,39 @@ fn install(
     };
     let bundle = match index.resolve(name, requirement) {
         Ok(bundle) => bundle.clone(),
-        Err(err) => return fail(stderr, "forge market", &err),
+        Err(err) => return fail(stderr, "hearth market", &err),
     };
     if opt.force {
         // `install` refuses an existing directory outright, and it is right to:
         // deleting a directory no record describes is the loss the crate exists
         // to prevent. So `--force` is an explicit uninstall first, not an
         // overwrite — and the uninstall keeps its own tamper check.
-        match forge_market::uninstall(store, &bundle.name) {
+        match hearth_market::uninstall(store, &bundle.name) {
             Ok(removed) => report_removed(stdout, &removed),
-            Err(err) if err.kind() == forge_core::ErrorKind::NotFound => {}
-            Err(err) => return fail(stderr, "forge market", &err),
+            Err(err) if err.kind() == hearth_core::ErrorKind::NotFound => {}
+            Err(err) => return fail(stderr, "hearth market", &err),
         }
     }
     let client = match market_client() {
         Ok(client) => client,
-        Err(err) => return fail(stderr, "forge market", &err),
+        Err(err) => return fail(stderr, "hearth market", &err),
     };
     let downloads = store.root().join("downloads");
     if let Err(err) = std::fs::create_dir_all(&downloads) {
         let _ = writeln!(
             stderr,
-            "forge market: cannot create {}: {err}",
+            "hearth market: cannot create {}: {err}",
             downloads.display()
         );
         return EXIT_FAILURE;
     }
-    let tarball = match forge_market::download(&client, &bundle, &downloads) {
+    let tarball = match hearth_market::download(&client, &bundle, &downloads) {
         Ok(path) => path,
-        Err(err) => return fail(stderr, "forge market", &err),
+        Err(err) => return fail(stderr, "hearth market", &err),
     };
-    let installed = match forge_market::install(store, &bundle, &tarball) {
+    let installed = match hearth_market::install(store, &bundle, &tarball) {
         Ok(installed) => installed,
-        Err(err) => return fail(stderr, "forge market", &err),
+        Err(err) => return fail(stderr, "hearth market", &err),
     };
     // The tarball has done its job: keeping it would double the disk cost of
     // every install and give a stale copy a chance to be reinstalled later.
@@ -414,7 +417,7 @@ fn install(
         return crate::write_json(
             stdout,
             stderr,
-            "forge market",
+            "hearth market",
             &serde_json::json!({
                 "name": installed.name,
                 "version": installed.version,
@@ -442,18 +445,18 @@ fn remove(
     stderr: &mut dyn Write,
 ) -> i32 {
     let Some(name) = positional.first() else {
-        let _ = writeln!(stderr, "forge market: remove needs a bundle name");
+        let _ = writeln!(stderr, "hearth market: remove needs a bundle name");
         return EXIT_USAGE;
     };
-    let removed = match forge_market::uninstall(store, name) {
+    let removed = match hearth_market::uninstall(store, name) {
         Ok(removed) => removed,
-        Err(err) => return fail(stderr, "forge market", &err),
+        Err(err) => return fail(stderr, "hearth market", &err),
     };
     if opt.json {
         return crate::write_json(
             stdout,
             stderr,
-            "forge market",
+            "hearth market",
             &serde_json::json!({
                 "name": removed.name,
                 "version": removed.version,
@@ -485,9 +488,9 @@ fn verify(
 ) -> i32 {
     let names: Vec<String> = match positional.first() {
         Some(name) => vec![(*name).to_string()],
-        None => match forge_market::list(store) {
+        None => match hearth_market::list(store) {
             Ok(records) => records.into_iter().map(|record| record.name).collect(),
-            Err(err) => return fail(stderr, "forge market", &err),
+            Err(err) => return fail(stderr, "hearth market", &err),
         },
     };
     if names.is_empty() {
@@ -500,10 +503,10 @@ fn verify(
     }
     let mut drifted: Vec<(String, Vec<String>)> = Vec::new();
     for name in &names {
-        match forge_market::modified_files(store, name) {
+        match hearth_market::modified_files(store, name) {
             Ok(files) if !files.is_empty() => drifted.push((name.clone(), files)),
             Ok(_) => {}
-            Err(err) => return fail(stderr, "forge market", &err),
+            Err(err) => return fail(stderr, "hearth market", &err),
         }
     }
     if opt.json {
@@ -524,7 +527,7 @@ fn verify(
         }
         let _ = writeln!(
             stderr,
-            "forge market: drift is not an error this command can fix; `remove` refuses too"
+            "hearth market: drift is not an error this command can fix; `remove` refuses too"
         );
     }
     // Drift is reported, not repaired, so a clean run is the only zero. A caller
@@ -544,14 +547,14 @@ fn verify(
 /// implementation agreeing with the first.
 fn pack(opt: &Options, positional: &[&str], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     let Some(dir) = positional.first() else {
-        let _ = writeln!(stderr, "forge market: pack needs a plugin directory");
+        let _ = writeln!(stderr, "hearth market: pack needs a plugin directory");
         return EXIT_USAGE;
     };
     let dir = PathBuf::from(dir);
-    let manifest = match forge_plugin::manifest::read(&dir) {
+    let manifest = match hearth_plugin::manifest::read(&dir) {
         Ok(manifest) => manifest,
         Err(err) => {
-            let _ = writeln!(stderr, "forge market: {}", err.message());
+            let _ = writeln!(stderr, "hearth market: {}", err.message());
             return EXIT_FAILURE;
         }
     };
@@ -562,19 +565,19 @@ fn pack(opt: &Options, positional: &[&str], stdout: &mut dyn Write, stderr: &mut
     let platform = match (os.is_empty(), arch.is_empty()) {
         (true, true) => None,
         (false, false) => {
-            if !forge_market::KNOWN_OS.contains(&os) {
+            if !hearth_market::KNOWN_OS.contains(&os) {
                 let _ = writeln!(
                     stderr,
-                    "forge market: --os {os:?} is not one of {}",
-                    forge_market::KNOWN_OS.join(", ")
+                    "hearth market: --os {os:?} is not one of {}",
+                    hearth_market::KNOWN_OS.join(", ")
                 );
                 return EXIT_USAGE;
             }
-            if !forge_market::KNOWN_ARCH.contains(&arch) {
+            if !hearth_market::KNOWN_ARCH.contains(&arch) {
                 let _ = writeln!(
                     stderr,
-                    "forge market: --arch {arch:?} is not one of {}",
-                    forge_market::KNOWN_ARCH.join(", ")
+                    "hearth market: --arch {arch:?} is not one of {}",
+                    hearth_market::KNOWN_ARCH.join(", ")
                 );
                 return EXIT_USAGE;
             }
@@ -583,15 +586,15 @@ fn pack(opt: &Options, positional: &[&str], stdout: &mut dyn Write, stderr: &mut
         _ => {
             let _ = writeln!(
                 stderr,
-                "forge market: --os and --arch must be given together, or not at all"
+                "hearth market: --os and --arch must be given together, or not at all"
             );
             return EXIT_USAGE;
         }
     };
 
-    let packed = match forge_market::pack_dir(&dir) {
+    let packed = match hearth_market::pack_dir(&dir) {
         Ok(packed) => packed,
-        Err(err) => return fail(stderr, "forge market", &err),
+        Err(err) => return fail(stderr, "hearth market", &err),
     };
 
     let out = if opt.out.trim().is_empty() {
@@ -602,7 +605,7 @@ fn pack(opt: &Options, positional: &[&str], stdout: &mut dyn Write, stderr: &mut
     if let Err(err) = std::fs::create_dir_all(&out) {
         let _ = writeln!(
             stderr,
-            "forge market: cannot create {}: {err}",
+            "hearth market: cannot create {}: {err}",
             out.display()
         );
         return EXIT_FAILURE;
@@ -616,7 +619,7 @@ fn pack(opt: &Options, positional: &[&str], stdout: &mut dyn Write, stderr: &mut
     if let Err(err) = std::fs::write(&tarball_path, &packed.tarball) {
         let _ = writeln!(
             stderr,
-            "forge market: cannot write {}: {err}",
+            "hearth market: cannot write {}: {err}",
             tarball_path.display()
         );
         return EXIT_FAILURE;
@@ -645,7 +648,7 @@ fn pack(opt: &Options, positional: &[&str], stdout: &mut dyn Write, stderr: &mut
         };
         match merge_index_entry(&out, bundle) {
             Ok(path) => Some(path),
-            Err(err) => return fail(stderr, "forge market", &err),
+            Err(err) => return fail(stderr, "hearth market", &err),
         }
     };
 
@@ -653,7 +656,7 @@ fn pack(opt: &Options, positional: &[&str], stdout: &mut dyn Write, stderr: &mut
         return crate::write_json(
             stdout,
             stderr,
-            "forge market",
+            "hearth market",
             &serde_json::json!({
                 "name": manifest.name,
                 "version": manifest.version,
@@ -683,7 +686,7 @@ fn pack(opt: &Options, positional: &[&str], stdout: &mut dyn Write, stderr: &mut
         None => {
             let _ = writeln!(
                 stderr,
-                "forge market: no --base-url, so no index was written; host the tarball and add an entry with this sha256 and size"
+                "hearth market: no --base-url, so no index was written; host the tarball and add an entry with this sha256 and size"
             );
         }
     }
@@ -695,16 +698,16 @@ fn pack(opt: &Options, positional: &[&str], stdout: &mut dyn Write, stderr: &mut
 /// The merged document is re-validated before it is written, so a pack cannot
 /// leave behind an index the consumer would refuse. The key is name + version +
 /// os + arch, the same one the index enforces.
-fn merge_index_entry(out: &Path, bundle: Bundle) -> forge_core::Result<PathBuf> {
+fn merge_index_entry(out: &Path, bundle: Bundle) -> hearth_core::Result<PathBuf> {
     let index_path = out.join("index.json");
     let mut bundles: Vec<Bundle> = if index_path.exists() {
         let bytes = std::fs::read(&index_path).map_err(|err| {
-            forge_core::Error::new(
-                forge_core::ErrorKind::Io,
+            hearth_core::Error::new(
+                hearth_core::ErrorKind::Io,
                 format!("cannot read {}: {err}", index_path.display()),
             )
         })?;
-        forge_market::Index::parse(&bytes)?.bundles
+        hearth_market::Index::parse(&bytes)?.bundles
     } else {
         Vec::new()
     };
@@ -721,33 +724,33 @@ fn merge_index_entry(out: &Path, bundle: Bundle) -> forge_core::Result<PathBuf> 
     } else {
         bundles.push(bundle);
     }
-    let mut index = forge_market::Index { bundles };
+    let mut index = hearth_market::Index { bundles };
     index.validate()?;
     let doc = serde_json::json!({
-        "version": forge_market::INDEX_VERSION,
+        "version": hearth_market::INDEX_VERSION,
         "bundles": index.bundles,
     });
     let text = serde_json::to_string_pretty(&doc).map_err(|err| {
-        forge_core::Error::new(
-            forge_core::ErrorKind::Json,
+        hearth_core::Error::new(
+            hearth_core::ErrorKind::Json,
             format!("cannot encode index: {err}"),
         )
     })?;
     std::fs::write(&index_path, text).map_err(|err| {
-        forge_core::Error::new(
-            forge_core::ErrorKind::Io,
+        hearth_core::Error::new(
+            hearth_core::ErrorKind::Io,
             format!("cannot write {}: {err}", index_path.display()),
         )
     })?;
     Ok(index_path)
 }
 
-fn market_client() -> forge_core::Result<forge_net::Client> {
+fn market_client() -> hearth_core::Result<hearth_net::Client> {
     // The default 2 MiB body cap is right for an index and wrong for a tarball,
     // so the download client is the one place that raises it.
-    forge_net::Client::new(forge_net::ClientOptions {
+    hearth_net::Client::new(hearth_net::ClientOptions {
         max_bytes: 64 << 20,
-        user_agent: format!("forge/{} (market)", crate::VERSION),
+        user_agent: format!("hearth/{} (market)", crate::VERSION),
         ..Default::default()
     })
 }
@@ -756,51 +759,51 @@ fn fetch_index(
     opt: &Options,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
-) -> std::result::Result<forge_market::Index, i32> {
+) -> std::result::Result<hearth_market::Index, i32> {
     let _ = stdout;
     if opt.index.trim().is_empty() {
         let _ = writeln!(
             stderr,
-            "forge market: no index configured; pass --index <url> (there is no default: an index this tool invented would be an index nobody published)"
+            "hearth market: no index configured; pass --index <url> (there is no default: an index this tool invented would be an index nobody published)"
         );
         return Err(EXIT_USAGE);
     }
     let client = match market_client() {
         Ok(client) => client,
         Err(err) => {
-            let _ = writeln!(stderr, "forge market: {}", err.message());
+            let _ = writeln!(stderr, "hearth market: {}", err.message());
             return Err(EXIT_FAILURE);
         }
     };
     let response = match client.get(opt.index.trim()) {
         Ok(response) => response,
         Err(err) => {
-            let _ = writeln!(stderr, "forge market: {}", err.message());
+            let _ = writeln!(stderr, "hearth market: {}", err.message());
             return Err(EXIT_FAILURE);
         }
     };
     if !response.is_success() {
         let _ = writeln!(
             stderr,
-            "forge market: the index answered {}",
+            "hearth market: the index answered {}",
             response.error_summary()
         );
         return Err(EXIT_FAILURE);
     }
-    match forge_market::Index::parse(&response.body) {
+    match hearth_market::Index::parse(&response.body) {
         Ok(index) => Ok(index),
         Err(err) => {
-            let _ = writeln!(stderr, "forge market: {}", err.message());
+            let _ = writeln!(stderr, "hearth market: {}", err.message());
             Err(EXIT_FAILURE)
         }
     }
 }
 
-/// The index file as the tests and an operator's `forge market search` see it.
+/// The index file as the tests and an operator's `hearth market search` see it.
 #[allow(dead_code)]
-fn read_index_file(path: &Path) -> forge_core::Result<forge_market::Index> {
+fn read_index_file(path: &Path) -> hearth_core::Result<hearth_market::Index> {
     let bytes = std::fs::read(path)?;
-    forge_market::Index::parse(&bytes)
+    hearth_market::Index::parse(&bytes)
 }
 
 #[cfg(test)]
@@ -825,7 +828,7 @@ mod tests {
             .expect("clock before epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "forge-market-cli-{}-{tag}-{unique}",
+            "hearth-market-cli-{}-{tag}-{unique}",
             std::process::id()
         ));
         std::fs::create_dir_all(&path).expect("create scratch");
@@ -875,7 +878,7 @@ mod tests {
 
         // The index the packer wrote must parse and resolve to the bundle.
         let index_bytes = std::fs::read(out.join("index.json")).expect("index written");
-        let index = forge_market::Index::parse(&index_bytes).expect("index parses");
+        let index = hearth_market::Index::parse(&index_bytes).expect("index parses");
         let bundle = index.resolve("hello", "1.0.0").expect("resolve");
         assert_eq!(
             bundle.tarball,
@@ -885,10 +888,10 @@ mod tests {
         // The tarball on disk must match the digest the index declares, and the
         // consumer must install it — the whole producer/consumer loop, in process.
         let tarball = std::fs::read(out.join("hello-1.0.0.tar.gz")).expect("tarball");
-        assert_eq!(forge_market::sha256_hex(&tarball), bundle.sha256);
+        assert_eq!(hearth_market::sha256_hex(&tarball), bundle.sha256);
         assert_eq!(tarball.len() as u64, bundle.size);
-        let store = forge_market::Store::new(root.join("market"));
-        let installed = forge_market::install_bytes(&store, bundle, &tarball)
+        let store = hearth_market::Store::new(root.join("market"));
+        let installed = hearth_market::install_bytes(&store, bundle, &tarball)
             .expect("install the packed bundle");
         assert_eq!(installed.name, "hello");
         assert!(installed.files.iter().any(|f| f == "plugin.json"));
@@ -946,7 +949,7 @@ mod tests {
         let (second, _, _) = run_market(&["pack", &dir_str, "--out", &out_str, "--base-url", base]);
         assert_eq!(second, 0);
         let index =
-            forge_market::Index::parse(&std::fs::read(out.join("index.json")).expect("index"))
+            hearth_market::Index::parse(&std::fs::read(out.join("index.json")).expect("index"))
                 .expect("parse");
         assert_eq!(
             index.bundles.len(),
@@ -954,7 +957,7 @@ mod tests {
             "the entry was replaced, not duplicated"
         );
         let tarball = std::fs::read(out.join("dup-1.0.0.tar.gz")).expect("tarball");
-        assert_eq!(index.bundles[0].sha256, forge_market::sha256_hex(&tarball));
+        assert_eq!(index.bundles[0].sha256, hearth_market::sha256_hex(&tarball));
         let _ = std::fs::remove_dir_all(&root);
     }
 

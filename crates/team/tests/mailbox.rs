@@ -7,8 +7,8 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use forge_core::ErrorKind;
-use forge_team::{Mailbox, Message};
+use hearth_core::ErrorKind;
+use hearth_team::{Mailbox, Message};
 
 fn temp_dir(label: &str) -> PathBuf {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -20,7 +20,7 @@ fn temp_dir(label: &str) -> PathBuf {
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
     let dir = std::env::temp_dir().join(format!(
-        "forge-team-mailbox-{}-{}-{}-{}",
+        "hearth-team-mailbox-{}-{}-{}-{}",
         std::process::id(),
         stamp,
         NEXT.fetch_add(1, Ordering::SeqCst),

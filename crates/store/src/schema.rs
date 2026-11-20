@@ -5,7 +5,7 @@
 //! safe response to an unknown layout because the log, not the index, is the
 //! truth.
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 use rusqlite::Connection;
 
 use crate::store::store_err;

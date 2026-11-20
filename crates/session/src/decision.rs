@@ -15,7 +15,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 use serde::Deserialize;
 use serde_json::Value;
 

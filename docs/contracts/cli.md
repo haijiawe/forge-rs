@@ -6,7 +6,7 @@ crates implement, and the language-neutral conformance corpora under
 tests/conformance/cases/ are what proves it. Read Go signatures as history:
 the Rust signatures live in the crates' README.md files.
 -->
-# forge CLI contract
+# hearth CLI contract
 
 Status: **normative for the commands that exist today**, as implemented by
 `cmd/forge` at version `0.0.0-dev`. Anything not in [§2](#2-commands-that-exist-today)
@@ -22,20 +22,20 @@ non-conforming.
 ## 1. Invocation model
 
 ```text
-forge <command> [flags]
+hearth <command> [flags]
 ```
 
 - Exactly one command per invocation. One command has a subcommand:
-  `forge session fork` (§2.6). Everything else is a leaf.
-- Global flags come after the command (`forge doctor --json`), never before it.
+  `hearth session fork` (§2.6). Everything else is a leaf.
+- Global flags come after the command (`hearth doctor --json`), never before it.
   A command's own flags and its positional arguments may appear in either
   order, because `cmd/forge/flags.go` moves flags ahead of positionals before
   `flag` parses them (§2.3 "Prompt"). `--` still ends flag parsing.
-- Output goes to **stdout** unless a rule below says stderr. `forge chat` splits
+- Output goes to **stdout** unless a rule below says stderr. `hearth chat` splits
   the two: the answer is stdout, diagnostics are stderr (§2.3).
-- `forge` never prompts for input of its own accord. Two invocations read stdin:
-  `forge chat` with no prompt argument, which reads it to EOF (§2.3), and
-  `forge chat --approve=prompt`, which reads one line per tool approval
+- `hearth` never prompts for input of its own accord. Two invocations read stdin:
+  `hearth chat` with no prompt argument, which reads it to EOF (§2.3), and
+  `hearth chat --approve=prompt`, which reads one line per tool approval
   (§2.3, "Tools and approvals").
   Every other command ignores stdin and never blocks waiting for input.
 - Version string: `0.0.0-dev` (injected at build time via `-ldflags`). Commit:
@@ -47,11 +47,11 @@ forge <command> [flags]
 | --- | --- | --- |
 | `0` | success | Command completed. Includes `--version`, `help`, `doctor` where no check has status `fail`, and a `chat` turn that ended `completed`. |
 | `1` | failure | `doctor` completed but at least one check reported `fail`; also used when the config path cannot be determined. For `chat`: the turn could not run or ended in `error` (§2.3), plus the three ways a `--resume`/`--fork` can be refused — the session id does not exist, the log has a turn waiting for an approval, or another process holds the session (§2.3 "Resume and fork"). Not a crash. |
-| `2` | usage error | Unknown command, unknown flag, flag parse failure, invalid `--session`, `--resume` or `--fork`, `--resume` together with `--fork`, `--resume` together with `--session`, empty prompt, unknown `--approve` value, `--no-tools` together with a non-default `--approve`, `--approve=prompt` with a stdin that is not a terminal, an unknown `--sandbox` value, a fork cut that is not on a record boundary or lands inside an open turn, and `forge web --approve=prompt` (the web approver is `web`, not a terminal). Always accompanied by a message on stderr. |
-| `130` | cancelled | `forge chat` interrupted by Ctrl+C. The turn is closed in the log with reason `cancelled` before the process exits (§2.3). |
+| `2` | usage error | Unknown command, unknown flag, flag parse failure, invalid `--session`, `--resume` or `--fork`, `--resume` together with `--fork`, `--resume` together with `--session`, empty prompt, unknown `--approve` value, `--no-tools` together with a non-default `--approve`, `--approve=prompt` with a stdin that is not a terminal, an unknown `--sandbox` value, a fork cut that is not on a record boundary or lands inside an open turn, and `hearth web --approve=prompt` (the web approver is `web`, not a terminal). Always accompanied by a message on stderr. |
+| `130` | cancelled | `hearth chat` interrupted by Ctrl+C. The turn is closed in the log with reason `cancelled` before the process exits (§2.3). |
 
 Any exit code outside this table (including a Go panic's `2` from the runtime) is
-a bug, not contract. `forge` does not use exit code `1` for "unknown command".
+a bug, not contract. `hearth` does not use exit code `1` for "unknown command".
 
 ---
 
@@ -59,75 +59,75 @@ a bug, not contract. `forge` does not use exit code `1` for "unknown command".
 
 | Command | Aliases | Output | Exit |
 | --- | --- | --- | --- |
-| `forge --version` | `-v`, `version` | one version line on stdout | `0` |
-| `forge chat [flags] [prompt]` | `forge "<prompt>"` | streamed answer on stdout, diagnostics on stderr | `0`, `1`, `2` or `130` |
-| `forge web [flags]` | — | three lines on stderr — `serving <baseURL>`, `session=… model=… workspace=… sandbox=… approve=…`, `open <url with token>` — and the UI in the browser it opens | `0`, `1`, `2` or `130` |
-| `forge session fork <parentId> [flags]` | — | the new session id (or one JSON object) on stdout, diagnostics on stderr | `0`, `1` or `2` |
-| `forge session archive <sessionId> [flags]` | — | one sentence (or one JSON object) on stdout, diagnostics on stderr | `0`, `1` or `2` |
-| `forge import <old-dir> [flags]` | — | plan or result on stdout, diagnostics on stderr | `0`, `1` or `2` |
-| `forge index [flags]` | — | stats, hits or JSON on stdout | `0`, `1` or `2` |
-| `forge goal <command>` | — | the goal id, a status block, or JSON on stdout | `0`, `1` or `2` |
-| `forge schedule <command>` | — | a task id, a table, occurrences or JSON on stdout | `0`, `1` or `2` |
-| `forge plugin <command>` | — | a generated skeleton, a manifest listing, a handshake, tool output or a doctor report on stdout | `0`, `1` or `2` |
-| `forge expert <command>` | — | a roster table, one prompt, or JSON on stdout | `0`, `1` or `2` |
-| `forge skill <command>` | — | a skill table, one skill body, or JSON on stdout | `0`, `1` or `2` |
-| `forge subagent <command>` | — | children of a session, the tree below one, name resolution, timing, resume, interrupt, backends, or the worker | `0`, `1` or `2` |
-| `forge team <command>` | — | team listings, a worker report, or a board description on stdout | `0`, `1` or `2` |
-| `forge market <command>` | — | installed bundles, search hits, an install result or drift on stdout | `0`, `1` or `2` |
-| `forge help` | `-h`, `--help`, no arguments at all | usage text on stdout | `0` |
-| `forge doctor` | — | human-readable check report on stdout | `0` or `1` |
-| `forge doctor --json` | — | JSON report on stdout | `0` or `1` |
-| `forge doctor --prune-profiles` | — | Deletes the Windows AppContainer profiles this tool created, then reports what happened | `0` or `1` |
+| `hearth --version` | `-v`, `version` | one version line on stdout | `0` |
+| `hearth chat [flags] [prompt]` | `hearth "<prompt>"` | streamed answer on stdout, diagnostics on stderr | `0`, `1`, `2` or `130` |
+| `hearth web [flags]` | — | three lines on stderr — `serving <baseURL>`, `session=… model=… workspace=… sandbox=… approve=…`, `open <url with token>` — and the UI in the browser it opens | `0`, `1`, `2` or `130` |
+| `hearth session fork <parentId> [flags]` | — | the new session id (or one JSON object) on stdout, diagnostics on stderr | `0`, `1` or `2` |
+| `hearth session archive <sessionId> [flags]` | — | one sentence (or one JSON object) on stdout, diagnostics on stderr | `0`, `1` or `2` |
+| `hearth import <old-dir> [flags]` | — | plan or result on stdout, diagnostics on stderr | `0`, `1` or `2` |
+| `hearth index [flags]` | — | stats, hits or JSON on stdout | `0`, `1` or `2` |
+| `hearth goal <command>` | — | the goal id, a status block, or JSON on stdout | `0`, `1` or `2` |
+| `hearth schedule <command>` | — | a task id, a table, occurrences or JSON on stdout | `0`, `1` or `2` |
+| `hearth plugin <command>` | — | a generated skeleton, a manifest listing, a handshake, tool output or a doctor report on stdout | `0`, `1` or `2` |
+| `hearth expert <command>` | — | a roster table, one prompt, or JSON on stdout | `0`, `1` or `2` |
+| `hearth skill <command>` | — | a skill table, one skill body, or JSON on stdout | `0`, `1` or `2` |
+| `hearth subagent <command>` | — | children of a session, the tree below one, name resolution, timing, resume, interrupt, backends, or the worker | `0`, `1` or `2` |
+| `hearth team <command>` | — | team listings, a worker report, or a board description on stdout | `0`, `1` or `2` |
+| `hearth market <command>` | — | installed bundles, search hits, an install result or drift on stdout | `0`, `1` or `2` |
+| `hearth help` | `-h`, `--help`, no arguments at all | usage text on stdout | `0` |
+| `hearth doctor` | — | human-readable check report on stdout | `0` or `1` |
+| `hearth doctor --json` | — | JSON report on stdout | `0` or `1` |
+| `hearth doctor --prune-profiles` | — | Deletes the Windows AppContainer profiles this tool created, then reports what happened | `0` or `1` |
 
-`forge session` has two implemented subcommands today: `fork` and `archive`.
+`hearth session` has two implemented subcommands today: `fork` and `archive`.
 `list`, `show`,
 `resume` and `export` are reserved words (§2.6) and exit `2` with a message rather
-than pretending to work. `forge resume` is not a command: resuming is
-`forge chat --resume <id>` (§2.3), because a resume is a chat turn on an existing
+than pretending to work. `hearth resume` is not a command: resuming is
+`hearth chat --resume <id>` (§2.3), because a resume is a chat turn on an existing
 log, not a separate operation.
 
 `--version` is a fast path: it does not touch the config file, the data
 directory, the workspace or the network, so it works in a broken environment.
 
-### 2.1 `forge --version`
+### 2.1 `hearth --version`
 
 stdout, exactly one line:
 
 ```text
-forge 0.0.0-dev (unknown) windows/amd64 go1.27.0
+hearth 0.0.0-dev (unknown) windows/amd64 go1.27.0
 ```
 
-Format: `forge {version} ({commit}) {goos}/{goarch} {goVersion}` followed by
+Format: `hearth {version} ({commit}) {goos}/{goarch} {goVersion}` followed by
 `\n`. `{goVersion}` is the Go runtime version the binary was built with
 (`runtime.Version()`); a non-Go reimplementation should print its own runtime
 version in that slot, or `unknown` if it has none. Nothing is written to stderr.
 Exit `0`.
 
-### 2.2 `forge help`
+### 2.2 `hearth help`
 
-`forge` with no arguments, `forge help`, `forge -h` and `forge --help` all print
+`hearth` with no arguments, `hearth help`, `hearth -h` and `hearth --help` all print
 the same text to **stdout** and exit `0`. The text is:
 
 ```text
-forge — an agent harness
+hearth — an agent harness
 
 usage:
-  forge --version              print version (fast path, no config)
-  forge chat [flags] [prompt]  run one turn and stream the answer to stdout
-  forge "<prompt>"             shorthand for forge chat
-  forge web [flags]            serve the browser UI on loopback
-  forge session <command>      operate on a session log without running a turn
-  forge import <old-dir>       import a session tree from the old harness
-  forge index [flags]          rebuild or query the search index
-  forge goal <command>         record, inspect or close a goal
-  forge schedule <command>     record recurring prompts and run the ones due
-  forge plugin <command>       inspect the installed plugin set
-  forge expert <command>       list or show the expert roster
-  forge skill <command>        list or show the skills the model was offered
-  forge team <command>         list teams, or run one over a shared board
-  forge market <command>       install or remove plugin bundles
-  forge doctor [flags]         check the environment
-  forge help                   this message
+  hearth --version              print version (fast path, no config)
+  hearth chat [flags] [prompt]  run one turn and stream the answer to stdout
+  hearth "<prompt>"             shorthand for hearth chat
+  hearth web [flags]            serve the browser UI on loopback
+  hearth session <command>      operate on a session log without running a turn
+  hearth import <old-dir>       import a session tree from the old harness
+  hearth index [flags]          rebuild or query the search index
+  hearth goal <command>         record, inspect or close a goal
+  hearth schedule <command>     record recurring prompts and run the ones due
+  hearth plugin <command>       inspect the installed plugin set
+  hearth expert <command>       list or show the expert roster
+  hearth skill <command>        list or show the skills the model was offered
+  hearth team <command>         list teams, or run one over a shared board
+  hearth market <command>       install or remove plugin bundles
+  hearth doctor [flags]         check the environment
+  hearth help                   this message
 
 docs: docs/README.md
 ```
@@ -141,19 +141,19 @@ Nothing is written to stderr, and no config or filesystem access happens.
 binary prints, so the two cannot drift: adding a command means editing the
 constant, this block and that test in one change.
 
-### 2.3 `forge chat [flags] [prompt]`
+### 2.3 `hearth chat [flags] [prompt]`
 
 Runs one agent turn against the workspace and streams the model's answer to
-stdout. `forge "<prompt>"` is a shorthand for the same command (§2.5 explains
+stdout. `hearth "<prompt>"` is a shorthand for the same command (§2.5 explains
 when a first argument is a prompt instead of a mistyped subcommand).
 
 ```text
-$ forge chat "summarize internal/session"
+$ hearth chat "summarize internal/session"
 The session package owns the append-only event log…
-forge chat: model=gpt-4o-mini sandbox=workspace-write tools=11 approve=never
-forge chat: session=20260101-120000-a1b2c3
-forge chat: log=C:\Users\Administrator\.forge\sessions\20260101-120000-a1b2c3.jsonl
-forge chat: turn=1 steps=1 reason=completed usage in=812 out=233 total=1045
+hearth chat: model=gpt-4o-mini sandbox=workspace-write tools=11 approve=never
+hearth chat: session=20260101-120000-a1b2c3
+hearth chat: log=C:\Users\Administrator\.hearth\sessions\20260101-120000-a1b2c3.jsonl
+hearth chat: turn=1 steps=1 reason=completed usage in=812 out=233 total=1045
 ```
 
 The stdout/stderr split is contract:
@@ -167,7 +167,7 @@ The stdout/stderr split is contract:
   `fs_read` result, a `shell` command's stdout and an approval question are
   diagnostics, not answers.
 - **stderr** carries every diagnostic, one line each, all prefixed
-  `forge chat: `. In order: `model={id} sandbox={mode} tools={n} approve={mode}`,
+  `hearth chat: `. In order: `model={id} sandbox={mode} tools={n} approve={mode}`,
   `session=`, `log=`, then
   `turn={n} steps={n} reason={r} usage in={n} out={n} total={n}`, then a one-line
   failure diagnosis when the turn failed, then — only when a tool call was
@@ -175,8 +175,8 @@ The stdout/stderr split is contract:
   `--approve=always` and `--approve=prompt`. The summary line is printed for
   every turn that started, including failures and Ctrl+C. Approvals asked and
   answered under `--approve=prompt` also go to stderr, each followed by
-  `forge chat: approval: allow` or `forge chat: approval: deny`.
-- `forge chat "q" > answer.txt` therefore captures only the answer, and
+  `hearth chat: approval: allow` or `hearth chat: approval: deny`.
+- `hearth chat "q" > answer.txt` therefore captures only the answer, and
   `2> err.txt` captures only the diagnostics (plus any tool or approval text).
 
 `usage` counts tokens summed over the turn: `in` is prompt tokens, `out` is
@@ -185,7 +185,7 @@ completion tokens, `total` is their sum (cache tokens are not included).
 #### Prompt
 
 - Positional arguments after the flags are joined with single spaces:
-  `forge chat --model m fix the bug` has prompt `fix the bug`. Flags may come
+  `hearth chat --model m fix the bug` has prompt `fix the bug`. Flags may come
   **before or after** the prompt: `cmd/forge/flags.go` (`reorderFlags`) moves
   flags ahead of the positionals before `flag` parses them, keeping each
   value-flag next to its value and honouring a `--` terminator (everything after
@@ -193,28 +193,28 @@ completion tokens, `total` is their sum (cache tokens are not included).
   are `--model`, `--session`, `--resume`, `--fork`, `--system`, `--approve` and
   `--sandbox`; an unknown flag is still an error wherever it appears.
 - With no positional argument, stdin is read to EOF and trailing `\r`/`\n` are
-  removed: `echo hi | forge chat` and `forge chat < prompt.txt` both work. This
+  removed: `echo hi | hearth chat` and `hearth chat < prompt.txt` both work. This
   and the approval questions of `--approve=prompt` are the only paths on which
-  `forge` reads stdin.
+  `hearth` reads stdin.
 - An empty or whitespace-only prompt is a usage error: exit `2`, stderr
-  `forge chat: empty prompt: pass it as an argument or pipe it on stdin`, and no
+  `hearth chat: empty prompt: pass it as an argument or pipe it on stdin`, and no
   session file is created.
 - `-h` / `--help` anywhere before `--` prints this command's usage text
-  (`usage: forge chat [flags] [prompt]` …) to stdout and exits `0`.
+  (`usage: hearth chat [flags] [prompt]` …) to stdout and exits `0`.
 
 #### Flags
 
 | Flag | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `--model` | string | config `model` | Model id sent to the provider as-is. With neither flag nor config: exit `1`, `forge chat: no model configured: …`, before any network call. |
-| `--session` | string | generated | Session id, which is also the log file name. Must match `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`; otherwise exit `2`, `forge chat: invalid --session "…": …`, decided before the config, stdin or any file access. An existing id appends to that session's log. |
+| `--model` | string | config `model` | Model id sent to the provider as-is. With neither flag nor config: exit `1`, `hearth chat: no model configured: …`, before any network call. |
+| `--session` | string | generated | Session id, which is also the log file name. Must match `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`; otherwise exit `2`, `hearth chat: invalid --session "…": …`, decided before the config, stdin or any file access. An existing id appends to that session's log. |
 | `--system` | string | empty | System prompt for this turn; sent as the first model message and not recorded in the log. |
-| `--approve` | string enum | `never` | Consent for tool calls the sandbox policy marks as `ask`: `never` (deny, nobody is asked), `always` (allow every call, recorded as `flag:--approve=always`), `prompt` (ask on stderr, read one line from stdin). Any other value is a usage error: exit `2`, `forge chat: invalid --approve "…": use never, always or prompt`. |
+| `--approve` | string enum | `never` | Consent for tool calls the sandbox policy marks as `ask`: `never` (deny, nobody is asked), `always` (allow every call, recorded as `flag:--approve=always`), `prompt` (ask on stderr, read one line from stdin). Any other value is a usage error: exit `2`, `hearth chat: invalid --approve "…": use never, always or prompt`. |
 | `--no-tools` | bool | `false` | Start the session with no tools at all: the request advertises none ("Tools and approvals", below). Combining it with any `--approve` value other than `never` is a usage error, exit `2`. |
 | `--json` | bool | `false` | Write one report object on stdout instead of streaming (below). Diagnostics still go to stderr. |
 | `--resume <id>` | string | — | Continue the existing session `<id>` instead of starting a new one: the next turn number is one greater than the highest turn in the log, and the model sees the prior conversation. Refused (exit `1`) for an unknown id, a log waiting for an approval, or a session another process is writing. Mutually exclusive with `--fork` and `--session`. |
 | `--fork <id>` | string | — | Copy the session `<id>` up to its last `turn/end` into a new session and run the turn there; the parent log is never modified. `--session` names the copy (default: a generated id). Mutually exclusive with `--resume`. |
-| `--sandbox` | string enum | config `sandbox` | Containment mode for this process: `read-only`, `workspace-write` or `full-access`. Any other value is a usage error: exit `2`, `forge chat: invalid --sandbox "…": use read-only, workspace-write or full-access`, decided before any file access. A mode this host cannot enforce exits `1` before the turn with `sandbox: mode "…" cannot be enforced on this host: …`. A mode that is only partly enforced prints one warning line (§2.8). |
+| `--sandbox` | string enum | config `sandbox` | Containment mode for this process: `read-only`, `workspace-write` or `full-access`. Any other value is a usage error: exit `2`, `hearth chat: invalid --sandbox "…": use read-only, workspace-write or full-access`, decided before any file access. A mode this host cannot enforce exits `1` before the turn with `sandbox: mode "…" cannot be enforced on this host: …`. A mode that is only partly enforced prints one warning line (§2.8). |
 | `--no-compact` | bool | `false` | Skip the compaction pass that runs before the turn (§2.3 "Compaction"). |
 
 Both `-flag` and `--flag` spellings are accepted (`flag` package). An undefined
@@ -225,12 +225,12 @@ The generated session id is `YYYYMMDD-HHMMSS-xxxxxx`: local time formatted
 `20060102-150405`, a hyphen, then six lowercase hex digits from three random
 bytes. Two runs in the same second differ. The log path is
 `<dataDir>/sessions/<id>.jsonl`, where `<dataDir>` comes from the config
-(default: `$FORGE_HOME`, else `~/.forge`) — the path printed on stderr.
+(default: `$HEARTH_HOME`, else `~/.hearth`) — the path printed on stderr.
 
 Every turn appends to that log, which follows [`events-v1`](events-v1.md):
 `turn/start` … `turn/end` with `reason` equal to the value reported on stderr,
 and the assistant text in `assistant/message`. The log is append-only;
-`forge chat` never rewrites or deletes it.
+`hearth chat` never rewrites or deletes it.
 
 #### Resume and fork
 
@@ -245,27 +245,27 @@ the normal reason to resume:
 
 - A torn final record — a crash in the middle of `write` — is dropped: the file is
   truncated back to its last complete record, and stderr says
-  `forge chat: recovered session <id>: dropped <n> bytes of a torn final record`.
+  `hearth chat: recovered session <id>: dropped <n> bytes of a torn final record`.
   Every byte before that point is untouched.
 - A `turn/start` with no `turn/end` (the process died mid-turn) is closed by
   appending a `turn/end` with `reason="cancelled"` and `cancelledBy="cli:recovery"`
   — a corrective event, never a rewrite. The next turn is then the one after it.
   stderr says
-  `forge chat: recovered session <id>: closed turn <n>, which a dead process left open`.
+  `hearth chat: recovered session <id>: closed turn <n>, which a dead process left open`.
   Nothing else is invented: an unanswered `step/start` stays unanswered, and its
   assistant text, if any, is already in the log.
 
 #### Compaction
 
-Before the turn starts, `forge chat` runs one compaction pass over the log
+Before the turn starts, `hearth chat` runs one compaction pass over the log
 (`session.CompactLog`) when a provider is configured and the log holds at least
 200 events (`compactMinEvents`; below that floor nothing is planned). It appends
 at most one `compaction/summary` event ([`events-v1`](events-v1.md) §5.1) and
 never rewrites a record. When the log has a summary span afterwards, stderr says
-`forge chat: compacted <n> events into a summary`, or
-`forge chat: compaction skipped: <err>` when the pass returned an error. A skip
+`hearth chat: compacted <n> events into a summary`, or
+`hearth chat: compaction skipped: <err>` when the pass returned an error. A skip
 is not a turn failure and does not change the exit code. `--no-compact` skips
-the pass entirely, and so does a run with no provider configured. `forge web`
+the pass entirely, and so does a run with no provider configured. `hearth web`
 does not compact.
 
 `--resume` refuses rather than interleaves two writers into one log. Each of these
@@ -273,15 +273,15 @@ exits `1` and creates, truncates or appends nothing:
 
 | Situation | stderr | What the operator does |
 | --- | --- | --- |
-| `<id>.jsonl` does not exist | `forge chat: no such session "<id>": <path> does not exist` | Check the id, or start a new session. |
-| the newest turn is waiting for an approval | ``forge chat: session "<id>" is waiting for approval "<approvalId>": answer it in `forge web`, or continue from a copy that stops before that turn with `forge chat --fork <id>` `` | Answer it in the web UI, or fork past it. |
-| `<id>.lock` names a live pid | `forge chat: session is being written by another process: pid <n> is writing session "<id>": let that turn finish (or stop that process), then retry` | Wait for that turn, or stop that process. |
+| `<id>.jsonl` does not exist | `hearth chat: no such session "<id>": <path> does not exist` | Check the id, or start a new session. |
+| the newest turn is waiting for an approval | ``hearth chat: session "<id>" is waiting for approval "<approvalId>": answer it in `hearth web`, or continue from a copy that stops before that turn with `hearth chat --fork <id>` `` | Answer it in the web UI, or fork past it. |
+| `<id>.lock` names a live pid | `hearth chat: session is being written by another process: pid <n> is writing session "<id>": let that turn finish (or stop that process), then retry` | Wait for that turn, or stop that process. |
 
 The lock is a sidecar file `<dataDir>/sessions/<id>.lock` holding the writer's
 pid, created with `O_CREATE|O_EXCL` and removed when the turn ends. A lock whose
 pid is dead, unparsable or this very process is stale and is taken over. It is
-advisory: it covers `forge chat --resume` against another `forge chat --resume`,
-not against `forge web`, whose turns live in the server's memory — a live web turn
+advisory: it covers `hearth chat --resume` against another `hearth chat --resume`,
+not against `hearth web`, whose turns live in the server's memory — a live web turn
 looks like a stale lock to a separate CLI process. Nothing else in the data
 directory is touched, and the lock is not part of the log.
 
@@ -296,16 +296,16 @@ identical afterwards, and a fork never truncates the parent's torn tail.
 
 `--fork` refuses (exit `1`, nothing created) a parent that does not exist or a
 `--session` id whose log already exists — a copy never overwrites a log, so pick
-another id. `forge chat --fork` also prints
-`forge chat: forked <parent> at seq <n> into session <new> (<events> events)` on
+another id. `hearth chat --fork` also prints
+`hearth chat: forked <parent> at seq <n> into session <new> (<events> events)` on
 stderr before the turn's own lines.
 
 #### Tools and approvals
 
-`forge chat` builds the tool pipeline and advertises it on every model call. The
+`hearth chat` builds the tool pipeline and advertises it on every model call. The
 workspace is the process's current directory, resolved with `os.Getwd` before
 the session log is opened; if that fails the command exits `1` with
-`forge chat: working directory: …` rather than falling back to an empty path.
+`hearth chat: working directory: …` rather than falling back to an empty path.
 The same value is passed to the agent (recorded in `session/start`) and to the
 tool executor.
 
@@ -316,8 +316,8 @@ bridges and the configured platform capabilities contribute, so `tools={n}` on
 stderr — the count of everything in the registry — is at least ten and grows with
 configuration:
 
-- three more on any surface that writes a session log — which is `forge chat`
-  and `forge web`, so a conversation advertises thirteen: `compress`,
+- three more on any surface that writes a session log — which is `hearth chat`
+  and `hearth web`, so a conversation advertises thirteen: `compress`,
   `decompress`, and `search_context` answer questions about the log being
   written and never edit it (§4.0.3 of [`events-v1`](events-v1.md)). A caller
   that hands wiring no log gets none of them, because a block is an address into
@@ -359,7 +359,7 @@ policy for the ten unconditional tools and the three that ride on a session log.
 | anything not listed | deny | deny | allow |
 
 An eleventh tool, `goal_end`, is registered only when the turn belongs to a goal
-loop (`forge chat --goal`): it records the verdict the loop reads to decide
+loop (`hearth chat --goal`): it records the verdict the loop reads to decide
 whether to open another round. Its policy is `allow` in every mode, because
 ending a goal touches no file — gating it would make a confined turn unable to
 stop the thing it was asked to finish.
@@ -387,16 +387,16 @@ on `--approve`:
 | --- | --- | --- |
 | `never` (default) | none | The ask is refused without asking anybody. `tool/result` has `ok=false`, `code="no_approver"`, and **no** `approval/request` or `approval/decision` is recorded — nobody was asked, so there is nothing to record. One stderr hint line (`--approve=always` / `--approve=prompt`) is printed after the summary line. |
 | `always` | allows everything | `approval/request` then `approval/decision` with `decidedBy="flag:--approve=always"` and `decision="allow"`. |
-| `prompt` | the human | One question per ask on stderr, `forge chat: approve tool={name} in {workspace}? args=… [y/N] `, then one line is read from stdin: `y` or `yes` (case-insensitive) allows, anything else — including EOF — denies. `decidedBy="user"`. A refusal is `code="denied_refused"`. |
+| `prompt` | the human | One question per ask on stderr, `hearth chat: approve tool={name} in {workspace}? args=… [y/N] `, then one line is read from stdin: `y` or `yes` (case-insensitive) allows, anything else — including EOF — denies. `decidedBy="user"`. A refusal is `code="denied_refused"`. |
 
 `--approve=prompt` requires a terminal on stdin. Under a pipe, a redirection, or
 `go test` it is a usage error: exit `2`, stderr carries
 
 ```text
-forge chat: --approve=prompt needs a terminal on stdin: use --approve=always to allow every tool call, or run forge chat in a terminal
+hearth chat: --approve=prompt needs a terminal on stdin: use --approve=always to allow every tool call, or run hearth chat in a terminal
 ```
 
-and no session file is created. It never blocks on a pipe. Because `forge chat`
+and no session file is created. It never blocks on a pipe. Because `hearth chat`
 with no prompt argument reads stdin to EOF, `--approve=prompt` needs the prompt as
 an argument; otherwise the approvals see EOF and deny.
 
@@ -409,20 +409,20 @@ tools there is nothing to approve — and that combination is a usage error.
 
 | Variable | Effect |
 | --- | --- |
-| `FORGE_BASE_URL` | Provider base URL. Default `https://api.openai.com/v1`. |
-| `FORGE_API_KEY` | Provider API key, sent as `Authorization: Bearer …`. Unset means no `Authorization` header; it is not a usage error. |
-| `FORGE_HOME` | Forge home, as for `doctor`; the data directory defaults to it, so it also decides where `sessions/` lands. |
+| `HEARTH_BASE_URL` | Provider base URL. Default `https://api.openai.com/v1`. |
+| `HEARTH_API_KEY` | Provider API key, sent as `Authorization: Bearer …`. Unset means no `Authorization` header; it is not a usage error. |
+| `HEARTH_HOME` | Hearth home, as for `doctor`; the data directory defaults to it, so it also decides where `sessions/` lands. |
 
 Endpoint and key precedence is: explicit adapter option, then the environment
 variable, then the default. The CLI passes no explicit option, so these
-variables are the only way to point `forge chat` at a non-default endpoint.
+variables are the only way to point `hearth chat` at a non-default endpoint.
 
 #### `--json`
 
 One JSON object on stdout, compact (no indentation), followed by one `\n`:
 
 ```json
-{"turn":1,"reason":"completed","steps":2,"text":"Hello, forge","usage":{"inputTokens":7,"outputTokens":3},"events":11,"tools":["fs_edit","fs_glob","fs_grep","fs_read","fs_write","shell","todo_write"],"approvals":[{"callId":"call-1","tool":"shell","decision":"allow"}]}
+{"turn":1,"reason":"completed","steps":2,"text":"Hello, hearth","usage":{"inputTokens":7,"outputTokens":3},"events":11,"tools":["fs_edit","fs_glob","fs_grep","fs_read","fs_write","shell","todo_write"],"approvals":[{"callId":"call-1","tool":"shell","decision":"allow"}]}
 ```
 
 | Member | Type | Meaning |
@@ -458,7 +458,7 @@ below.
 | `2` | Usage error: unknown flag, invalid `--session`, empty prompt, unknown `--approve` value, `--no-tools` combined with `--approve=always`/`--approve=prompt`, or `--approve=prompt` with a stdin that is not a terminal. No session file is created. |
 | `130` | Ctrl+C: the first signal cancels the turn, closes it in the log with reason `cancelled`, prints the summary line and exits `130`; a second Ctrl+C exits immediately without unwinding. |
 
-### 2.4 `forge doctor [flags]`
+### 2.4 `hearth doctor [flags]`
 
 Runs environment checks and reports them. The checks are read-only except for the
 data-directory probe, which creates and deletes `.write-probe` inside the data
@@ -469,7 +469,7 @@ Flags:
 | Flag | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `-json` / `--json` | bool | `false` | Emit the JSON report instead of the text report. Both spellings are accepted (`flag` package). |
-| `-prune-profiles` / `--prune-profiles` | bool | `false` | Windows only: delete every `forge.sandbox.*` package profile this tool created, then print a one-line summary (or a JSON object with `--json`). Runs *instead of* the checks, because it changes the machine and the checks must stay read-only. Exit `1` if any profile could not be deleted. |
+| `-prune-profiles` / `--prune-profiles` | bool | `false` | Windows only: delete every `hearth.sandbox.*` package profile this tool created, then print a one-line summary (or a JSON object with `--json`). Runs *instead of* the checks, because it changes the machine and the checks must stay read-only. Exit `1` if any profile could not be deleted. |
 
 Checks, in this order (all eleven always run; order and names are contract):
 
@@ -481,7 +481,7 @@ Checks, in this order (all eleven always run; order and names are contract):
 | 4 | `git` | A `git` executable is on `PATH`. |
 | 5 | `sandbox` | The verifier constructs the real enforcer for the configured mode and reports its capabilities. `skip` under `full-access` (nothing is enforced by design) or an invalid spec; `fail` when the host cannot enforce the mode; `warn` when the mode is only partly enforced. |
 | 6 | `disk` | Free space on the data directory's volume: `fail` below 512 MiB, `warn` below 2 GiB. |
-| 7 | `model` | One `HEAD` request against the provider base URL, 2 s timeout. Never `fail`: `warn` on 401/403 (pointing at `FORGE_API_KEY`), `warn` on transport trouble, `skip` when no model is configured. |
+| 7 | `model` | One `HEAD` request against the provider base URL, 2 s timeout. Never `fail`: `warn` on 401/403 (pointing at `HEARTH_API_KEY`), `warn` on transport trouble, `skip` when no model is configured. |
 | 8 | `mcp` | The MCP configuration only — no server is spawned. `skip` with no server configured, `warn` when entries were dropped or duplicated (the reasons are in the hint), `ok` listing the accepted names. |
 | 9 | `proxy` | HTTP(S) proxy environment variables, if any. |
 | 10 | `pty` | PTY availability. `skip` on windows/linux/darwin with the detail `shell runs on pipes, not a pty: interactive programs will not render` (the shell tool deliberately uses pipes; the M0 spike proved ConPTY works but no PTY is wired into the product); `warn` on any other platform. |
@@ -493,18 +493,18 @@ the exit code**; `warn` and `skip` do not.
 #### Text output
 
 ```text
-forge 0.0.0-dev (unknown)  windows/amd64  go1.27.0
-config     C:\Users\Administrator\.forge\config.json
-workspace  D:\魔改版Agent框架\forge-rs
+hearth 0.0.0-dev (unknown)  windows/amd64  go1.27.0
+config     C:\Users\Administrator\.hearth\config.json
+workspace  D:\魔改版Agent框架\hearth
 
 OK    config     using defaults (no config file)
-FAIL  data dir   config: data dir C:\Users\Administrator\.forge is not writable: open C:\Users\Administrator\.forge\.write-probe: Access is denied.
-                 -> pick a writable dataDir in C:\Users\Administrator\.forge\config.json
-OK    workspace  D:\魔改版Agent框架\forge-rs (git repo)
+FAIL  data dir   config: data dir C:\Users\Administrator\.hearth is not writable: open C:\Users\Administrator\.hearth\.write-probe: Access is denied.
+                 -> pick a writable dataDir in C:\Users\Administrator\.hearth\config.json
+OK    workspace  D:\魔改版Agent框架\hearth (git repo)
 OK    git        E:\Tools\PortableGit\cmd\git.exe
 WARN  sandbox    windows-job-object: windows job object: process tree (KILL_ON_JOB_CLOSE), process memory 1 GiB, job memory 2 GiB, active processes 64 — filesystem and network are NOT confined
                  -> the enforcer installed, but filesystem writes are not confined on this host; the detail is its own account of what it does enforce
-OK    disk       38.5 GiB free of 149.1 GiB on the volume holding C:\Users\Administrator\.forge
+OK    disk       38.5 GiB free of 149.1 GiB on the volume holding C:\Users\Administrator\.hearth
 SKIP  model      no model configured
 SKIP  mcp        no MCP servers configured
 OK    proxy      none set
@@ -518,7 +518,7 @@ WARN  office     docx=python 3.14 xlsx=python 3.14 pptx=python 3.14 convert=miss
 
 Structure, line by line:
 
-1. `forge {version} ({commit})  {goos}/{goarch}  {goVersion}` — two spaces
+1. `hearth {version} ({commit})  {goos}/{goarch}  {goVersion}` — two spaces
    between the three groups.
 2. `config     {configPath}` — the label is left-justified in an 11-column field,
    then the path. When no config file exists the path is the one that *would* be
@@ -552,8 +552,8 @@ A single JSON object, 2-space indented (Go `json.Encoder` with
   "os": "windows",
   "arch": "amd64",
   "goVersion": "go1.27.0",
-  "configPath": "C:\\Users\\Administrator\\.forge\\config.json",
-  "workspace": "D:\\魔改版Agent框架\\forge-rs",
+  "configPath": "C:\\Users\\Administrator\\.hearth\\config.json",
+  "workspace": "D:\\魔改版Agent框架\\hearth",
   "durationMs": 16,
   "checks": [
     {
@@ -564,8 +564,8 @@ A single JSON object, 2-space indented (Go `json.Encoder` with
     {
       "name": "data dir",
       "status": "fail",
-      "detail": "config: data dir C:\\Users\\Administrator\\.forge is not writable: open C:\\Users\\Administrator\\.forge\\.write-probe: Access is denied.",
-      "hint": "pick a writable dataDir in C:\\Users\\Administrator\\.forge\\config.json"
+      "detail": "config: data dir C:\\Users\\Administrator\\.hearth is not writable: open C:\\Users\\Administrator\\.hearth\\.write-probe: Access is denied.",
+      "hint": "pick a writable dataDir in C:\\Users\\Administrator\\.hearth\\config.json"
     }
   ]
 }
@@ -600,8 +600,8 @@ members. Exit code is the same as the text mode: `1` iff some check has status
 
 | Variable | Effect |
 | --- | --- |
-| `FORGE_HOME` | Overrides the forge home directory. Config path becomes `$FORGE_HOME/config.json`; the default data directory is `$FORGE_HOME`. |
-| *(unset)* | Home is `~/.forge`; config path `~/.forge/config.json`. |
+| `HEARTH_HOME` | Overrides the hearth home directory. Config path becomes `$HEARTH_HOME/config.json`; the default data directory is `$HEARTH_HOME`. |
+| *(unset)* | Home is `~/.hearth`; config path `~/.hearth/config.json`. |
 
 If the config path cannot be determined (no home directory at all), `doctor`
 exits `1`. The filesystem sandbox this project is developed under allows writes
@@ -623,7 +623,7 @@ Usage of doctor:
     	delete the Windows sandbox profiles this tool created
 ```
 
-`doctor` ignores positional arguments after its flags today: `forge doctor
+`doctor` ignores positional arguments after its flags today: `hearth doctor
 junk` is **not** a usage error (never exit `2`) and the exit code follows the
 checks like any other `doctor` run — verified `1` with an unwritable data
 directory and `0` with a writable one. Do not rely on that: it is unspecified
@@ -632,33 +632,33 @@ and may become a usage error.
 ### 2.5 Unknown commands
 
 ```text
-$ forge nope
-forge: unknown command "nope"
+$ hearth nope
+hearth: unknown command "nope"
 
 <usage text>
 ```
 
-The `forge: unknown command "nope"` line, a blank line and the full usage text go
+The `hearth: unknown command "nope"` line, a blank line and the full usage text go
 to **stderr**, and the exit code is `2`. The usage text is byte-identical to
-`forge help` (which goes to stdout). The command name is quoted with `%q`
+`hearth help` (which goes to stdout). The command name is quoted with `%q`
 semantics (JSON-style escaping for non-printable characters).
 
 Only a *single bare ASCII word* is treated as a mistyped subcommand this way.
 Anything containing whitespace or a non-ASCII character, or starting with `-`,
-is sent to `forge chat` instead (§2.3), so `forge fix the bug` and
-`forge 总结这个仓库` are chat turns while `forge fix` is exit `2`. A one-word
-prompt therefore needs the explicit form: `forge chat fix`.
+is sent to `hearth chat` instead (§2.3), so `hearth fix the bug` and
+`hearth 总结这个仓库` are chat turns while `hearth fix` is exit `2`. A one-word
+prompt therefore needs the explicit form: `hearth chat fix`.
 
 ---
 
-### 2.6 `forge session fork <parentId> [flags]`
+### 2.6 `hearth session fork <parentId> [flags]`
 
 Copies a session into a new one without running a turn, for scripts that want a
-branch point and will run the turn later (or through `forge chat --resume`).
-It is the same operation as `forge chat --fork`, minus the turn.
+branch point and will run the turn later (or through `hearth chat --resume`).
+It is the same operation as `hearth chat --fork`, minus the turn.
 
 ```text
-forge session fork <parentId> [--at <seq>] [--id <newId>] [--json]
+hearth session fork <parentId> [--at <seq>] [--id <newId>] [--json]
 ```
 
 | Flag | Type | Default | Meaning |
@@ -673,8 +673,8 @@ forge session fork <parentId> [--at <seq>] [--id <newId>] [--json]
   is the cut in the parent, `events` the number of copied records, `bytes` the
   size of the new log. Nothing else is written to stdout.
 - **stderr**: one summary line
-  `forge session fork: forked <parent> at seq <n> into <new> (<events> events, <bytes> bytes)`,
-  or one diagnosis line, always prefixed `forge session fork: `.
+  `hearth session fork: forked <parent> at seq <n> into <new> (<events> events, <bytes> bytes)`,
+  or one diagnosis line, always prefixed `hearth session fork: `.
 - **Exit `0`**: the new log was written and synced. **`1`**: the parent does not
   exist, the target id is taken, or the write failed — in every case the target
   log is not left behind. **`2`**: usage error — no parent or more than one,
@@ -687,14 +687,14 @@ bytes. The copy follows [`events-v1`](events-v1.md) §4.1: identical records,
 parent.
 
 ```text
-$ forge session fork 20260101-120000-a1b2c3 --id branch-1
+$ hearth session fork 20260101-120000-a1b2c3 --id branch-1
 branch-1
-forge session fork: forked 20260101-120000-a1b2c3 at seq 12 into branch-1 (12 events, 3072 bytes)
+hearth session fork: forked 20260101-120000-a1b2c3 at seq 12 into branch-1 (12 events, 3072 bytes)
 ```
 
 ---
 
-### 2.7 `forge session archive <sessionId> [flags]`
+### 2.7 `hearth session archive <sessionId> [flags]`
 
 Records that a session starts no new work. This is the only writer of the
 `session/archived` event documented in [`events-v1.md`](events-v1.md), and it is
@@ -702,7 +702,7 @@ the mechanism behind "an archived session, or anything below it, starts no new
 subagent".
 
 ```text
-forge session archive <sessionId> [--reason <text>] [--json]
+hearth session archive <sessionId> [--reason <text>] [--json]
 ```
 
 | Flag | Type | Default | Meaning |
@@ -717,7 +717,7 @@ an operator who re-ran after a failure asked for the same state.
 
 - **stdout**: `archived <id>`, or `archived <id> (already archived)`, or with
   `--json` one object `{"session":…,"archived":true,"already":bool,"reason":…}`.
-- **stderr**, always prefixed `forge session archive: `: `no such session log: <path>`
+- **stderr**, always prefixed `hearth session archive: `: `no such session log: <path>`
   when the id names nothing (a named failure, not silence — otherwise a typo
   becomes a confident claim), or the storage error.
 - **Exit codes**: `0` archived or already archived; `1` the log is missing or
@@ -725,16 +725,16 @@ an operator who re-ran after a failure asked for the same state.
   time`, `unknown flag`, `--reason` with no value).
 
 ```console
-$ forge session archive 20260101-120000-a1b2c3 --reason "branch finished"
+$ hearth session archive 20260101-120000-a1b2c3 --reason "branch finished"
 archived 20260101-120000-a1b2c3
 
-$ forge session archive 20260101-120000-a1b2c3
+$ hearth session archive 20260101-120000-a1b2c3
 archived 20260101-120000-a1b2c3 (already archived)
 ```
 
 ---
 
-### 2.8 `forge web [flags]`
+### 2.8 `hearth web [flags]`
 
 Starts the loopback HTTP + WebSocket server specified by
 [`api.md`](api.md) and serves the browser UI from the same origin: `/api/*` and
@@ -742,32 +742,32 @@ Starts the loopback HTTP + WebSocket server specified by
 until Ctrl+C and then shuts down with a 5 s grace period for in-flight work.
 
 ```text
-forge web [--addr host:port] [--model <name>] [--workspace <dir>]
+hearth web [--addr host:port] [--model <name>] [--workspace <dir>]
           [--approve web|never|always] [--sandbox <mode>] [--no-browser]
 ```
 
 | Flag | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--addr` | string | `127.0.0.1:8420` | Listen address. Protocol 1 is loopback-only: a non-loopback host is refused with exit `1` (`server: refusing to bind "<addr>": protocol 1 is loopback only`). Port `0` picks a free port and prints it. |
-| `--model` | string | config `model` | Model id for the turns this server runs. With neither flag nor config: exit `1`, `forge web: no model configured: pass --model <name> or set "model" in config.json`. |
+| `--model` | string | config `model` | Model id for the turns this server runs. With neither flag nor config: exit `1`, `hearth web: no model configured: pass --model <name> or set "model" in config.json`. |
 | `--workspace` | string | current directory | Workspace for the session the server opens. Must be an existing directory; otherwise exit `1`. |
-| `--approve` | string enum | `web` | Who answers tool asks: `web` (in the browser, `decidedBy` is `user`), `never` (deny, recorded as `no_approver` on the tool result), `always` (allow, `decidedBy="flag:--approve=always"`). `prompt` is a usage error — exit `2`, `forge web: --approve=prompt reads stdin, which `forge web` does not ask on: use --approve=web to answer in the browser`; any other value is exit `2`, `forge web: unknown --approve value "…": use web, never or always`. |
+| `--approve` | string enum | `web` | Who answers tool asks: `web` (in the browser, `decidedBy` is `user`), `never` (deny, recorded as `no_approver` on the tool result), `always` (allow, `decidedBy="flag:--approve=always"`). `prompt` is a usage error — exit `2`, `hearth web: --approve=prompt reads stdin, which `hearth web` does not ask on: use --approve=web to answer in the browser`; any other value is exit `2`, `hearth web: unknown --approve value "…": use web, never or always`. |
 | `--sandbox` | string enum | config `sandbox` | As for `chat` (§2.3): `read-only`, `workspace-write` or `full-access`; an unknown value exits `2` and an unenforceable mode exits `1`, both before the listener opens. |
 | `--no-browser` | bool | `false` | Print the URL instead of opening a browser. |
 | `-h`, `--help` | flag | — | Print usage on stdout, exit `0`. |
 
-`forge web` takes **no positional argument**: anything left over is a usage error,
-exit `2`, `forge web: unexpected argument "<arg>": the command takes flags only`.
+`hearth web` takes **no positional argument**: anything left over is a usage error,
+exit `2`, `hearth web: unexpected argument "<arg>": the command takes flags only`.
 
 - **stdout**: nothing.
 - **stderr**, in this order, once the listener is up and one session exists:
-  1. `forge web: serving <baseURL>`
-  2. `forge web: session=<id> model=<model> workspace=<workspace> sandbox=<mode> approve=<mode>`
-  3. `forge web: open <url>` — the URL carries the bearer token as a query
+  1. `hearth web: serving <baseURL>`
+  2. `hearth web: session=<id> model=<model> workspace=<workspace> sandbox=<mode> approve=<mode>`
+  3. `hearth web: open <url>` — the URL carries the bearer token as a query
      parameter in front of the hash route
      (`<baseURL>/?token=<token>#/s/<sessionId>`), so it is a credential and is
      printed once.
-- **stderr**, only on failure: `forge web: <message>`, single line, prefixed.
+- **stderr**, only on failure: `hearth web: <message>`, single line, prefixed.
 - **Exit `0`**: the listener closed cleanly (one Ctrl+C). **`1`**: the server could
   not start — config, workspace, model, sandbox, token file, bind, or the
   end-to-end session call. **`2`**: usage error. **`130`**: a second Ctrl+C while
@@ -779,7 +779,7 @@ matches and whose status is `idle` or `running`; otherwise it creates one. The
 command therefore fails before printing the URL if routing, auth or the token file
 is broken. Closing a browser tab does not end anything: the server runs until it
 is interrupted, one turn per accepted message, and it does **not** compact the
-event log (§2.3 "Compaction" is `forge chat`-only).
+event log (§2.3 "Compaction" is `hearth chat`-only).
 
 ---
 
@@ -787,30 +787,30 @@ event log (§2.3 "Compaction" is `forge chat`-only).
 
 These names are **reserved** so that a future release can add them without
 breaking scripts. They are **not implemented today**: invoking any of them is an
-unknown command, i.e. exit `2` with `forge: unknown command "..."` on stderr.
+unknown command, i.e. exit `2` with `hearth: unknown command "..."` on stderr.
 Do not write tooling against them yet.
 
 | Reserved command | Planned milestone | Purpose |
 | --- | --- | --- |
-| `forge session list` | M4 | List sessions in the data directory. |
-| `forge session show <id>` | M4 | Projection of one session. |
-| `forge session export <id>` | M4 | Dump the event log / a transcript. |
-| `forge config get` / `forge config set` | M6 | Read and write config keys. |
-| `forge mcp list` / `forge mcp add` | M5 | Manage MCP servers. |
-| `forge doctor --fix` | M6 | Apply safe repairs for failing checks. |
+| `hearth session list` | M4 | List sessions in the data directory. |
+| `hearth session show <id>` | M4 | Projection of one session. |
+| `hearth session export <id>` | M4 | Dump the event log / a transcript. |
+| `hearth config get` / `hearth config set` | M6 | Read and write config keys. |
+| `hearth mcp list` / `hearth mcp add` | M5 | Manage MCP servers. |
+| `hearth doctor --fix` | M6 | Apply safe repairs for failing checks. |
 
-`forge session` is no longer wholly reserved: `forge session fork <parentId>` is
-implemented (§2.6). `forge session resume <id>` is covered by
-`forge chat --resume <id>` (§2.3), so it is not planned as a separate subcommand.
-`forge "<prompt>"` is no longer reserved either: like `forge chat`, it shipped in
+`hearth session` is no longer wholly reserved: `hearth session fork <parentId>` is
+implemented (§2.6). `hearth session resume <id>` is covered by
+`hearth chat --resume <id>` (§2.3), so it is not planned as a separate subcommand.
+`hearth "<prompt>"` is no longer reserved either: like `hearth chat`, it shipped in
 M1 (§2.3), including the bare-prompt rule above.
 
-There is deliberately **no** `forge serve`: M3 shipped the local HTTP + WebSocket
-server as `forge web` (§2.8), which also serves the UI from the same origin, so a
+There is deliberately **no** `hearth serve`: M3 shipped the local HTTP + WebSocket
+server as `hearth web` (§2.8), which also serves the UI from the same origin, so a
 separate serve-only command is not planned and the name stays an unknown command.
 
 Also reserved but currently a script, not a subcommand: `go run ./scripts/bench`
-(performance harness). It may become `forge bench`.
+(performance harness). It may become `hearth bench`.
 
 ---
 
@@ -821,7 +821,7 @@ Also reserved but currently a script, not a subcommand: `go run ./scripts/bench`
    Keep these stable.
 2. **stdout is for machines as well as humans.** `--version` prints one line and
    nothing else. `--json` prints one JSON document and nothing else. Diagnostics,
-   including usage errors, go to stderr. `forge chat` streams human-readable
+   including usage errors, go to stderr. `hearth chat` streams human-readable
    text; pass `--json` when the answer must be machine-parsed.
 3. **No colour, no ANSI, no progress spinners** in current output. Any future
    spinner must not appear when stdout is not a terminal, and must never pollute
@@ -836,7 +836,7 @@ Also reserved but currently a script, not a subcommand: `go run ./scripts/bench`
 
 ---
 
-## 5. `forge import <old-dir>`
+## 5. `hearth import <old-dir>`
 
 Imports one previous-generation session into this build's data directory as a
 new v1 event log. The source is **read-only**: nothing under `<old-dir>` is
@@ -851,14 +851,14 @@ warning. A compressed old log (`.jsonl.zstd`) is refused, not silently skipped.
 ### Usage
 
 ```text
-forge import <old-dir> [flags]
+hearth import <old-dir> [flags]
 ```
 
 | Flag | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--dry-run` | bool | `false` | Print the plan and write nothing — not the log, not the data directory. |
-| `--session <id>` | string | a fresh timestamped id | Id of the imported session; must match `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`, the same rule `forge chat --resume` uses. |
-| `--data-dir <dir>` | string | the forge home's configured `dataDir` | Data directory to write into; the log lands at `<dir>/sessions/<id>.jsonl`. |
+| `--session <id>` | string | a fresh timestamped id | Id of the imported session; must match `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`, the same rule `hearth chat --resume` uses. |
+| `--data-dir <dir>` | string | the hearth home's configured `dataDir` | Data directory to write into; the log lands at `<dir>/sessions/<id>.jsonl`. |
 | `--json` | bool | `false` | Print one JSON document on stdout instead of the human report. |
 | `-h`, `--help` | flag | — | Print usage on stdout, exit 0. |
 
@@ -872,7 +872,7 @@ Flags may appear before or after `<old-dir>`.
 - **stdout, `--dry-run`**: the plan — one `label  value` row per line
   (`source`, `format`, `session`, `events`, `log`, `dropped`, `warnings`), then
   every dropped record and every warning as a two-space-indented `- ` item.
-- **stderr**: every diagnostic, prefixed `forge import: `, one line each. On
+- **stderr**: every diagnostic, prefixed `hearth import: `, one line each. On
   success it still reports the event count, the dropped records and the
   warnings, so a lossy import never looks complete. Empty stderr is not
   promised on success; empty stdout is.
@@ -884,17 +884,17 @@ Flags may appear before or after `<old-dir>`.
 Dry run (the last line is stderr):
 
 ```text
-$ forge import D:\old\.forge\sessions\20260101-120000 --dry-run
-source    D:\old\.forge\sessions\20260101-120000
-format    forge-session-v4
+$ hearth import D:\old\.hearth\sessions\20260101-120000 --dry-run
+source    D:\old\.hearth\sessions\20260101-120000
+format    hearth-session-v4
 session   20260101-120000-a1b2c3
 events    5
-log       C:\Users\Administrator\.forge\sessions\20260101-120000-a1b2c3.jsonl
+log       C:\Users\Administrator\.hearth\sessions\20260101-120000-a1b2c3.jsonl
 dropped   1
 warnings  1
   - legacy/thing: no v1 event type for this old record
-  - session D:\old\.forge\sessions\20260101-120000 holds 2 committed generations (v0,v4); importing the newest, v4
-forge import: dry run, nothing was written (drop --dry-run to import)
+  - session D:\old\.hearth\sessions\20260101-120000 holds 2 committed generations (v0,v4); importing the newest, v4
+hearth import: dry run, nothing was written (drop --dry-run to import)
 ```
 
 ### Exit codes
@@ -908,11 +908,11 @@ forge import: dry run, nothing was written (drop --dry-run to import)
 ### Example
 
 ```text
-$ forge import D:\old\.forge\sessions\20260101-120000 --session old-1
+$ hearth import D:\old\.hearth\sessions\20260101-120000 --session old-1
 old-1
-C:\Users\Administrator\.forge\sessions\old-1.jsonl
-forge import: imported 5 events from D:\old\.forge\sessions\20260101-120000 into session old-1
-forge import: dropped: legacy/thing: no v1 event type for this old record
+C:\Users\Administrator\.hearth\sessions\old-1.jsonl
+hearth import: imported 5 events from D:\old\.hearth\sessions\20260101-120000 into session old-1
+hearth import: dropped: legacy/thing: no v1 event type for this old record
 ```
 
 The old format is wider than v1. What cannot be mapped is reported on stderr,
@@ -920,9 +920,9 @@ never invented into the log and never silently discarded.
 
 ---
 
-## 6. `forge index [flags]`
+## 6. `hearth index [flags]`
 
-Builds, refreshes or reads the SQLite session index under the forge home. The
+Builds, refreshes or reads the SQLite session index under the hearth home. The
 index is derived data: `--rebuild` drops it and re-derives every session from
 `<dataDir>/sessions/*.jsonl`. It can be deleted at any time and rebuilt — the
 logs stay the only truth (law 1), and nothing here writes to a log.
@@ -930,7 +930,7 @@ logs stay the only truth (law 1), and nothing here writes to a log.
 ### Usage
 
 ```text
-forge index [--rebuild] [--stats] [--search TEXT] [--json] [--db <path>]
+hearth index [--rebuild] [--stats] [--search TEXT] [--json] [--db <path>]
 ```
 
 | Flag | Type | Default | Meaning |
@@ -948,13 +948,13 @@ forge index [--rebuild] [--stats] [--search TEXT] [--json] [--db <path>]
 
 | Invocation | Effect | `mode` printed |
 | --- | --- | --- |
-| `forge index` | Read-only: totals plus the first 20 sessions. Writes nothing. | `read-only` |
-| `forge index --rebuild` | Rebuild, then print the same summary. | `rebuilt` |
-| `forge index --stats` | Totals only. | — |
-| `forge index --search TEXT` | Hits only. | — |
+| `hearth index` | Read-only: totals plus the first 20 sessions. Writes nothing. | `read-only` |
+| `hearth index --rebuild` | Rebuild, then print the same summary. | `rebuilt` |
+| `hearth index --stats` | Totals only. | — |
+| `hearth index --search TEXT` | Hits only. | — |
 
 Without `--rebuild`, a missing index is a failure, not an empty answer: exit
-`1` with a one-line hint to run `forge index --rebuild`. Asking about a data
+`1` with a one-line hint to run `hearth index --rebuild`. Asking about a data
 directory must never create an index that claims it holds no sessions.
 
 ### stdout / stderr
@@ -964,12 +964,12 @@ directory must never create an index that claims it holds no sessions.
   `--search` prints `sessionId:seq  [type]  snippet` per hit; `--json` prints
   the document instead. Columns use a tabwriter: a two-space gap, no line ends
   in padding spaces.
-- **stderr**: diagnostics only, prefixed `forge index: `. Nothing else is
+- **stderr**: diagnostics only, prefixed `hearth index: `. Nothing else is
   written there, so a clean run has empty stderr.
 
 ```text
-$ forge index --rebuild
-index       C:\Users\Administrator\.forge\index.db
+$ hearth index --rebuild
+index       C:\Users\Administrator\.hearth\index.db
 mode        rebuilt
 sessions    3
 events      7
@@ -997,7 +997,7 @@ the default mode reports its `mode`.
 ### Example
 
 ```text
-$ forge index --search hello --json
+$ hearth index --search hello --json
 [
   {
     "sessionId": "s1",
@@ -1019,12 +1019,12 @@ $ forge index --search hello --json
 A search that matches nothing prints nothing (text) or `[]` (JSON) and still
 exits `0`: an empty result is an answer, not a failure.
 
-## 7. `forge plugin <command>`
+## 7. `hearth plugin <command>`
 
 ### Usage
 
 ```text
-usage: forge plugin <command> [flags]
+usage: hearth plugin <command> [flags]
 
 commands:
   new <name>           write a working plugin skeleton under the plugin root
@@ -1054,7 +1054,7 @@ as it does on `list`.
 
 `list`, `doctor`, `start` and `call` read **two** roots: the plugin root
 (`<dataDir>/plugins`, or `--dir`) and the market's bundle directory
-(`<dataDir>/market/bundles`). A plugin installed by `forge market install` is
+(`<dataDir>/market/bundles`). A plugin installed by `hearth market install` is
 therefore visible to `plugin list` and loadable by name without any extra step —
 the market's install promise does not end at a directory nothing loads. `new`
 writes only to the plugin root; it never writes into the market's store.
@@ -1093,7 +1093,7 @@ plugins:   <n>
 broken:    <n>
 runtime:   node     found | missing (<plugin names>) cannot start
 entry:     <plugin>  <entry> found | MISSING (this plugin cannot start)
-note:      this command starts nothing; `forge plugin start <name>` does.
+note:      this command starts nothing; `hearth plugin start <name>` does.
 ```
 
 `--json` emits `{root, exists, plugins, broken, runtimes, entries}` where
@@ -1163,25 +1163,25 @@ distinction is the protocol's (`crates/plugin/PROTOCOL.md`), not this command's.
 ### Example
 
 ```text
-$ forge plugin new greeter --description "says hello to a name"
+$ hearth plugin new greeter --description "says hello to a name"
 created node plugin greeter in <dataDir>/plugins/greeter
   README.md
   index.js
   plugin.json
 
-next: forge plugin call greeter hello --args '{"name":"world"}'
+next: hearth plugin call greeter hello --args '{"name":"world"}'
       add "greeter" to plugins.enabled in config.json to let chat use it
 
-$ forge plugin call greeter hello --args '{"name":"world"}'
+$ hearth plugin call greeter hello --args '{"name":"world"}'
 hello, world
 ```
 
-## 8. `forge market <command>`
+## 8. `hearth market <command>`
 
 ### Usage
 
 ```text
-usage: forge market <command> [flags]
+usage: hearth market <command> [flags]
 
 commands:
   list                 show the installed bundles and their versions
@@ -1193,7 +1193,7 @@ commands:
 
 flags:
   --json               machine-readable output
-  --data-dir <dir>     data directory (default: the forge home's configured one)
+  --data-dir <dir>     data directory (default: the hearth home's configured one)
   --root <dir>         market root (default: <dataDir>/market)
   --index <url>        index URL; required by `search` and `install`
   --force              uninstall before installing (refuses edits either way)
@@ -1230,7 +1230,7 @@ tarball is written with the market's own encoder, so the digest `pack` prints is
 the digest `install` verifies — the same codec, not a second implementation.
 
 ```text
-$ forge market pack examples/plugins/hello --out dist --base-url https://example.invalid/p
+$ hearth market pack examples/plugins/hello --out dist --base-url https://example.invalid/p
 packed hello 1.0.0 (3 file(s))
   dist/hello-1.0.0.tar.gz
   sha256 4070399c89c8…
@@ -1258,9 +1258,9 @@ bundle and a native build both fit the host, install refuses rather than guessin
 
 ### Installed bundles are plugins
 
-`install` unpacks into `<root>/bundles/<name>/`, and `forge plugin` reads that
+`install` unpacks into `<root>/bundles/<name>/`, and `hearth plugin` reads that
 directory as a second root (§7). So an installed bundle is immediately visible to
-`forge plugin list` and loadable by name; no copy or link step is needed. `remove`
+`hearth plugin list` and loadable by name; no copy or link step is needed. `remove`
 deletes only the files the install record lists, and refuses if any was edited.
 
 ### Exit codes
@@ -1271,9 +1271,9 @@ deletes only the files the install record lists, and refuses if any was edited.
 | `1` | A digest mismatch, a truncated/oversized body, no build for this platform, an ambiguous resolution, an edited file blocking remove, a failed download, or a `pack` whose source is missing/empty/unreadable. |
 | `2` | Usage error: unknown command or flag, a missing name, `search`/`install` without `--index`, `pack` without a directory, `--os` without `--arch` (or vice versa), or an os/arch outside the accepted sets. |
 
-## 9. `forge skill <command>`
+## 9. `hearth skill <command>`
 
-The roster the scanner already reads, made visible. `forge_skill::scan` is the
+The roster the scanner already reads, made visible. `hearth_skill::scan` is the
 source of truth for the `skill` tool, so this command runs the same scan and
 prints what it found: a `SKILL.md` with broken frontmatter is named on stderr
 instead of vanishing, and every listed skill carries the root it came from.
@@ -1281,7 +1281,7 @@ instead of vanishing, and every listed skill carries the root it came from.
 ### Usage
 
 ```text
-usage: forge skill <command> [flags]
+usage: hearth skill <command> [flags]
 
 commands:
   list                 every skill the scanner accepted, with the root it came from
@@ -1289,7 +1289,7 @@ commands:
 
 flags:
   --json               machine-readable output
-  --data-dir <dir>     data directory (default: the forge home's configured dataDir)
+  --data-dir <dir>     data directory (default: the hearth home's configured dataDir)
   --root <dir>         skill root; may be repeated (default: the configured skill
                        roots, then <dataDir>/skills)
   -h, --help           this message
@@ -1311,7 +1311,7 @@ to stderr in that case.
 The one case that looks like success and is not: files were there and none
 parsed. Then `list` still prints `no skills under <root>`, still names every
 skipped entry on stderr, and exits `1` with
-`forge skill: nothing parsed; <n> entries were skipped (see above)` — the model
+`hearth skill: nothing parsed; <n> entries were skipped (see above)` — the model
 was offered nothing while the operator believes otherwise. A roster where at
 least one skill parsed exits `0`; the skipped siblings are diagnostics.
 
@@ -1330,7 +1330,7 @@ string. `show` prints `skill: <name>`, `path:  <path>`, a blank line, then the
 body verbatim.
 
 stderr carries the scanner's own diagnostics — skipped entries and warnings —
-verbatim, each prefixed with `forge skill: ` and nothing else, because those
+verbatim, each prefixed with `hearth skill: ` and nothing else, because those
 strings are the only record of *why* a skill is missing. They are not
 paraphrased. With `--json` the same strings also appear in the payload, under
 `skipped` and `warnings`.
@@ -1369,24 +1369,24 @@ file's text after the frontmatter.
 ### Example
 
 ```text
-$ forge skill list
+$ hearth skill list
 skill                    description                                                      root
-office                   Create, read and edit .docx, .xlsx and .pptx by running python-… D:/forge-rs-target/skill-evidence/populated-home/skills
-forge skill: D:/forge-rs-target/skill-evidence/populated-home/skills/broken: frontmatter is not closed by a second --- line
+office                   Create, read and edit .docx, .xlsx and .pptx by running python-… D:/hearth-target/skill-evidence/populated-home/skills
+hearth skill: D:/hearth-target/skill-evidence/populated-home/skills/broken: frontmatter is not closed by a second --- line
 
-$ forge skill show nope
-forge skill: no skill named "nope"; known: office
+$ hearth skill show nope
+hearth skill: no skill named "nope"; known: office
 $ echo $?
 1
 ```
 
-## 10. `forge subagent <command>`
+## 10. `hearth subagent <command>`
 
 ```text
-usage: forge subagent <command> [flags]
+usage: hearth subagent <command> [flags]
 ```
 
-`forge subagent` has eight commands. `list` reads the **direct children** a
+`hearth subagent` has eight commands. `list` reads the **direct children** a
 session started, from the `subagent/catalog` events on that session's log
 (events-v1 §4.0.5) — the durable identity a later turn would use to name the
 same child again. `tree` walks the same rows recursively below one root, one
@@ -1404,7 +1404,7 @@ a child that already exists; `interrupt` checks who is asking and then writes a
 marker file that a `Runner` running that child honours; `worker` is normally
 spawned by the harness, not typed by a person.
 
-### `forge subagent list --session <id> [--json] [--data-dir <dir>]`
+### `hearth subagent list --session <id> [--json] [--data-dir <dir>]`
 
 `--session <id>` is required: a child belongs to one parent log, and listing
 "all children anywhere" is a different (and unscoped) question. The log is
@@ -1424,7 +1424,7 @@ The columns are `name` (durable sibling name), `child` (child session id, and th
 `--json` prints a JSON array of catalog payloads, each `{version, childId, mode,
 label?, name?}` — the row shape from events-v1 §4.0.5.
 
-### `forge subagent prompt <child> --text <prompt> [--model <name>] [--data-dir <dir>]`
+### `hearth subagent prompt <child> --text <prompt> [--model <name>] [--data-dir <dir>]`
 
 Appends one turn to a **continuable** child and prints its answer. This is the
 same cold resume the `subagent` tool's `resume` argument performs (a child is
@@ -1432,7 +1432,7 @@ driven entirely by its durable log, so a different process can continue it). A
 `one-shot` child, a child that already wrote `session/end`, or an id that is not
 a child id all fail before a single event is written. `--text` is required.
 
-### `forge subagent tree <root> [--json] [--data-dir <dir>]`
+### `hearth subagent tree <root> [--json] [--data-dir <dir>]`
 
 Walks every descendant below `<root>` in pre-order, one indented line per node,
 each carrying the child's durable name, session id and mode. A root that is not a
@@ -1459,7 +1459,7 @@ The three diagnostics are `corrupt` (a torn or unparsable line), `unsupported`
 payload plus `path`, `depth`, `children`, and an optional `diagnostic` of
 `{kind, detail}`.
 
-### `forge subagent resolve <root> <name> [--json] [--data-dir <dir>]`
+### `hearth subagent resolve <root> <name> [--json] [--data-dir <dir>]`
 
 Resolves a lead-relative name path (for example `agent-1/agent-2`, optionally
 prefixed with `lead/`) to the session id it names, printing the id alone. The
@@ -1467,7 +1467,7 @@ lookup walks the catalog rows of each session on the path, so it works without
 loading any child. An unknown segment fails with the name that could not be
 resolved.
 
-### `forge subagent timing <child> [--json] [--data-dir <dir>]`
+### `hearth subagent timing <child> [--json] [--data-dir <dir>]`
 
 Projects one child's timing from its own log: `settledMs` (the sum of closed
 `turn/end - turn/start` spans), `active` (a turn is open right now, always false
@@ -1477,21 +1477,21 @@ after `session/end`), `lastTurnCompleted`, and `turns`.
 20261120-143012-ab12cd34 idle, 2 turn(s), settled 4210 ms, last closed at 1763643012000
 ```
 
-`forge subagent timing --session <parent>` prints one line per child of that
+`hearth subagent timing --session <parent>` prints one line per child of that
 parent instead. Nothing here writes: the projection is derived from rows the loop
 already appended.
 
-### `forge subagent interrupt <child> [--as <id|user>] [--data-dir <dir>]`
+### `hearth subagent interrupt <child> [--as <id|user>] [--data-dir <dir>]`
 
 Asks a **running** child to stop. `Runner::interrupt` cancels a child running in
-the same process by tripping its cancel token; a `forge subagent interrupt`
+the same process by tripping its cancel token; a `hearth subagent interrupt`
 invocation is a different process and cannot see that token, so it drops a marker
 file at `<dataDir>/sessions/<child>.cancel` instead. A `Runner` that is running
 that child polls for the marker and trips its own token — the same path the
 in-process interrupt takes — then removes the marker, so it cannot cancel a later
 run of the same child. The command prints the marker path and exits 0. It cannot
 reach a child running in a `worker` process (that process is short-lived); it is
-for a long-lived local `Runner`, such as the one a `forge chat` turn drives.
+for a long-lived local `Runner`, such as the one a `hearth chat` turn drives.
 
 `--as` names who is asking. The default is `user` — a person typing this command
 is the operator, who may stop anything. `--as <session-id>` asks as that session,
@@ -1501,7 +1501,7 @@ another tree. Every refusal names both sides. A caller whose own chain cannot be
 read is refused rather than trusted. The check runs **before** the marker is
 written, so a denied request leaves no transport behind.
 
-### `forge subagent providers`
+### `hearth subagent providers`
 
 Lists `subagent.providers` from `config.json` — the named backends a child can be
 sent to — plus which one `subagent.backend` selects by default, and whether each
@@ -1510,7 +1510,7 @@ installed looks exactly like one that is until the first delegation fails.
 
 ```text
 name	program	found	default
-sandboxed	forge	yes	yes
+sandboxed	hearth	yes	yes
 default backend: sandboxed
 ```
 
@@ -1518,7 +1518,7 @@ With no providers configured it prints one line saying every child runs in this
 process and exits 0: an empty list is a configuration, not an error. Nothing is
 started, so the command is safe to run at any time.
 
-### `forge subagent worker`
+### `hearth subagent worker`
 
 The worker half of the process backend. It reads one JSON request line on stdin:
 
@@ -1550,11 +1550,11 @@ this worker's process is gone the moment the line is written.
 ### Example
 
 ```text
-$ forge subagent list --session 20261120-142900-9f3c1a2b
+$ hearth subagent list --session 20261120-142900-9f3c1a2b
 name     child                       session   mode       label
 agent-1  20261120-143012-ab12cd34    —         one-shot   —
-$ forge subagent list --session nope
-forge subagent: no such session log: …\sessions\nope.jsonl
+$ hearth subagent list --session nope
+hearth subagent: no such session log: …\sessions\nope.jsonl
 $ echo $?
 1
 ```

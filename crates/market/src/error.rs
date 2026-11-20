@@ -7,11 +7,11 @@
 //! assertion, so rewriting a reason is a visible, test-breaking act.
 //!
 //! The alternative — one `ErrorKind` per rule — was rejected because
-//! `forge_core::ErrorKind` is the vocabulary the CLI and the HTTP envelope
+//! `hearth_core::ErrorKind` is the vocabulary the CLI and the HTTP envelope
 //! already speak; adding `ChecksumMismatch` there would make every other crate
 //! carry a word it never uses.
 
-use forge_core::{Error, ErrorKind};
+use hearth_core::{Error, ErrorKind};
 
 // ---- the index -----------------------------------------------------------
 

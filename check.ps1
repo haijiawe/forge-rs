@@ -28,7 +28,7 @@ if (-not $env:CARGO_TARGET_DIR) {
         if ([int]$ch -gt 127) { $nonAscii = $true; break }
     }
     if ($nonAscii) {
-        $env:CARGO_TARGET_DIR = Join-Path $env:SystemDrive 'forge-rs-target\forge-rs'
+        $env:CARGO_TARGET_DIR = Join-Path $env:SystemDrive 'hearth-target\hearth'
         Write-Host "CARGO_TARGET_DIR=$env:CARGO_TARGET_DIR (the checkout path is not ASCII)" -ForegroundColor DarkGray
     }
 }

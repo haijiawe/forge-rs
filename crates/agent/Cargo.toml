@@ -1,5 +1,5 @@
 [package]
-name = "forge-agent"
+name = "hearth-agent"
 description = "the one-turn loop: history from the log, tool calls on the record"
 version.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-forge-core = { path = "../core" }
-forge-session = { path = "../session" }
-forge-llm = { path = "../llm" }
+hearth-core = { path = "../core" }
+hearth-session = { path = "../session" }
+hearth-llm = { path = "../llm" }
 serde_json.workspace = true

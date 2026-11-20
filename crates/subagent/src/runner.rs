@@ -8,10 +8,10 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Condvar, Mutex};
 
-use forge_agent::{Cancel, EventLog, ToolResult, ToolRunner};
-use forge_core::{Error, ErrorKind, EventType, Result};
-use forge_llm::{ToolCall, ToolSpec};
-use forge_tool::{
+use hearth_agent::{Cancel, EventLog, ToolResult, ToolRunner};
+use hearth_core::{Error, ErrorKind, EventType, Result};
+use hearth_llm::{ToolCall, ToolSpec};
+use hearth_tool::{
     Call as ToolCallInput, Executor, ExecutorOptions, Limits, Policy, Registry, Tool,
     CODE_CANCELLED, CODE_IO_ERROR,
 };
@@ -26,7 +26,7 @@ use crate::structured::{GuardedTool, StructuredOutputTool, STRUCTURED_OUTPUT_TOO
 use crate::tool::{DelegateTool, DepthExceeded, TOOL_NAME};
 
 /// How a prompt reaches a child. In an asynchronous runtime these differ (queue
-/// waits for the next turn, steer interrupts the current step). forge-rs runs a
+/// waits for the next turn, steer interrupts the current step). hearth runs a
 /// child synchronously, so there is no in-flight step to interrupt: both append
 /// a turn. The distinction is kept because the tools and callers already speak
 /// it, and a future async backend can honour it.
@@ -37,7 +37,7 @@ pub enum Delivery {
 }
 
 /// What a direct `Runner::run` call needs from its caller. The tool builds one
-/// of these internally; there is no context parameter on `forge_tool::Tool`.
+/// of these internally; there is no context parameter on `hearth_tool::Tool`.
 #[derive(Debug, Clone, Default)]
 pub struct CallContext {
     /// Polled by the child agent at every stream boundary.
@@ -258,7 +258,7 @@ impl Runner {
             // for. Queueing here means a background delegation waits its turn
             // like a foreground one.
             if !runner.acquire(&ctx.cancel) {
-                let _ = runner.leave_settlement(&Err(forge_core::Error::new(
+                let _ = runner.leave_settlement(&Err(hearth_core::Error::new(
                     ErrorKind::Refused,
                     "subagent: the child was cancelled before it started",
                 )));
@@ -305,17 +305,17 @@ impl Runner {
                 e.message()
             ),
         };
-        let store = forge_session::Store::open(path, forge_session::Options::default())?;
+        let store = hearth_session::Store::open(path, hearth_session::Options::default())?;
         let mut events = Vec::new();
         store.read_from(0, |ev| {
             events.push(ev.clone());
             Ok(())
         })?;
-        let pending = forge_agent::inbox::fold(&events);
-        let msg = forge_agent::inbox::Msg::new(notice)?;
-        let event = forge_agent::inbox::enqueue(
+        let pending = hearth_agent::inbox::fold(&events);
+        let msg = hearth_agent::inbox::Msg::new(notice)?;
+        let event = hearth_agent::inbox::enqueue(
             &self.options.parent_session_id,
-            forge_agent::inbox::Target::NextTurn,
+            hearth_agent::inbox::Target::NextTurn,
             &pending,
             &msg,
         );
@@ -402,7 +402,7 @@ impl Runner {
         label: Option<&str>,
     ) -> Result<ChildRun> {
         if ctx.cancel.is_cancelled() || self.options.canceller.is_cancelled() {
-            return Err(forge_agent::cancelled_error());
+            return Err(hearth_agent::cancelled_error());
         }
 
         let model = if model_override.trim().is_empty() {
@@ -499,7 +499,7 @@ impl Runner {
 
         let store = Arc::new(store);
         let log: Arc<dyn EventLog> = store.clone();
-        let mut agent_opt = forge_agent::Options::new(
+        let mut agent_opt = hearth_agent::Options::new(
             Arc::clone(&self.options.provider),
             log,
             model,
@@ -512,7 +512,7 @@ impl Runner {
         agent_opt.clock = Arc::clone(&self.options.clock);
         agent_opt.cancel = ctx.cancel.clone();
 
-        let agent = forge_agent::Agent::new(agent_opt)?;
+        let agent = hearth_agent::Agent::new(agent_opt)?;
         self.options
             .canceller
             .register(out.id.clone(), ctx.cancel.clone());
@@ -525,11 +525,11 @@ impl Runner {
         out.steps = run_result.steps;
         out.error = loop_error;
         out.cancelled = ctx.cancel.is_cancelled()
-            || run_result.reason == forge_agent::TURN_CANCELLED
+            || run_result.reason == hearth_agent::TURN_CANCELLED
             || out
                 .error
                 .as_ref()
-                .map(forge_agent::is_cancelled)
+                .map(hearth_agent::is_cancelled)
                 .unwrap_or(false);
 
         let (turns, text) = read_child_facts(&store);
@@ -579,7 +579,7 @@ impl Runner {
         model_override: &str,
     ) -> Result<ChildRun> {
         if self.options.canceller.is_cancelled() {
-            return Err(forge_agent::cancelled_error());
+            return Err(hearth_agent::cancelled_error());
         }
         // A backend resumes in the place the child actually ran. The local log
         // is only the truth for local children; a worker child's transcript is
@@ -615,7 +615,7 @@ impl Runner {
         let tools = self.child_tools(&out.id, &workspace, None, out.depth)?;
         let store = Arc::new(store);
         let log: Arc<dyn EventLog> = store.clone();
-        let mut agent_opt = forge_agent::Options::new(
+        let mut agent_opt = hearth_agent::Options::new(
             Arc::clone(&self.options.provider),
             log,
             model.clone(),
@@ -629,7 +629,7 @@ impl Runner {
         let cancel = Cancel::default();
         agent_opt.cancel = cancel.clone();
 
-        let agent = forge_agent::Agent::new(agent_opt)?;
+        let agent = hearth_agent::Agent::new(agent_opt)?;
         self.options
             .canceller
             .register(out.id.clone(), cancel.clone());
@@ -642,7 +642,7 @@ impl Runner {
         out.model = model;
         out.steps = run_result.steps;
         out.error = loop_error;
-        out.cancelled = run_result.reason == forge_agent::TURN_CANCELLED;
+        out.cancelled = run_result.reason == hearth_agent::TURN_CANCELLED;
         let (turns, text) = read_child_facts(&store);
         out.turns = turns;
         out.text = text;
@@ -758,10 +758,10 @@ fn guard(inner: Arc<dyn Tool>, terminated: Option<&Arc<AtomicBool>>) -> Arc<dyn 
 /// successful `structured_output` result, then read `args` from the `tool/call`
 /// with that same `callId`. Only the last successful submission can exist
 /// because the guard rejects every later call.
-fn read_structured(store: &forge_session::Store) -> Option<Value> {
-    let mut events: Vec<forge_core::Event> = Vec::new();
+fn read_structured(store: &hearth_session::Store) -> Option<Value> {
+    let mut events: Vec<hearth_core::Event> = Vec::new();
     if store
-        .read_from(0, |event: &forge_core::Event| {
+        .read_from(0, |event: &hearth_core::Event| {
             events.push(event.clone());
             Ok(())
         })
@@ -809,7 +809,7 @@ fn read_structured(store: &forge_session::Store) -> Option<Value> {
     structured
 }
 
-/// Adapt a parent `ToolRunner` tool into a `forge_tool::Tool` so it can sit in
+/// Adapt a parent `ToolRunner` tool into a `hearth_tool::Tool` so it can sit in
 /// the child registry. The parent's own policy/approver stay with the parent;
 /// the child executor applies its own (approver-free) policy around this call.
 struct AdaptedTool {
@@ -822,14 +822,14 @@ impl Tool for AdaptedTool {
         self.spec.clone()
     }
 
-    fn call(&self, call: ToolCallInput) -> forge_tool::Result {
+    fn call(&self, call: ToolCallInput) -> hearth_tool::Result {
         let tc = ToolCall {
             id: call.id,
             name: call.name,
             args: call.args,
         };
         match self.runner.run(tc) {
-            Ok(r) => forge_tool::Result {
+            Ok(r) => hearth_tool::Result {
                 output: r.output,
                 truncated: r.truncated,
                 is_error: r.is_error,
@@ -843,18 +843,18 @@ impl Tool for AdaptedTool {
                 parts: r.parts,
             },
             Err(e) => {
-                let code = if forge_agent::is_cancelled(&e) {
+                let code = if hearth_agent::is_cancelled(&e) {
                     CODE_CANCELLED
                 } else {
                     CODE_IO_ERROR
                 };
-                forge_tool::Result::error(code, e.message())
+                hearth_tool::Result::error(code, e.message())
             }
         }
     }
 }
 
-/// A `forge_tool::Executor` wrapped as the agent's `ToolRunner`. Executor owns
+/// A `hearth_tool::Executor` wrapped as the agent's `ToolRunner`. Executor owns
 /// policy, limits and the (always absent) approver; it also records the tool
 /// decision and duration in the event payload via `tool/result` meta.
 struct ChildToolRunner {

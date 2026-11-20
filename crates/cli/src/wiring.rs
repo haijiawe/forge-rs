@@ -1,8 +1,8 @@
-//! Tool wiring shared by `forge chat` and `forge web`: the built-ins plus the
+//! Tool wiring shared by `hearth chat` and `hearth web`: the built-ins plus the
 //! three bridges that reach outside this process (MCP servers, installed
 //! skills, subagent delegation).
 //!
-//! This lives in the CLI crate, not in `forge-tool`, because it is the only
+//! This lives in the CLI crate, not in `hearth-tool`, because it is the only
 //! place that knows all three of "what the operator configured", "which
 //! process owns the MCP children" and "who is allowed to approve". The Go build
 //! had the same split (`cmd/forge/mcp.go`, `tools.go`) for the same reason: a
@@ -26,11 +26,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use forge_config::Config;
-use forge_llm::{Provider, ToolSpec};
-use forge_mcp::{CallResult, Client, Content, Server as McpServer, ToolDef, Transport};
-use forge_skill::{scan, Set as SkillSet, Skill};
-use forge_tool::{
+use hearth_config::Config;
+use hearth_llm::{Provider, ToolSpec};
+use hearth_mcp::{CallResult, Client, Content, Server as McpServer, ToolDef, Transport};
+use hearth_skill::{scan, Set as SkillSet, Skill};
+use hearth_tool::{
     decode_args, effective_limits, merge, resolve, truncate, Call, Executor, ExecutorOptions,
     Limits, Meta, Policy, Registry, Result as ToolResult, Rules, Tool, ACTION_ASK, CODE_IO_ERROR,
     CODE_NOT_FOUND, CODE_OUTSIDE_WORKSPACE, CODE_TIMEOUT, ERR_BAD_ARGS,
@@ -47,7 +47,7 @@ pub const MCP_NAME_PREFIX: &str = "mcp__";
 /// The MCP call succeeded at the protocol level but the server said the tool
 /// failed. The model should read the text and decide.
 pub const CODE_MCP_TOOL_ERROR: &str = "mcp_tool_error";
-/// The server is gone for the rest of the session (sticky in `forge-mcp`).
+/// The server is gone for the rest of the session (sticky in `hearth-mcp`).
 pub const CODE_MCP_SERVER_GONE: &str = "mcp_server_gone";
 /// A transport or protocol failure that is the remote's fault.
 pub const CODE_MCP_CALL_FAILED: &str = "mcp_call_failed";
@@ -90,7 +90,7 @@ pub struct BuildOptions<'a> {
     pub sandbox: String,
     /// `None` means no human is available; every `ask` is refused by the
     /// executor, which is the intended unattended behaviour.
-    pub approver: Option<Arc<dyn forge_tool::Approver>>,
+    pub approver: Option<Arc<dyn hearth_tool::Approver>>,
     pub limits: Limits,
     pub system: String,
     pub parent_session: String,
@@ -106,18 +106,18 @@ pub struct WiredTools {
     pub registry: Arc<Registry>,
     pub policy: Arc<dyn Policy>,
     pub notes: Notes,
-    approver: Option<Arc<dyn forge_tool::Approver>>,
+    approver: Option<Arc<dyn hearth_tool::Approver>>,
     limits: Limits,
     workspace: String,
     clients: Vec<Arc<Mutex<Box<dyn Client>>>>,
     /// Kept alive for the life of the turn: dropping a `Host` unloads every
     /// plugin, and a plugin tool that outlived its host would fail on its first
     /// call with "not loaded".
-    plugins: Option<Arc<forge_plugin::Host>>,
+    plugins: Option<Arc<hearth_plugin::Host>>,
     /// The rewrite seams contributed by loaded plugins. Empty when no enabled
     /// plugin claims `before_turn`, and empty is inert: the loop then never
     /// consults a hook and writes no `hook/rewrite`.
-    hooks: forge_agent::Hooks,
+    hooks: hearth_agent::Hooks,
 }
 
 impl WiredTools {
@@ -147,13 +147,13 @@ impl WiredTools {
     /// (its `Drop` does that), and a `PluginTool` that outlived its host would
     /// fail on its first call. Reading it is therefore only for callers that want
     /// to ask a plugin something out of band — the tools hold their own `Arc`.
-    pub fn plugins(&self) -> Option<&Arc<forge_plugin::Host>> {
+    pub fn plugins(&self) -> Option<&Arc<hearth_plugin::Host>> {
         self.plugins.as_ref()
     }
 
     /// The hook seams a loaded plugin contributed. Empty means the loop runs
     /// with no extension point installed — the inert case.
-    pub fn hooks(&self) -> &forge_agent::Hooks {
+    pub fn hooks(&self) -> &hearth_agent::Hooks {
         &self.hooks
     }
 
@@ -299,17 +299,17 @@ impl McpTool {
         out
     }
 
-    fn failure_code(&self, err: &forge_mcp::Error) -> &'static str {
+    fn failure_code(&self, err: &hearth_mcp::Error) -> &'static str {
         match err {
             // Sticky by design: the same client will never answer again, so a
             // retry is a guaranteed lost turn.
-            forge_mcp::Error::ServerGone(_) => CODE_MCP_SERVER_GONE,
-            forge_mcp::Error::Timeout(_) => CODE_TIMEOUT,
+            hearth_mcp::Error::ServerGone(_) => CODE_MCP_SERVER_GONE,
+            hearth_mcp::Error::Timeout(_) => CODE_TIMEOUT,
             _ => CODE_MCP_CALL_FAILED,
         }
     }
 
-    fn failure_text(&self, code: &str, err: &forge_mcp::Error) -> String {
+    fn failure_text(&self, code: &str, err: &hearth_mcp::Error) -> String {
         match code {
             CODE_MCP_SERVER_GONE => format!(
                 "{}: MCP server {:?} is gone ({err}). Do not retry this tool: that server will not answer again in this session. Continue without its tools, or tell the user the server needs to be restarted.",
@@ -480,7 +480,7 @@ impl SkillTool {
         let path = match resolve(&skill.dir, want) {
             Ok(path) => path,
             Err(err) => {
-                if forge_tool::is_outside(&err) {
+                if hearth_tool::is_outside(&err) {
                     return ToolResult::error(
                         CODE_OUTSIDE_WORKSPACE,
                         format!(
@@ -548,7 +548,7 @@ fn append_file_list(body: String, files: &[String]) -> String {
     out
 }
 
-fn describe(err: &forge_tool::PathError) -> String {
+fn describe(err: &hearth_tool::PathError) -> String {
     format!("{err}")
 }
 
@@ -613,7 +613,7 @@ fn skill_tool(set: SkillSet, limits: Limits) -> SkillTool {
 // ---------------------------------------------------------------------------
 
 /// A logger that collects diagnostics for the caller to print. Both
-/// `forge-mcp` and `forge-subagent` define their own narrow `Logger` trait on
+/// `hearth-mcp` and `hearth-subagent` define their own narrow `Logger` trait on
 /// purpose (neither may depend on a CLI type), so this implements both.
 #[derive(Clone, Default)]
 pub struct NoteLogger {
@@ -635,7 +635,7 @@ impl NoteLogger {
     }
 }
 
-impl forge_mcp::Logger for NoteLogger {
+impl hearth_mcp::Logger for NoteLogger {
     fn debug(&self, message: &str) {
         // Debug output is protocol chatter; it is only interesting when
         // something is wrong, and then the warning says so.
@@ -647,7 +647,7 @@ impl forge_mcp::Logger for NoteLogger {
     }
 }
 
-impl forge_subagent::Logger for NoteLogger {
+impl hearth_subagent::Logger for NoteLogger {
     fn info(&self, message: &str) {
         self.push("subagent", message);
     }
@@ -666,15 +666,15 @@ struct ExecutorRunner {
     executor: Executor,
 }
 
-impl forge_agent::ToolRunner for ExecutorRunner {
+impl hearth_agent::ToolRunner for ExecutorRunner {
     fn specs(&self) -> Vec<ToolSpec> {
         self.executor.specs()
     }
 
-    fn run(&self, call: forge_llm::ToolCall) -> forge_core::Result<forge_agent::ToolResult> {
+    fn run(&self, call: hearth_llm::ToolCall) -> hearth_core::Result<hearth_agent::ToolResult> {
         let input = Call::from_tool_call(&call, self.executor.workspace());
         let out = self.executor.run(input);
-        Ok(forge_agent::ToolResult {
+        Ok(hearth_agent::ToolResult {
             output: out.output,
             is_error: out.is_error,
             code: out.code,
@@ -702,19 +702,19 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
     // The network client is built once per command, not per turn: TLS roots are
     // expensive to assemble, and a bad CA file must be reported once rather than
     // surfacing as a failing `web_fetch` in the middle of a conversation.
-    let mut tool_options = forge_tool::Options::new(options.limits);
+    let mut tool_options = hearth_tool::Options::new(options.limits);
     tool_options.data_dir = options.data_dir.clone();
     tool_options.goal = options.goal;
-    match forge_net::Client::new(forge_net::ClientOptions {
+    match hearth_net::Client::new(hearth_net::ClientOptions {
         ca_file: options.cfg.ca_file.as_deref().map(PathBuf::from),
-        ..forge_net::ClientOptions::default()
+        ..hearth_net::ClientOptions::default()
     }) {
         Ok(client) => {
             let client = Arc::new(client);
             tool_options.net = Some(Arc::clone(&client));
             let endpoint = options.cfg.search.endpoint.trim();
             if !endpoint.is_empty() {
-                tool_options.search = Some(forge_tool::SearchConfig {
+                tool_options.search = Some(hearth_tool::SearchConfig {
                     endpoint: endpoint.to_string(),
                     key: options.cfg.search.key.clone(),
                 });
@@ -727,9 +727,9 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
         }
     }
 
-    let registry = Arc::new(Registry::new(forge_tool::all(&tool_options)));
+    let registry = Arc::new(Registry::new(hearth_tool::all(&tool_options)));
     let mut clients: Vec<Arc<Mutex<Box<dyn Client>>>> = Vec::new();
-    let mut bridge_rules: Vec<forge_tool::Rule> = Vec::new();
+    let mut bridge_rules: Vec<hearth_tool::Rule> = Vec::new();
 
     // --- Context (addressable compression) ---------------------------------
     // These three read and describe the session log, so they are registered only
@@ -746,7 +746,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
             crate::context_tools::TOOL_DECOMPRESS,
             crate::context_tools::TOOL_SEARCH,
         ] {
-            bridge_rules.push(forge_tool::Rule::new(name, "", forge_tool::ACTION_ALLOW));
+            bridge_rules.push(hearth_tool::Rule::new(name, "", hearth_tool::ACTION_ALLOW));
         }
     }
 
@@ -774,7 +774,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
             spec.name = server.name.clone();
         }
 
-        let mut client = match forge_mcp::dial(&spec, Arc::new(logger.clone())) {
+        let mut client = match hearth_mcp::dial(&spec, Arc::new(logger.clone())) {
             Ok(client) => client,
             Err(err) => {
                 // One bad server must not cost the operator the other servers
@@ -828,7 +828,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
             // Every remote tool asks, whatever the sandbox mode says: the call
             // leaves this process and the operator should see it first. The
             // rule is prepended by `merge`, so it beats the mode defaults.
-            bridge_rules.push(forge_tool::Rule::new(name, "", ACTION_ASK));
+            bridge_rules.push(hearth_tool::Rule::new(name, "", ACTION_ASK));
         }
     }
 
@@ -837,10 +837,10 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
     // host is started here but spawns nothing until a plugin is loaded, and a
     // plugin that fails to load is a note rather than a failed turn: one broken
     // third-party process must not cost the operator their session.
-    let mut plugin_host: Option<Arc<forge_plugin::Host>> = None;
-    let mut plugin_hooks = forge_agent::Hooks::none();
+    let mut plugin_host: Option<Arc<hearth_plugin::Host>> = None;
+    let mut plugin_hooks = hearth_agent::Hooks::none();
     if !options.cfg.plugins.enabled.is_empty() {
-        let mut host = forge_plugin::Host::start(options.cfg.plugin_root());
+        let mut host = hearth_plugin::Host::start(options.cfg.plugin_root());
         // Read market-installed bundles too, so a plugin enabled by name is found
         // whether it was hand-installed under plugins/ or installed by the market.
         host.add_root(
@@ -894,7 +894,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
                 // duplicate here means the same plugin was listed twice.
                 continue;
             }
-            // `forge_plugin::ToolSpec` is the plugin's own copy of the shape (the
+            // `hearth_plugin::ToolSpec` is the plugin's own copy of the shape (the
             // plugin crate does not depend on the LLM crate), so the host's answer
             // is translated here rather than made to share a type.
             let spec = ToolSpec {
@@ -917,7 +917,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
             registry.register_arc(Arc::new(tool));
             // Plugin tools ask every time, for the reason MCP tools do: the call
             // leaves this process and the operator should see it first.
-            bridge_rules.push(forge_tool::Rule::new(name, "", ACTION_ASK));
+            bridge_rules.push(hearth_tool::Rule::new(name, "", ACTION_ASK));
         }
         plugin_host = Some(host);
     }
@@ -926,7 +926,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
     // One `expert` tool for the whole roster, registered only when the roster
     // holds at least one summonable expert: an always-present tool that can only
     // say "the roster is empty" costs tokens on every request.
-    let mut expert_set: Option<forge_experts::Set> = None;
+    let mut expert_set: Option<hearth_experts::Set> = None;
     let expert_roots: Vec<PathBuf> = options
         .cfg
         .expert_roots()
@@ -936,7 +936,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
         .collect();
     if !expert_roots.is_empty() {
         for root in &expert_roots {
-            match forge_experts::scan(root) {
+            match hearth_experts::scan(root) {
                 Ok(set) => {
                     if set.is_empty() {
                         continue;
@@ -965,10 +965,10 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
             // mode may do it. Without a rule the mode fallback decides, and in
             // `read-only` and `workspace-write` the fallback is `deny`: the tool
             // would be registered and unusable, which reads as a missing feature.
-            bridge_rules.push(forge_tool::Rule::new(
+            bridge_rules.push(hearth_tool::Rule::new(
                 bridges::EXPERT_TOOL_NAME,
                 "",
-                forge_tool::ACTION_ALLOW,
+                hearth_tool::ACTION_ALLOW,
             ));
         }
     }
@@ -984,7 +984,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
         if let Some(set) = &expert_set {
             if !set.teams().is_empty() {
                 team_wanted = true;
-                bridge_rules.push(forge_tool::Rule::new(
+                bridge_rules.push(hearth_tool::Rule::new(
                     bridges::TEAM_TOOL_NAME,
                     "",
                     ACTION_ASK,
@@ -1019,7 +1019,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
     }
 
     // --- Policy ------------------------------------------------------------
-    let base = forge_tool::default_rules(&options.sandbox);
+    let base = hearth_tool::default_rules(&options.sandbox);
     let extra = if bridge_rules.is_empty() {
         None
     } else {
@@ -1056,7 +1056,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
     // Only when the operator asked for it: `maxDepth` defaults to zero, and a
     // tool nobody configured is a tool that spends a turn discovering that.
     if options.cfg.subagent.max_depth > 0 {
-        let parent_runner: Arc<dyn forge_agent::ToolRunner> = Arc::new(ExecutorRunner {
+        let parent_runner: Arc<dyn hearth_agent::ToolRunner> = Arc::new(ExecutorRunner {
             executor: Executor::new(
                 Arc::clone(&registry),
                 ExecutorOptions {
@@ -1067,7 +1067,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
                 },
             ),
         });
-        let mut sub = forge_subagent::Options::new(
+        let mut sub = hearth_subagent::Options::new(
             Arc::clone(&options.provider),
             options.data_dir.clone(),
             options.workspace.clone(),
@@ -1084,7 +1084,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
         // in-process path, so nothing is rerouted by accident.
         for entry in &options.cfg.subagent.providers {
             let mut backend =
-                forge_subagent::ProcessBackend::new(&entry.program, entry.args.clone());
+                hearth_subagent::ProcessBackend::new(&entry.program, entry.args.clone());
             if entry.timeout_secs > 0 {
                 backend =
                     backend.with_timeout(std::time::Duration::from_secs(entry.timeout_secs as u64));
@@ -1118,7 +1118,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
         sub.logger = Arc::new(logger.clone());
         sub.policy = Some(Arc::clone(&policy));
         sub.limits = options.limits;
-        match forge_subagent::Runner::new(sub) {
+        match hearth_subagent::Runner::new(sub) {
             Ok(runner) => {
                 let runner = Arc::new(runner);
                 registry.register_arc(runner.tool());
@@ -1155,8 +1155,8 @@ fn build_worker_runner(
     registry: Arc<Registry>,
     policy: Arc<dyn Policy>,
     logger: NoteLogger,
-) -> forge_core::Result<Arc<forge_subagent::Runner>> {
-    let parent_runner: Arc<dyn forge_agent::ToolRunner> = Arc::new(ExecutorRunner {
+) -> hearth_core::Result<Arc<hearth_subagent::Runner>> {
+    let parent_runner: Arc<dyn hearth_agent::ToolRunner> = Arc::new(ExecutorRunner {
         executor: Executor::new(
             registry,
             ExecutorOptions {
@@ -1167,7 +1167,7 @@ fn build_worker_runner(
             },
         ),
     });
-    let mut sub = forge_subagent::Options::new(
+    let mut sub = hearth_subagent::Options::new(
         Arc::clone(&options.provider),
         options.data_dir.clone(),
         options.workspace.clone(),
@@ -1184,7 +1184,7 @@ fn build_worker_runner(
     sub.max_active = options.cfg.team.max_parallel.max(1) as usize;
     sub.logger = Arc::new(logger);
     sub.limits = options.limits;
-    Ok(Arc::new(forge_subagent::Runner::new(sub)?))
+    Ok(Arc::new(hearth_subagent::Runner::new(sub)?))
 }
 
 /// Maps the config's transport spelling onto the client's enum. Anything that
@@ -1205,7 +1205,7 @@ fn mcp_spec(name: &str, server: &str, remote: &str, def: &ToolDef) -> ToolSpec {
     } else {
         // Provenance matters: the model should know this capability lives
         // outside the harness, because a failure here is the remote's fault.
-        format!("{description}\n\n(Remote tool {remote:?} on MCP server {server:?}. It runs outside forge and asks for approval every time.)")
+        format!("{description}\n\n(Remote tool {remote:?} on MCP server {server:?}. It runs outside hearth and asks for approval every time.)")
     };
     let schema = if def.input_schema.is_object() {
         def.input_schema.clone()
@@ -1222,10 +1222,10 @@ fn mcp_spec(name: &str, server: &str, remote: &str, def: &ToolDef) -> ToolSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use forge_agent::{Agent, Options as AgentOptions};
-    use forge_config::SANDBOX_WORKSPACE_WRITE;
-    use forge_mcp::Error as McpError;
-    use forge_tool::DefaultLimits;
+    use hearth_agent::{Agent, Options as AgentOptions};
+    use hearth_config::SANDBOX_WORKSPACE_WRITE;
+    use hearth_mcp::Error as McpError;
+    use hearth_tool::DefaultLimits;
 
     use std::path::Path;
 
@@ -1238,8 +1238,8 @@ mod tests {
     }
 
     impl Client for FakeClient {
-        fn initialize(&mut self) -> std::result::Result<forge_mcp::ServerInfo, McpError> {
-            Ok(forge_mcp::ServerInfo {
+        fn initialize(&mut self) -> std::result::Result<hearth_mcp::ServerInfo, McpError> {
+            Ok(hearth_mcp::ServerInfo {
                 name: "fake".into(),
                 version: "1".into(),
             })
@@ -1487,7 +1487,7 @@ mod tests {
 
     #[test]
     fn skill_file_read_refuses_to_escape_the_skill_directory() {
-        let root = std::env::temp_dir().join(format!("forge-skill-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hearth-skill-{}", std::process::id()));
         let dir = root.join("alpha");
         std::fs::create_dir_all(&dir).expect("create skill dir");
         std::fs::write(dir.join("SKILL.md"), "---\nname: alpha\n---\nbody\n").expect("write");
@@ -1537,9 +1537,9 @@ mod tests {
 
     struct SilentStream;
 
-    impl forge_llm::Stream for SilentStream {
-        fn recv(&mut self) -> std::result::Result<Option<forge_llm::Delta>, forge_core::Error> {
-            Ok(Some(forge_llm::Delta {
+    impl hearth_llm::Stream for SilentStream {
+        fn recv(&mut self) -> std::result::Result<Option<hearth_llm::Delta>, hearth_core::Error> {
+            Ok(Some(hearth_llm::Delta {
                 stop_reason: Some("stop".to_string()),
                 ..Default::default()
             }))
@@ -1547,16 +1547,16 @@ mod tests {
         fn close(&mut self) {}
     }
 
-    impl forge_llm::Provider for SilentProvider {
+    impl hearth_llm::Provider for SilentProvider {
         fn stream(
             &self,
-            _request: &forge_llm::Request,
-        ) -> std::result::Result<Box<dyn forge_llm::Stream>, forge_core::Error> {
+            _request: &hearth_llm::Request,
+        ) -> std::result::Result<Box<dyn hearth_llm::Stream>, hearth_core::Error> {
             Ok(Box::new(SilentStream))
         }
     }
 
-    fn provider() -> Arc<dyn forge_llm::Provider> {
+    fn provider() -> Arc<dyn hearth_llm::Provider> {
         Arc::new(SilentProvider)
     }
 
@@ -1581,7 +1581,7 @@ mod tests {
     }
 
     /// Copy the plugin crate's reference plugin into a scratch root, because
-    /// `forge-plugin` owns the fixture and the CLI must not link its test tree.
+    /// `hearth-plugin` owns the fixture and the CLI must not link its test tree.
     const REFERENCE_PLUGIN: (&str, &str) = (
         "plugin.json",
         r#"{"name":"reference","version":"1.0.0","description":"a reference plugin","runtime":"node","entry":"index.js"}"#,
@@ -1599,7 +1599,7 @@ mod tests {
     /// long path instead of two spellings of it.
     fn scratch(label: &str) -> PathBuf {
         let root =
-            std::env::temp_dir().join(format!("forge-wiring-{}-{label}", std::process::id()));
+            std::env::temp_dir().join(format!("hearth-wiring-{}-{label}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("create the scratch root");
         let canonical = std::fs::canonicalize(&root).expect("canonicalise the scratch root");
@@ -1757,7 +1757,7 @@ mod tests {
     /// A provider that records the last request it was handed, so a test can
     /// see the exact text the loop sent after the hook seam ran.
     struct RecordingProvider {
-        last: Mutex<Vec<forge_llm::Message>>,
+        last: Mutex<Vec<hearth_llm::Message>>,
     }
 
     /// One delta, then end. `SilentStream` above is for building a registry (no
@@ -1767,13 +1767,13 @@ mod tests {
         sent: bool,
     }
 
-    impl forge_llm::Stream for OnceStream {
-        fn recv(&mut self) -> std::result::Result<Option<forge_llm::Delta>, forge_core::Error> {
+    impl hearth_llm::Stream for OnceStream {
+        fn recv(&mut self) -> std::result::Result<Option<hearth_llm::Delta>, hearth_core::Error> {
             if self.sent {
                 return Ok(None);
             }
             self.sent = true;
-            Ok(Some(forge_llm::Delta {
+            Ok(Some(hearth_llm::Delta {
                 text: "done".to_string(),
                 stop_reason: Some("stop".to_string()),
                 ..Default::default()
@@ -1794,23 +1794,23 @@ mod tests {
             guard
                 .iter()
                 .rev()
-                .find(|m| m.role == forge_llm::Role::User)
+                .find(|m| m.role == hearth_llm::Role::User)
                 .map(|m| m.content.clone())
                 .unwrap_or_default()
         }
     }
 
-    impl forge_llm::Provider for RecordingProvider {
+    impl hearth_llm::Provider for RecordingProvider {
         fn stream(
             &self,
-            request: &forge_llm::Request,
-        ) -> std::result::Result<Box<dyn forge_llm::Stream>, forge_core::Error> {
+            request: &hearth_llm::Request,
+        ) -> std::result::Result<Box<dyn hearth_llm::Stream>, hearth_core::Error> {
             *self.last.lock().expect("recording provider lock") = request.messages.clone();
             Ok(Box::new(OnceStream { sent: false }))
         }
     }
 
-    fn read_events(store: &forge_session::Store) -> Vec<forge_core::Event> {
+    fn read_events(store: &hearth_session::Store) -> Vec<hearth_core::Event> {
         let mut events = Vec::new();
         store
             .read_from(0, |event| {
@@ -1845,13 +1845,13 @@ mod tests {
 
         let log_path = data_dir.join("s_hook.jsonl");
         let store = Arc::new(
-            forge_session::Store::open(&log_path, forge_session::Options::default())
+            hearth_session::Store::open(&log_path, hearth_session::Options::default())
                 .expect("open the store"),
         );
         let recorder = Arc::new(RecordingProvider::new());
         let mut opts = AgentOptions::new(
             recorder.clone(),
-            Arc::clone(&store) as Arc<dyn forge_agent::EventLog>,
+            Arc::clone(&store) as Arc<dyn hearth_agent::EventLog>,
             "fake-model".to_string(),
             "s_hook".to_string(),
             ".".to_string(),
@@ -1864,7 +1864,7 @@ mod tests {
             "run error: {}",
             err.expect("no error").message()
         );
-        assert_eq!(result.reason, forge_agent::TURN_COMPLETED);
+        assert_eq!(result.reason, hearth_agent::TURN_COMPLETED);
 
         // The provider saw the rewritten text: the reference plugin's before_turn
         // appends one newline to the turn's text.
@@ -1878,7 +1878,7 @@ mod tests {
         let events = read_events(&store);
         let rewrite = events
             .iter()
-            .find(|e| e.typ == forge_core::EventType::HOOK_REWRITE.as_str())
+            .find(|e| e.typ == hearth_core::EventType::HOOK_REWRITE.as_str())
             .unwrap_or_else(|| {
                 panic!(
                     "expected a hook/rewrite row; got {:?}",
@@ -1913,13 +1913,13 @@ mod tests {
 
         let log_path = data_dir.join("s_plain.jsonl");
         let store = Arc::new(
-            forge_session::Store::open(&log_path, forge_session::Options::default())
+            hearth_session::Store::open(&log_path, hearth_session::Options::default())
                 .expect("open the store"),
         );
         let recorder = Arc::new(RecordingProvider::new());
         let mut opts = AgentOptions::new(
             recorder.clone(),
-            Arc::clone(&store) as Arc<dyn forge_agent::EventLog>,
+            Arc::clone(&store) as Arc<dyn hearth_agent::EventLog>,
             "fake-model".to_string(),
             "s_plain".to_string(),
             ".".to_string(),
@@ -1928,14 +1928,14 @@ mod tests {
         let agent = Agent::new(opts).expect("build the agent");
         let (result, err) = agent.run("hello");
         assert!(err.is_none());
-        assert_eq!(result.reason, forge_agent::TURN_COMPLETED);
+        assert_eq!(result.reason, hearth_agent::TURN_COMPLETED);
 
         assert_eq!(recorder.last_user_text(), "hello");
         let events = read_events(&store);
         assert!(
             !events
                 .iter()
-                .any(|e| e.typ == forge_core::EventType::HOOK_REWRITE.as_str()),
+                .any(|e| e.typ == hearth_core::EventType::HOOK_REWRITE.as_str()),
             "an inert loop writes no hook/rewrite"
         );
 
@@ -2004,7 +2004,7 @@ mod tests {
         );
         assert!(out
             .output
-            .contains("[forge-experts] Tool restriction: fs_read, fs_grep."));
+            .contains("[hearth-experts] Tool restriction: fs_read, fs_grep."));
 
         // The description is the only place the model can learn which slugs
         // exist: if it does not name them, the tool is callable but unusable
@@ -2029,7 +2029,7 @@ mod tests {
             json!({"name":"nobody"}),
             ".",
         ));
-        assert_eq!(out.code, forge_tool::CODE_NOT_FOUND, "{}", out.output);
+        assert_eq!(out.code, hearth_tool::CODE_NOT_FOUND, "{}", out.output);
 
         // No rule means the mode fallback decides, and in `read-only` and
         // `workspace-write` that fallback is `deny`. A roster lookup touches
@@ -2052,7 +2052,8 @@ mod tests {
 
     #[test]
     fn a_roster_without_experts_adds_no_expert_tool() {
-        let empty = std::env::temp_dir().join(format!("forge-wiring-empty-{}", std::process::id()));
+        let empty =
+            std::env::temp_dir().join(format!("hearth-wiring-empty-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&empty);
         std::fs::create_dir_all(&empty).expect("create");
         let mut cfg = Config::defaults();

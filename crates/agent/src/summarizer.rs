@@ -8,9 +8,9 @@
 
 use std::sync::{Arc, Mutex};
 
-use forge_core::{Error, ErrorKind, Event, Result};
-use forge_llm::{Delta, Message, Provider, Request, Role, Stream, Usage};
-use forge_session::{Projection, Snapshot};
+use hearth_core::{Error, ErrorKind, Event, Result};
+use hearth_llm::{Delta, Message, Provider, Request, Role, Stream, Usage};
+use hearth_session::{Projection, Snapshot};
 
 use crate::cancel::Cancel;
 use crate::err::is_cancelled;
@@ -419,11 +419,11 @@ impl Drop for SummarizerClose {
     }
 }
 
-/// `forge-session` owns the compaction writer and declares `Summarizer` in the
+/// `hearth-session` owns the compaction writer and declares `Summarizer` in the
 /// consumer, exactly as Go's `session.Summarizer` interface does. This impl is
 /// the bridge: the provider-backed summary is one implementation of that trait,
 /// not a dependency of the session crate (which must not know a model exists).
-impl forge_session::Summarizer for ProviderSummarizer {
+impl hearth_session::Summarizer for ProviderSummarizer {
     fn summarize(&self, events: &[Event]) -> Result<String> {
         ProviderSummarizer::summarize(self, events)
     }

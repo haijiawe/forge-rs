@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 
 use crate::tls::ERR_ABORTED;
 

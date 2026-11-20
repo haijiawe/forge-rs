@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn a_file_past_the_cap_is_reported_as_truncated() {
-        let dir = std::env::temp_dir().join(format!("forge-experts-cap-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-experts-cap-{}", std::process::id()));
         fs::create_dir_all(&dir).expect("create temp dir");
         let path = dir.join("big.md");
         let mut file = File::create(&path).expect("create file");
@@ -154,7 +154,7 @@ mod tests {
 
     #[test]
     fn a_file_under_the_cap_is_not_reported_as_truncated() {
-        let dir = std::env::temp_dir().join(format!("forge-experts-capok-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-experts-capok-{}", std::process::id()));
         fs::create_dir_all(&dir).expect("create temp dir");
         let path = dir.join("small.md");
         fs::write(&path, b"---\n---\nbody\n").expect("write file");

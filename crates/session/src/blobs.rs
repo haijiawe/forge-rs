@@ -14,7 +14,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use forge_core::{new_id, Error, ErrorKind, Result};
+use hearth_core::{new_id, Error, ErrorKind, Result};
 
 /// A directory of content-addressed-by-name file bodies.
 pub struct Blobs {
@@ -102,7 +102,7 @@ mod tests {
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join("forge-blobs-test").join(name);
+        let path = std::env::temp_dir().join("hearth-blobs-test").join(name);
         let _ = fs::remove_dir_all(&path);
         path
     }

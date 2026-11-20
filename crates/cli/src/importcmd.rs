@@ -1,4 +1,4 @@
-//! `forge import`: copy one previous-generation session directory into this
+//! `hearth import`: copy one previous-generation session directory into this
 //! build's data directory as one v1 event log.
 //!
 //! The source is only read: nothing under the source is created, modified or
@@ -8,7 +8,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use forge_import as importold;
+use hearth_import as importold;
 
 use crate::{one_line, reorder_flags, write_json};
 
@@ -16,9 +16,9 @@ const EXIT_OK: i32 = 0;
 const EXIT_FAILURE: i32 = 1;
 const EXIT_USAGE: i32 = 2;
 
-pub const USAGE: &str = "usage: forge import <old-dir> [flags]
+pub const USAGE: &str = "usage: hearth import <old-dir> [flags]
 
-Import one previous-generation session directory (the retired TypeScript forge's
+Import one previous-generation session directory (the retired TypeScript hearth's
 session.jsonl / session.v<N>.jsonl layout) into this build's data directory as
 one new v1 event log. The source is only read: nothing under <old-dir> is
 created, modified or deleted, and <old-dir> may be a single session directory or
@@ -28,7 +28,7 @@ flags:
   --dry-run          print the plan and write nothing
   --session <id>     id for the imported session (default: a fresh timestamped id)
   --data-dir <dir>   data directory to write into; the log lands in
-                     <dir>/sessions/<id>.jsonl (default: the forge home's
+                     <dir>/sessions/<id>.jsonl (default: the hearth home's
                      configured dataDir)
   --json             print the plan (with --dry-run) or the result as one JSON
                      document on stdout
@@ -42,7 +42,7 @@ or the same plan as JSON. Diagnostics go to stderr.
 exit codes: 0 ok, 1 failure, 2 usage
 ";
 
-/// The flags that consume the next argument, so `forge import DIR --session x`
+/// The flags that consume the next argument, so `hearth import DIR --session x`
 /// parses as documented instead of treating the flags as more positionals.
 const VALUE_FLAGS: &[&str] = &["session", "data-dir"];
 
@@ -70,14 +70,14 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     let source = match importold::detect(Path::new(&opt.source)) {
         Ok(source) => source,
         Err(err) => {
-            let _ = writeln!(stderr, "forge import: {}", one_line(err.message()));
+            let _ = writeln!(stderr, "hearth import: {}", one_line(err.message()));
             return EXIT_FAILURE;
         }
     };
     let mut plan = match importold::make_plan(&source) {
         Ok(plan) => plan,
         Err(err) => {
-            let _ = writeln!(stderr, "forge import: {}", one_line(err.message()));
+            let _ = writeln!(stderr, "hearth import: {}", one_line(err.message()));
             return EXIT_FAILURE;
         }
     };
@@ -90,7 +90,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     let data_dir = match resolve_data_dir(&opt) {
         Ok(dir) => dir,
         Err(err) => {
-            let _ = writeln!(stderr, "forge import: {}", one_line(&err));
+            let _ = writeln!(stderr, "hearth import: {}", one_line(&err));
             return EXIT_FAILURE;
         }
     };
@@ -124,7 +124,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         // so a script can diff two plans without stripping prose.
         let _ = writeln!(
             stderr,
-            "forge import: dry run, nothing was written (drop --dry-run to import)"
+            "hearth import: dry run, nothing was written (drop --dry-run to import)"
         );
         return EXIT_OK;
     }
@@ -137,13 +137,13 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
                 // session collided before deciding what to import under instead.
                 let _ = writeln!(
                     stderr,
-                    "forge import: session {} already exists, nothing was written ({})",
+                    "hearth import: session {} already exists, nothing was written ({})",
                     plan.session_id,
                     one_line(err.message())
                 );
                 return EXIT_FAILURE;
             }
-            let _ = writeln!(stderr, "forge import: {}", one_line(err.message()));
+            let _ = writeln!(stderr, "hearth import: {}", one_line(err.message()));
             return EXIT_FAILURE;
         }
     };
@@ -167,7 +167,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     } else if let Err(err) = writeln!(stdout, "{}\n{}", plan.session_id, written) {
         let _ = writeln!(
             stderr,
-            "forge import: write result: {}",
+            "hearth import: write result: {}",
             one_line(&err.to_string())
         );
         return EXIT_FAILURE;
@@ -175,7 +175,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
 
     let _ = writeln!(
         stderr,
-        "forge import: imported {} events from {} into session {}",
+        "hearth import: imported {} events from {} into session {}",
         plan.events,
         source.dir.display(),
         plan.session_id
@@ -183,10 +183,10 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     // The old log is wider than v1: say what did not survive the mapping instead
     // of letting the new session look complete.
     for reason in &plan.dropped {
-        let _ = writeln!(stderr, "forge import: dropped: {}", one_line(reason));
+        let _ = writeln!(stderr, "hearth import: dropped: {}", one_line(reason));
     }
     for warning in &source.warnings {
-        let _ = writeln!(stderr, "forge import: warning: {}", one_line(warning));
+        let _ = writeln!(stderr, "hearth import: warning: {}", one_line(warning));
     }
     EXIT_OK
 }
@@ -228,7 +228,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> Result<Options, i32> {
                         }
                         None => {
                             let _ =
-                                writeln!(stderr, "forge import: {name} needs a value\n\n{USAGE}");
+                                writeln!(stderr, "hearth import: {name} needs a value\n\n{USAGE}");
                             return Err(EXIT_USAGE);
                         }
                     },
@@ -240,7 +240,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> Result<Options, i32> {
                 }
             }
             other => {
-                let _ = writeln!(stderr, "forge import: unknown flag {other:?}\n\n{USAGE}");
+                let _ = writeln!(stderr, "hearth import: unknown flag {other:?}\n\n{USAGE}");
                 return Err(EXIT_USAGE);
             }
         }
@@ -250,7 +250,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> Result<Options, i32> {
         0 => {
             let _ = writeln!(
                 stderr,
-                "forge import: expected one source directory\n\n{USAGE}"
+                "hearth import: expected one source directory\n\n{USAGE}"
             );
             Err(EXIT_USAGE)
         }
@@ -259,7 +259,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> Result<Options, i32> {
             if !opt.session.trim().is_empty() && !valid_session_id(opt.session.trim()) {
                 let _ = writeln!(
                     stderr,
-                    "forge import: --session {opt:?} is not a usable session id\n\n{USAGE}",
+                    "hearth import: --session {opt:?} is not a usable session id\n\n{USAGE}",
                     opt = opt.session
                 );
                 return Err(EXIT_USAGE);
@@ -269,14 +269,14 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> Result<Options, i32> {
         many => {
             let _ = writeln!(
                 stderr,
-                "forge import: expected one source directory, got {many}\n\n{USAGE}"
+                "hearth import: expected one source directory, got {many}\n\n{USAGE}"
             );
             Err(EXIT_USAGE)
         }
     }
 }
 
-/// The same rule `forge_core::SessionId::parse` enforces, checked before anything
+/// The same rule `hearth_core::SessionId::parse` enforces, checked before anything
 /// is read so a typo cannot half-import under an id nothing can open.
 fn valid_session_id(value: &str) -> bool {
     let bytes = value.as_bytes();
@@ -389,7 +389,7 @@ mod tests {
         assert_eq!(code, EXIT_FAILURE);
         assert!(out.is_empty(), "stdout must stay empty");
         let text = String::from_utf8_lossy(&err).to_string();
-        assert!(text.starts_with("forge import: "), "{text}");
+        assert!(text.starts_with("hearth import: "), "{text}");
         assert!(text.contains("no such directory"), "{text}");
         assert!(
             !text.contains("importold:"),

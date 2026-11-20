@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 
 use crate::backend::Backend;
 

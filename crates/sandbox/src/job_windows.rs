@@ -9,7 +9,7 @@
 use std::ffi::c_void;
 use std::io;
 
-use forge_core::{Error, ErrorKind, Result as CoreResult};
+use hearth_core::{Error, ErrorKind, Result as CoreResult};
 
 use crate::ERR_UNAVAILABLE;
 

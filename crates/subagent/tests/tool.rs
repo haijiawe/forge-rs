@@ -2,8 +2,8 @@
 
 mod common;
 
-use forge_llm::{Message, Request};
-use forge_subagent::{spec, tool_schema, CODE_DEPTH_EXCEEDED, TOOL_NAME};
+use hearth_llm::{Message, Request};
+use hearth_subagent::{spec, tool_schema, CODE_DEPTH_EXCEEDED, TOOL_NAME};
 use serde_json::json;
 
 #[test]

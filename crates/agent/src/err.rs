@@ -1,18 +1,18 @@
 //! Consumer-owned error metadata.
 //!
-//! `forge_llm` deliberately keeps retry fields in `ProviderError`, which does
+//! `hearth_llm` deliberately keeps retry fields in `ProviderError`, which does
 //! not implement `std::error::Error` and therefore cannot travel as the `source`
-//! of a `forge_core::Error`. To keep the retry policy in this crate (and avoid
+//! of a `hearth_core::Error`. To keep the retry policy in this crate (and avoid
 //! a dependency on any concrete provider), the scripted fake — and, later, a
 //! real provider adapter — attaches [`ProviderFailure`] as the source. The
 //! helpers here downcast that source to recover `code`, `retryable` and
 //! `retry_after`.
 
-use forge_core::{Error, ErrorKind};
+use hearth_core::{Error, ErrorKind};
 use std::fmt;
 use std::time::Duration;
 
-/// Retry-relevant details carried as the source of a `forge_core::Error`.
+/// Retry-relevant details carried as the source of a `hearth_core::Error`.
 #[derive(Debug, Clone)]
 pub struct ProviderFailure {
     pub message: String,

@@ -1,7 +1,7 @@
 //! The goal race fence is a pure comparison over the log; these tests pin the
 //! three answers a checkpoint can get.
 
-use forge_goal::{
+use hearth_goal::{
     fence, fold, goal_continued, goal_created, goal_ended, FenceOutcome, Goal, Reservation, Status,
     StopReason,
 };

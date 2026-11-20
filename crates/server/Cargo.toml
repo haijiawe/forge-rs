@@ -1,5 +1,5 @@
 [package]
-name = "forge-server"
+name = "hearth-server"
 description = "HTTP and WebSocket over the session log"
 version.workspace = true
 edition.workspace = true
@@ -7,10 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-forge-core = { path = "../core" }
-forge-session = { path = "../session" }
-forge-protocol = { path = "../protocol" }
-forge-goal = { path = "../goal" }
-forge-subagent = { path = "../subagent" }
+hearth-core = { path = "../core" }
+hearth-session = { path = "../session" }
+hearth-protocol = { path = "../protocol" }
+hearth-goal = { path = "../goal" }
+hearth-subagent = { path = "../subagent" }
 serde.workspace = true
 serde_json.workspace = true

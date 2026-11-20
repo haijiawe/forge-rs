@@ -1,6 +1,6 @@
 //! A **closed subset** of YAML frontmatter, parsed from the raw bytes.
 //!
-//! Why not reuse `forge-skill`'s parser: that parser is `pub(crate)`, scans
+//! Why not reuse `hearth-skill`'s parser: that parser is `pub(crate)`, scans
 //! `root/*/SKILL.md` exactly one level deep, and *drops* what it cannot read —
 //! it warns and keeps the skill. Neither the privacy nor the policy fits here.
 //! A roster file is different in kind: forgetting a `tools:` line turns a
@@ -110,7 +110,7 @@ struct Line<'a> {
 ///
 /// `source` is only a label for messages ("crates/experts/x.md"); it is never
 /// opened. The whole file is refused on any surprise; see the module doc for
-/// why that differs from `forge-skill`.
+/// why that differs from `hearth-skill`.
 pub(crate) fn parse(data: &[u8], source: &str) -> Result<Frontmatter> {
     // A UTF-8 BOM is an encoding artefact, not content: stripping it keeps the
     // fence on line 1. It is stripped before the body is sliced, so the body is

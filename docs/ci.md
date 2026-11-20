@@ -1,6 +1,6 @@
 # CI: what runs, what it caught, and what is still not rehearsed
 
-The repository is `github.com/haijiawe/forge-rs` (public since 2026-11-21) and the
+The repository is `github.com/haijiawe/hearth` (public since 2026-11-21) and the
 tree is MIT. Every workflow here has now executed on hosted runners, including
 `release.yml` (through its `workflow_dispatch` dry-run mode) and the manual
 `bench.yml`.
@@ -94,7 +94,7 @@ acceptable when the diff proves the job has nothing to say about the change.
 The eleven defects, in the order they surfaced:
 
 1. **A pinned target directory is not portable.** `.cargo/config.toml` carried
-   `target-dir = "D:/forge-rs-target/forge-rs"` — a workaround for MSVC error
+   `target-dir = "D:/hearth-target/hearth"` — a workaround for MSVC error
    `D8050` when the source path contains non-ASCII characters. On Linux that is
    one path segment containing a colon, and the ubuntu job died with
    `failed to join paths from $LD_LIBRARY_PATH together`. The config now pins no
@@ -167,12 +167,12 @@ baseline is only comparable within one platform. It records one report per
 runner (ubuntu-latest, windows-latest, macos-latest) with
 
 ```
-cargo run --release -q -p forge-bench -- -out "baseline-<os>.json" -baseline ""
+cargo run --release -q -p hearth-bench -- -out "baseline-<os>.json" -baseline ""
 ```
 
 and uploads each as an artifact. To arm the gate on a new platform, download the
 artifact, copy its single record into `scripts/bench/baseline.json` (the file is
-a `{version, baselines: [...]}` set, and `forge-bench` compares only the record
+a `{version, baselines: [...]}` set, and `hearth-bench` compares only the record
 matching `os`/`arch`), and commit it with the measurement date. The final step of
 the workflow runs `-strict` with `continue-on-error: true`: a run that cannot be
 compared yet is not a failure, it only reports.
@@ -180,11 +180,11 @@ compared yet is not a failure, it only reports.
 The workflow's first two runs each found one defect, and both were invisible on
 a developer machine that has a warm target directory and a working registry:
 
-1. **The inner build was pinned offline.** `forge-bench` shells out to
-   `cargo build -p forge-cli` to have a binary to launch, and that call always
+1. **The inner build was pinned offline.** `hearth-bench` shells out to
+   `cargo build -p hearth-cli` to have a binary to launch, and that call always
    passed `--offline`. A dev box has every crate cached; a hosted runner starts
    with an empty registry and died on `aho-corasick`. The flag is now
-   conditional on `FORGE_BENCH_OFFLINE=1`, so network policy belongs to the
+   conditional on `HEARTH_BENCH_OFFLINE=1`, so network policy belongs to the
    caller (the Makefile sets it, the workflow does not).
 2. **The build was inside the measurement budget.** `version_startup` pays for
    that build on a cold runner; it took about sixty seconds and exhausted the
@@ -219,10 +219,10 @@ disagreement is still a failure.
 ## Rehearsed, and what it still does not prove
 
 - **`release.yml` has now run for real.** A `workflow_dispatch` dry run
-  ([44588872748](https://github.com/haijiawe/forge-rs/actions/runs/44588872748))
+  ([44588872748](https://github.com/haijiawe/hearth/actions/runs/44588872748))
   built, verified and uploaded all three native artifacts —
-  `forge-windows-amd64.exe` 4,183,350 B, `forge-linux-amd64` 4,584,901 B,
-  `forge-darwin-arm64` 3,985,780 B — and generated a `SHA256SUMS` that passed
+  `hearth-windows-amd64.exe` 4,183,350 B, `hearth-linux-amd64` 4,584,901 B,
+  `hearth-darwin-arm64` 3,985,780 B — and generated a `SHA256SUMS` that passed
   `sha256sum --check`. The `Publish GitHub release` step was skipped because the
   ref was not a tag. That proves the build path; it does not prove
   `gh release create` itself, which needs a real `v*` tag and cannot be undone.

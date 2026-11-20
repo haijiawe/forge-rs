@@ -2,7 +2,7 @@
 //!
 //! The crate does not know what a model is. [`WorkerRunner`] is the only seam:
 //! one method, given a [`Call`], returns a [`WorkerResult`]. That is deliberate
-//! and it is the same split `forge-subagent` uses with its `Runner`, for the same
+//! and it is the same split `hearth-subagent` uses with its `Runner`, for the same
 //! reason — the concurrency, the board and the mailbox must be testable without
 //! a provider, a network or a token budget.
 //!
@@ -12,7 +12,7 @@
 //!   and counts how many workers were inside it at once, so a test can assert
 //!   the dispatcher's concurrency bound as a measured invariant instead of a
 //!   timing guess.
-//! * [`CommandRunner`] — shells out through `forge-exec`, so a team can dispatch
+//! * [`CommandRunner`] — shells out through `hearth-exec`, so a team can dispatch
 //!   real processes today: one program per worker, the prompt on stdin. It is
 //!   the honest fallback until whoever embeds this crate supplies the
 //!   model-backed runner.
@@ -23,7 +23,7 @@
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 
 /// One unit of work handed to the dispatcher.
 ///
@@ -109,7 +109,7 @@ pub struct Call<'a> {
     pub root: &'a std::path::Path,
     /// `<root>/workers/<name>.jsonl` — this worker's own transcript file.
     ///
-    /// It is not a session log: nothing in `forge-session` appends to it and no
+    /// It is not a session log: nothing in `hearth-session` appends to it and no
     /// session id refers to it. Only one worker thread writes it, which is why no
     /// lock is needed and why law 1 ("one writer per log") is not bent.
     pub transcript: &'a std::path::Path,
@@ -313,12 +313,12 @@ impl WorkerRunner for RecordingRunner {
     }
 }
 
-/// Runs a program per worker through `forge-exec`.
+/// Runs a program per worker through `hearth-exec`.
 ///
 /// The prompt goes in on **stdin**, not on the command line: a prompt is
 /// arbitrarily large and arbitrarily full of quotes, and the argv limit plus the
 /// shell-quoting question are two problems not worth having. Nothing is expanded
-/// by a shell either — `forge-exec` spawns the program directly.
+/// by a shell either — `hearth-exec` spawns the program directly.
 pub struct CommandRunner {
     program: String,
     args: Vec<String>,
@@ -375,7 +375,7 @@ impl CommandRunner {
         self
     }
 
-    /// Replace the environment policy instead of using `forge-exec`'s minimal
+    /// Replace the environment policy instead of using `hearth-exec`'s minimal
     /// whitelist.
     pub fn env(mut self, env: Vec<String>) -> Self {
         self.env = Some(env);
@@ -391,7 +391,7 @@ impl WorkerRunner for CommandRunner {
                 "team: CommandRunner needs a non-empty program",
             ));
         }
-        let mut command = forge_exec::Command::new(self.program.clone())
+        let mut command = hearth_exec::Command::new(self.program.clone())
             .args(self.args.clone())
             .stdin(call.prompt().as_bytes().to_vec())
             .max_output_bytes(self.max_output_bytes);
@@ -404,7 +404,7 @@ impl WorkerRunner for CommandRunner {
         if let Some(env) = &self.env {
             command = command.env(env.clone());
         }
-        let result = forge_exec::Pipe.run(command)?;
+        let result = hearth_exec::Pipe.run(command)?;
 
         // A non-zero exit is data, not an error: the team reports it and keeps
         // the other workers running.

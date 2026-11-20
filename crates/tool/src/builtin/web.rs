@@ -1,13 +1,13 @@
 //! `web_fetch` and `web_search`: the two ways a turn reaches the public web.
 //!
-//! Both sit on `forge_net::Client`, which owns TLS, redirects, the deadline and
+//! Both sit on `hearth_net::Client`, which owns TLS, redirects, the deadline and
 //! the byte budget. Nothing here parses HTML beyond turning it into text, and
 //! nothing here decides that a non-2xx response is a failure: the status is data
 //! the model reads, the same way a shell exit code is.
 
 use std::sync::Arc;
 
-use forge_llm::ToolSpec;
+use hearth_llm::ToolSpec;
 use serde_json::{json, Value};
 
 use crate::contract::{decode_args, Call, Result, CODE_IO_ERROR, CODE_TIMEOUT, ERR_BAD_ARGS};
@@ -67,11 +67,11 @@ struct FetchArgs {
 /// Fetch one URL and return it as text.
 pub struct WebFetchTool {
     limits: Limits,
-    client: Arc<forge_net::Client>,
+    client: Arc<hearth_net::Client>,
 }
 
 impl WebFetchTool {
-    pub fn new(limits: Limits, client: Arc<forge_net::Client>) -> Self {
+    pub fn new(limits: Limits, client: Arc<hearth_net::Client>) -> Self {
         Self { limits, client }
     }
 }
@@ -126,7 +126,7 @@ huge page is truncated with the reason stated rather than silently cut."
         let rendered = if args.raw || !looks_like_html(content_type, &body) {
             body
         } else {
-            forge_net::to_text(&body)
+            hearth_net::to_text(&body)
         };
 
         let mut output = format!("{} {}\n\n{}", response.status, response.url, rendered);
@@ -163,12 +163,12 @@ struct Hit {
 /// The `web_search` tool.
 pub struct WebSearchTool {
     limits: Limits,
-    client: Arc<forge_net::Client>,
+    client: Arc<hearth_net::Client>,
     config: SearchConfig,
 }
 
 impl WebSearchTool {
-    pub fn new(limits: Limits, client: Arc<forge_net::Client>, config: SearchConfig) -> Self {
+    pub fn new(limits: Limits, client: Arc<hearth_net::Client>, config: SearchConfig) -> Self {
         Self {
             limits,
             client,
@@ -299,7 +299,7 @@ first part of the body so you can see what it actually said."
 
         if !response.is_success() {
             return Result::error(
-                forge_net::status_slug(response.status),
+                hearth_net::status_slug(response.status),
                 response.error_summary(),
             )
             .with_meta("status", json!(response.status));

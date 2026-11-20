@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use forge_config::Config;
-use forge_core::{Error, ErrorKind};
+use hearth_config::Config;
+use hearth_core::{Error, ErrorKind};
 use serde::Serialize;
 
 /// A check verdict, lowercase on the wire as the Go report had it.
@@ -66,7 +66,7 @@ impl Check {
     }
 }
 
-/// The stable JSON object printed by `forge doctor --json`.
+/// The stable JSON object printed by `hearth doctor --json`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Report {
@@ -90,7 +90,7 @@ impl Report {
     fn print(&self, out: &mut dyn Write) -> std::io::Result<()> {
         writeln!(
             out,
-            "forge {}  {}/{}  {}",
+            "hearth {}  {}/{}  {}",
             self.version, self.os, self.arch, self.rust_version
         )?;
         writeln!(out, "config     {}", self.config_path)?;
@@ -191,10 +191,10 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         return prune_profiles(json, stdout, stderr);
     }
 
-    let config_path = match forge_config::default_path() {
+    let config_path = match hearth_config::default_path() {
         Ok(path) => path.to_string_lossy().into_owned(),
         Err(err) => {
-            let _ = writeln!(stderr, "forge doctor: {err}");
+            let _ = writeln!(stderr, "hearth doctor: {err}");
             return 1;
         }
     };
@@ -250,12 +250,12 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
                 let _ = writeln!(stdout, "{text}");
             }
             Err(err) => {
-                let _ = writeln!(stderr, "forge doctor: {err}");
+                let _ = writeln!(stderr, "hearth doctor: {err}");
                 return 1;
             }
         }
     } else if let Err(err) = report.print(stdout) {
-        let _ = writeln!(stderr, "forge doctor: {err}");
+        let _ = writeln!(stderr, "hearth doctor: {err}");
         return 1;
     }
 
@@ -274,10 +274,10 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
 fn prune_profiles(json: bool, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     #[cfg(target_os = "windows")]
     {
-        let report = match forge_sandbox::prune_appcontainer_profiles() {
+        let report = match hearth_sandbox::prune_appcontainer_profiles() {
             Ok(report) => report,
             Err(error) => {
-                let _ = writeln!(stderr, "forge doctor: {}", error.message());
+                let _ = writeln!(stderr, "hearth doctor: {}", error.message());
                 return 1;
             }
         };
@@ -297,7 +297,7 @@ fn prune_profiles(json: bool, stdout: &mut dyn Write, stderr: &mut dyn Write) ->
                     let _ = writeln!(stdout, "{text}");
                 }
                 Err(error) => {
-                    let _ = writeln!(stderr, "forge doctor: {error}");
+                    let _ = writeln!(stderr, "hearth doctor: {error}");
                     return 1;
                 }
             }
@@ -317,7 +317,7 @@ fn prune_profiles(json: bool, stdout: &mut dyn Write, stderr: &mut dyn Write) ->
                 // found would otherwise read as "the tool gave up after one try".
                 let _ = writeln!(
                     stderr,
-                    "forge doctor: the profile service is refusing deletes right now; \
+                    "hearth doctor: the profile service is refusing deletes right now; \
                      the rest were not attempted — retrying in a few minutes is the fix"
                 );
             }
@@ -366,7 +366,7 @@ fn check_config(options: &DoctorOptions<'_>) -> Check {
     match config.validate() {
         Ok(()) => Check::new("config", Status::Ok, "valid"),
         Err(err) => {
-            Check::new("config", Status::Fail, err.to_string()).with_hint("run: forge config init")
+            Check::new("config", Status::Fail, err.to_string()).with_hint("run: hearth config init")
         }
     }
 }
@@ -436,7 +436,7 @@ fn check_sandbox(options: &DoctorOptions<'_>) -> Check {
             "no config: nothing says which sandbox mode to check",
         );
     };
-    let Some(mode) = forge_sandbox::mode_from_str(&config.sandbox) else {
+    let Some(mode) = hearth_sandbox::mode_from_str(&config.sandbox) else {
         return Check::new(
             "sandbox",
             Status::Skip,
@@ -446,7 +446,7 @@ fn check_sandbox(options: &DoctorOptions<'_>) -> Check {
             ),
         );
     };
-    let mut spec = forge_sandbox::Spec::new(mode);
+    let mut spec = hearth_sandbox::Spec::new(mode);
     spec.workspace = options.workspace.clone();
     // Ask about the spec a turn would actually build: a report on a layout the
     // product never uses would describe a sandbox nobody runs.
@@ -454,7 +454,7 @@ fn check_sandbox(options: &DoctorOptions<'_>) -> Check {
     spec.extra_read = grants.read;
     spec.extra_write = grants.write;
     spec.allow_net = grants.allow_net;
-    match forge_sandbox::new(spec, None) {
+    match hearth_sandbox::new(spec, None) {
         Ok(enforcer) => {
             let support = enforcer.support();
             let detail = if support.detail.is_empty() {
@@ -462,7 +462,7 @@ fn check_sandbox(options: &DoctorOptions<'_>) -> Check {
             } else {
                 format!("{}: {}", enforcer.name(), support.detail)
             };
-            if mode.as_str() == forge_config::SANDBOX_FULL_ACCESS {
+            if mode.as_str() == hearth_config::SANDBOX_FULL_ACCESS {
                 Check::new("sandbox", Status::Skip, detail)
             } else if !support.filesystem {
                 Check::new("sandbox", Status::Warn, detail).with_hint(
@@ -478,7 +478,7 @@ fn check_sandbox(options: &DoctorOptions<'_>) -> Check {
             // `err.message()` would repeat the `sandbox: mode ...` wrapper the
             // Go report did not show in the detail column.
             let detail = std::error::Error::source(&err)
-                .and_then(|source| source.downcast_ref::<forge_sandbox::UnavailableError>())
+                .and_then(|source| source.downcast_ref::<hearth_sandbox::UnavailableError>())
                 .map(|unavailable| unavailable.support.detail.clone())
                 .unwrap_or_else(|| err.message().to_string());
             Check::new("sandbox", Status::Fail, detail).with_hint(format!(
@@ -554,19 +554,19 @@ fn check_model(options: &DoctorOptions<'_>) -> Check {
     if config.model.is_empty() {
         return Check::new("model", Status::Skip, "no model configured");
     }
-    let base = std::env::var("FORGE_BASE_URL")
+    let base = std::env::var("HEARTH_BASE_URL")
         .ok()
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
     let url = format!("{}/models", base.trim_end_matches('/'));
-    match http_head(&url, std::env::var("FORGE_API_KEY").ok().as_deref()) {
+    match http_head(&url, std::env::var("HEARTH_API_KEY").ok().as_deref()) {
         Err(HeadError::Build(err)) => Check::new(
             "model",
             Status::Warn,
             format!("model {:?}: cannot build a request for {url}: {err}", config.model),
         )
         .with_hint(
-            "check FORGE_BASE_URL: it must be an http(s) base URL such as https://api.openai.com/v1",
+            "check HEARTH_BASE_URL: it must be an http(s) base URL such as https://api.openai.com/v1",
         ),
         Err(HeadError::Transport(err)) => Check::new(
             "model",
@@ -574,7 +574,7 @@ fn check_model(options: &DoctorOptions<'_>) -> Check {
             format!("model {:?}: {url} is not reachable: {err}", config.model),
         )
         .with_hint(
-            "offline is supported; start the endpoint (or fix FORGE_BASE_URL) before the first turn",
+            "offline is supported; start the endpoint (or fix HEARTH_BASE_URL) before the first turn",
         ),
         Ok(status) if (200..300).contains(&status) => Check::new(
             "model",
@@ -590,7 +590,7 @@ fn check_model(options: &DoctorOptions<'_>) -> Check {
             ),
         )
         .with_hint(
-            "set FORGE_API_KEY to a key the endpoint accepts; the request either had no key \
+            "set HEARTH_API_KEY to a key the endpoint accepts; the request either had no key \
              or a rejected one",
         ),
         Ok(status) => Check::new(
@@ -599,7 +599,7 @@ fn check_model(options: &DoctorOptions<'_>) -> Check {
             format!("model {:?}: {url} answered HTTP {status}", config.model),
         )
         .with_hint(format!(
-            "the endpoint is reachable but {url} did not succeed; check FORGE_BASE_URL points \
+            "the endpoint is reachable but {url} did not succeed; check HEARTH_BASE_URL points \
              at an OpenAI-compatible API"
         )),
     }

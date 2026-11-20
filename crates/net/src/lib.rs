@@ -2,8 +2,8 @@
 //!
 //! Layer L1. This crate knows URLs, sockets, TLS and response framing; it does
 //! **not** know what a provider is, what a session is, or what a tool is. The
-//! provider keeps its own SSE shaping and error vocabulary (`forge-llm`), the
-//! tools keep their argument decoding (`forge-tool`), and both share the
+//! provider keeps its own SSE shaping and error vocabulary (`hearth-llm`), the
+//! tools keep their argument decoding (`hearth-tool`), and both share the
 //! transport below.
 //!
 //! Deliberate omissions: no async (the whole harness is thread-based, and one

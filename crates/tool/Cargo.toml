@@ -1,5 +1,5 @@
 [package]
-name = "forge-tool"
+name = "hearth-tool"
 description = "registry, executor, policy, approvals, builtin tools"
 version.workspace = true
 edition.workspace = true
@@ -7,10 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-forge-core = { path = "../core" }
-forge-exec = { path = "../exec" }
-forge-llm = { path = "../llm" }
-forge-net = { path = "../net" }
+hearth-core = { path = "../core" }
+hearth-exec = { path = "../exec" }
+hearth-llm = { path = "../llm" }
+hearth-net = { path = "../net" }
 serde.workspace = true
 serde_json.workspace = true
 regex.workspace = true

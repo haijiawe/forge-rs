@@ -1,6 +1,6 @@
 [package]
-name = "forge-mcp"
-description = "MCP client: stdio and Streamable HTTP transports, with no forge-internal dependencies"
+name = "hearth-mcp"
+description = "MCP client: stdio and Streamable HTTP transports, with no hearth-internal dependencies"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

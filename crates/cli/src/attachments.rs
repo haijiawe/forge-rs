@@ -10,17 +10,17 @@
 //!
 //! 1. A body that cannot be read is skipped, not fatal. The turn still runs on
 //!    the text; refusing to send anything because one screenshot was collected by
-//!    `forge doctor --prune-profiles` would be worse than sending less.
+//!    `hearth doctor --prune-profiles` would be worse than sending less.
 //! 2. Only images become parts. A `diff` or `file` attachment is a reference the
 //!    model may fetch with a tool; inlining its bytes would be a second, silent
 //!    way to spend the context window.
 
 use std::path::{Path, PathBuf};
 
-use forge_llm::ContentPart;
-use forge_session::projection::{Message, MESSAGE_TOOL};
+use hearth_llm::ContentPart;
+use hearth_session::projection::{Message, MESSAGE_TOOL};
 
-/// A hook suitable for `forge_agent::Options::attachments`.
+/// A hook suitable for `hearth_agent::Options::attachments`.
 ///
 /// `data_dir` is where the server wrote the blobs, so the CLI must resolve it the
 /// same way the server did: `<dataDir>/blobs`, no per-session nesting.
@@ -30,7 +30,7 @@ pub fn parts_hook(
     data_dir: &Path,
     workspace: Option<PathBuf>,
 ) -> impl Fn(&Message) -> Vec<ContentPart> + Send + Sync {
-    let blobs = forge_session::Blobs::new(data_dir.join(BLOBS_DIR));
+    let blobs = hearth_session::Blobs::new(data_dir.join(BLOBS_DIR));
     move |message: &Message| {
         let mut parts = parts_from(&blobs, message);
         if let Some(root) = &workspace {
@@ -69,7 +69,7 @@ fn tool_image(workspace: &Path, message: &Message) -> Option<ContentPart> {
     // the workspace, and re-sniff: the file may have been replaced by text
     // since the tool read it, and a wrong media type fails the request rather
     // than degrading.
-    let absolute = forge_tool::resolve(workspace, relative).ok()?;
+    let absolute = hearth_tool::resolve(workspace, relative).ok()?;
     let data = std::fs::read(&absolute).ok()?;
     let sniffed = sniff_image(&data)?;
     Some(ContentPart::image(sniffed, data))
@@ -97,7 +97,7 @@ fn is_image(kind: &str, media_type: &str) -> bool {
     kind == "image" || media_type.starts_with("image/")
 }
 
-fn parts_from(blobs: &forge_session::Blobs, message: &Message) -> Vec<ContentPart> {
+fn parts_from(blobs: &hearth_session::Blobs, message: &Message) -> Vec<ContentPart> {
     message
         .attachments
         .iter()
@@ -123,11 +123,11 @@ fn parts_from(blobs: &forge_session::Blobs, message: &Message) -> Vec<ContentPar
 #[cfg(test)]
 mod tests {
     use super::*;
-    use forge_session::projection::{Attachment, Message};
+    use hearth_session::projection::{Attachment, Message};
 
     fn message_with(attachments: Vec<Attachment>) -> Message {
         Message {
-            kind: forge_session::projection::MESSAGE_USER.to_string(),
+            kind: hearth_session::projection::MESSAGE_USER.to_string(),
             text: "look at this".to_string(),
             attachments,
             ..Message::default()
@@ -147,9 +147,9 @@ mod tests {
 
     #[test]
     fn an_uploaded_image_becomes_an_image_part() {
-        let dir = std::env::temp_dir().join(format!("forge-attach-{}-hook", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-attach-{}-hook", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let blobs = forge_session::Blobs::new(dir.join(BLOBS_DIR));
+        let blobs = hearth_session::Blobs::new(dir.join(BLOBS_DIR));
         let id = blobs.put(&[0x89, 0x50, 0x4E, 0x47]).expect("write blob");
         let hook = parts_hook(&dir, None);
         let parts = hook(&message_with(vec![upload(&id, "image/png")]));
@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn a_message_without_attachments_contributes_nothing() {
-        let dir = std::env::temp_dir().join(format!("forge-attach-{}-plain", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-attach-{}-plain", std::process::id()));
         let hook = parts_hook(&dir, None);
         assert!(hook(&message_with(Vec::new())).is_empty());
     }
@@ -175,7 +175,7 @@ mod tests {
     fn a_missing_body_is_skipped_rather_than_fatal() {
         // The id is well formed but no blob was ever written under it: the turn
         // must still run on the text.
-        let dir = std::env::temp_dir().join(format!("forge-attach-{}-gone", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-attach-{}-gone", std::process::id()));
         let hook = parts_hook(&dir, None);
         let id = "0123456789abcdef0123456789abcdef";
         assert!(hook(&message_with(vec![upload(id, "image/png")])).is_empty());
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn a_reference_without_an_id_is_not_read() {
-        let dir = std::env::temp_dir().join(format!("forge-attach-{}-ref", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-attach-{}-ref", std::process::id()));
         let hook = parts_hook(&dir, None);
         // `kind: file` names a workspace path; the path must never be opened here.
         let reference = Attachment {
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn a_tool_that_returned_an_image_is_read_again_from_the_workspace() {
-        let root = std::env::temp_dir().join(format!("forge-attach-{}-tool", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hearth-attach-{}-tool", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let workspace = root.join("ws");
         std::fs::create_dir_all(&workspace).expect("workspace");
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn a_tool_image_path_outside_the_workspace_is_not_opened() {
-        let root = std::env::temp_dir().join(format!("forge-attach-{}-esc", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hearth-attach-{}-esc", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let workspace = root.join("ws");
         std::fs::create_dir_all(&workspace).expect("workspace");
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn a_tool_meta_naming_a_file_that_is_no_longer_an_image_is_skipped() {
-        let root = std::env::temp_dir().join(format!("forge-attach-{}-gone2", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hearth-attach-{}-gone2", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let workspace = root.join("ws");
         std::fs::create_dir_all(&workspace).expect("workspace");

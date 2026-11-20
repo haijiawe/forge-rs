@@ -3,15 +3,15 @@ dir: crates/goal
 layer: L2
 role: goal state folded out of the session log, and the continuation decision
 public: [Goal, Status, Action, StopReason, RoundIdentity, Reservation, CasOutcome, FenceOutcome, fold, fence, check_in, CheckIn, fold_and_decide, validate, goal_created, goal_continued, goal_ended, continuation_prompt, CONTINUATION_PROMPT, DEFAULT_MAX_ROUNDS, next, Next, Snapshot, reservation_to_open]
-may_import: [forge-core]
+may_import: [hearth-core]
 must_not:
   - own a timer, a thread or a turn loop
   - call a model
   - decide anything the log cannot justify
-gate: cargo test -p forge-goal --offline
+gate: cargo test -p hearth-goal --offline
 ---
 
-# forge-goal
+# hearth-goal
 
 ## 做什么
 
@@ -45,7 +45,7 @@ H3 起分成三块，各管一件事：
 
 ## 依赖与边界
 
-只依赖 `forge-core`（`Event`/`EventType`/`Error`）与 `serde_json`。不依赖 `forge-session`：折叠只需要 `&[Event]`，让本 crate 依赖日志存储会把"读一份事件"和"拥有一份存储"绑死，而测试、导入器和未来的迁移都只想要前者。
+只依赖 `hearth-core`（`Event`/`EventType`/`Error`）与 `serde_json`。不依赖 `hearth-session`：折叠只需要 `&[Event]`，让本 crate 依赖日志存储会把"读一份事件"和"拥有一份存储"绑死，而测试、导入器和未来的迁移都只想要前者。
 
 不读时钟、不起线程、不调模型。所有需要"现在"的东西都在调用方。
 

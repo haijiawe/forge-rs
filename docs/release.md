@@ -10,9 +10,9 @@ runs on a **native** GitHub-hosted runner and links a binary for that host:
 
 | Artifact | Runner (host triple) | Built and executed in CI? | UI embedded? |
 | --- | --- | --- | --- |
-| `forge-windows-amd64.exe` | `windows-latest` (`x86_64-pc-windows-msvc`) | yes | yes, verified by byte marker |
-| `forge-linux-amd64` | `ubuntu-latest` (`x86_64-unknown-linux-gnu`) | yes | yes, verified by byte marker |
-| `forge-darwin-arm64` | `macos-latest` (`aarch64-apple-darwin`) | yes | yes, verified by byte marker |
+| `hearth-windows-amd64.exe` | `windows-latest` (`x86_64-pc-windows-msvc`) | yes | yes, verified by byte marker |
+| `hearth-linux-amd64` | `ubuntu-latest` (`x86_64-unknown-linux-gnu`) | yes | yes, verified by byte marker |
+| `hearth-darwin-arm64` | `macos-latest` (`aarch64-apple-darwin`) | yes | yes, verified by byte marker |
 
 A `SHA256SUMS` file is generated from exactly these three bytes-on-disk
 artifacts, checked in CI, and attached to the same release. On a tag the release
@@ -58,14 +58,14 @@ builds, checks and uploads artifacts (it never publishes).
 
 ## 3. Version string
 
-`forge --version` prints, from `forge_cli::version_line()`:
+`hearth --version` prints, from `hearth_cli::version_line()`:
 
 ```
-forge <VERSION> (<COMMIT>) <os>/<arch> <rustc>
+hearth <VERSION> (<COMMIT>) <os>/<arch> <rustc>
 ```
 
 For a released binary the literal prefix is always
-`forge 0.0.0-dev (unknown) ` (the constants are not overridden at packaging
+`hearth 0.0.0-dev (unknown) ` (the constants are not overridden at packaging
 time). `<os>/<arch>` reflects the platform the binary was *built for*
 (`windows/amd64`, `linux/amd64`, `darwin/arm64`) and `<rustc>` is the compiler
 version captured by `crates/cli/build.rs`. The CI version check asserts this
@@ -98,7 +98,7 @@ cd web; npm ci; npm run build
 ### PowerShell (this workspace)
 
 ```powershell
-# From the workspace root (forge-rs):
+# From the workspace root (hearth):
 cd web
 npm ci
 npm run build
@@ -108,12 +108,12 @@ cd ..
 # a pinned path broke the first Linux runner — so set it yourself for a raw
 # cargo build. A non-ASCII checkout path breaks MSVC's C compile (error D8050)
 # for the bundled SQLite and ring.
-$env:CARGO_TARGET_DIR = "D:\forge-rs-target\forge-rs"
+$env:CARGO_TARGET_DIR = "D:\hearth-target\hearth"
 
 cargo build --release --offline
 
 # Result:
-#   target\release\forge.exe
+#   target\release\hearth.exe
 ```
 
 `make web` now exists and runs `cd web; npm ci; npm run build` under a POSIX shell. On this Windows host run the `cd web` commands above directly instead. The Makefile's `release` target only runs cross-target `cargo check`s (it does not link or package anything), so it is **not** a substitute for the commands in this section.
@@ -122,21 +122,21 @@ cargo build --release --offline
 
 ```sh
 cd web && npm ci && npm run build && cd ..
-CARGO_TARGET_DIR=/tmp/forge-rs-target cargo build --release --offline
-# ./target/release/forge
+CARGO_TARGET_DIR=/tmp/hearth-target cargo build --release --offline
+# ./target/release/hearth
 ```
 
 To reproduce the marker check manually on a built binary:
 
 ```sh
-grep -aq 'assets/index-' target/release/forge   # exit 0 == real UI embedded
+grep -aq 'assets/index-' target/release/hearth   # exit 0 == real UI embedded
 ```
 
 ## 5. Verifying a download (SHA256SUMS)
 
 Download the binary **and** `SHA256SUMS` from the same release, then run the
 check for your platform. `SHA256SUMS` is generated on the Linux runner with
-`LC_ALL=C sha256sum forge-*` over exactly the uploaded artifact names.
+`LC_ALL=C sha256sum hearth-*` over exactly the uploaded artifact names.
 
 **Linux**
 
@@ -179,32 +179,32 @@ your platform, verify it (§5), place it on your `PATH`, and (on Unix) make it
 executable:
 
 ```sh
-chmod +x forge-linux-amd64     # or forge-darwin-arm64
-mv forge-linux-amd64 forge
-./forge --version
+chmod +x hearth-linux-amd64     # or hearth-darwin-arm64
+mv hearth-linux-amd64 hearth
+./hearth --version
 ```
 
 Useful first commands:
 
 ```powershell
-forge doctor   # checks config, data dir, endpoint reachability and key
-forge web      # serves the embedded UI (default 127.0.0.1:8420)
-forge chat     # interactive session
+hearth doctor   # checks config, data dir, endpoint reachability and key
+hearth web      # serves the embedded UI (default 127.0.0.1:8420)
+hearth chat     # interactive session
 ```
 
-`forge --version` is a fast path: it does not read configuration, so it works
-before anything is set up. The data directory is `$FORGE_HOME` when set,
-otherwise `~/.forge` (`%USERPROFILE%\.forge` on Windows). User config lives at
-`$FORGE_HOME/config.json`. Provider settings can be supplied through the
-environment: `FORGE_BASE_URL` (default `https://api.openai.com/v1`) and
-`FORGE_API_KEY`; `forge doctor` reports their status.
+`hearth --version` is a fast path: it does not read configuration, so it works
+before anything is set up. The data directory is `$HEARTH_HOME` when set,
+otherwise `~/.hearth` (`%USERPROFILE%\.hearth` on Windows). User config lives at
+`$HEARTH_HOME/config.json`. Provider settings can be supplied through the
+environment: `HEARTH_BASE_URL` (default `https://api.openai.com/v1`) and
+`HEARTH_API_KEY`; `hearth doctor` reports their status.
 
 To upgrade, repeat the download + verification for a newer tag and replace the
 binary. Session logs live in the data directory, so keep it when upgrading.
 
 ## 7. macOS: unsigned binary
 
-The `forge-darwin-arm64` artifact is **not code signed or notarized**. macOS
+The `hearth-darwin-arm64` artifact is **not code signed or notarized**. macOS
 Gatekeeper may quarantine a binary downloaded from the browser, producing
 "cannot be opened because the developer cannot be verified". Either:
 
@@ -212,8 +212,8 @@ Gatekeeper may quarantine a binary downloaded from the browser, producing
 - remove the quarantine attribute from a terminal:
 
 ```sh
-xattr -d com.apple.quarantine ./forge-darwin-arm64
-chmod +x ./forge-darwin-arm64
+xattr -d com.apple.quarantine ./hearth-darwin-arm64
+chmod +x ./hearth-darwin-arm64
 ```
 
 Do this only after verifying the checksum (§5).
@@ -230,16 +230,16 @@ belong to those projects; the MIT grant here covers this project's own code.
 ## 9. What CI verifies vs. what was never verified locally
 
 **Rehearsed end to end on 2026-11-20** by a `workflow_dispatch` run
-([44588872748](https://github.com/haijiawe/forge-rs/actions/runs/44588872748)),
+([44588872748](https://github.com/haijiawe/hearth/actions/runs/44588872748)),
 which is the dry-run mode the workflow documents: it builds, verifies and
 uploads but skips `gh release create` because the ref is not a tag. Three
 native jobs succeeded:
 
 | artifact | bytes | sha256 (first 16) |
 | --- | --- | --- |
-| `forge-windows-amd64.exe` | 4,183,350 | `01984073a5253399` |
-| `forge-linux-amd64` | 4,584,901 | `b23c70ba319db59d` |
-| `forge-darwin-arm64` | 3,985,780 | `c4bd1fbfb582b66c` |
+| `hearth-windows-amd64.exe` | 4,183,350 | `01984073a5253399` |
+| `hearth-linux-amd64` | 4,584,901 | `b23c70ba319db59d` |
+| `hearth-darwin-arm64` | 3,985,780 | `c4bd1fbfb582b66c` |
 
 Each job printed its own `--version` (`… windows/amd64 rustc 1.100.0`,
 `… linux/amd64 rustc 1.100.0`, `… darwin/arm64 rustc 1.100.0`) and passed the

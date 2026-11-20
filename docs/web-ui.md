@@ -10,10 +10,10 @@ from a broken one.
 Everything runs against the shipped binary and the shipped bundle — no test
 harness, no mock:
 
-1. `forge` generated a session log in the product's own envelope: 2,500 turns,
+1. `hearth` generated a session log in the product's own envelope: 2,500 turns,
    5,000 messages, 10,001 events, 1,997,455 bytes, written by hand so it is byte
    shaped like a real log (canonical key order, dense `seq`).
-2. `bin/forge.exe web --no-browser --addr 127.0.0.1:8517` served it.
+2. `bin/hearth.exe web --no-browser --addr 127.0.0.1:8517` served it.
 3. Microsoft Edge (`--headless=new`, `--window-size=1400,900`,
    `ANGLE (NVIDIA GeForce RTX 4060 Direct3D11)`) opened the real UI over CDP.
 4. `requestAnimationFrame` ticks for 3 s while idle, then 3 s while scrolling the
@@ -40,15 +40,15 @@ All three defects were invisible to every test in the repo, and each one made th
 UI's live stream fail in a real browser:
 
 1. **No cookie was ever set.** `api.md` §2 says the browser presents the
-   `HttpOnly` `forge_token` cookie and "the operator sets it out of band" — but
-   `forge web` prints a URL with `?token=…` and nothing bridged the two, so the
+   `HttpOnly` `hearth_token` cookie and "the operator sets it out of band" — but
+   `hearth web` prints a URL with `?token=…` and nothing bridged the two, so the
    stream answered `401` on every retry. The shell now answers
-   `Set-Cookie: forge_token=…; HttpOnly; SameSite=Strict; Path=/` when the
+   `Set-Cookie: hearth_token=…; HttpOnly; SameSite=Strict; Path=/` when the
    `token` query parameter matches (a wrong token still serves the shell, without
    the cookie).
 2. **The handshake could not carry a version.** `api.md` §3 said WebSocket
-   clients send `X-Forge-Protocol` on the upgrade — a header a browser cannot set.
-   A client may now offer the `forge.v1` subprotocol instead, and the server
+   clients send `X-Hearth-Protocol` on the upgrade — a header a browser cannot set.
+   A client may now offer the `hearth.v1` subprotocol instead, and the server
    echoes it in the `101` (RFC 6455 §4.2.2). Neither signal is still `400`.
 3. **`Sec-WebSocket-Accept` was unpadded.** `base64_encode` in the server never
    pads because every other caller wants unpadded base64url (the token, the

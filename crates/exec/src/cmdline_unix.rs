@@ -8,6 +8,6 @@
 pub(crate) fn apply(
     _command: &mut std::process::Command,
     _line: Option<&str>,
-) -> forge_core::Result<()> {
+) -> hearth_core::Result<()> {
     Ok(())
 }

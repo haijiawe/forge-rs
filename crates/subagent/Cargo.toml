@@ -1,5 +1,5 @@
 [package]
-name = "forge-subagent"
+name = "hearth-subagent"
 description = "delegated child agents: fresh logs, chained parents, fail-closed tools"
 version.workspace = true
 edition.workspace = true
@@ -7,10 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-forge-core = { path = "../core" }
-forge-session = { path = "../session" }
-forge-llm = { path = "../llm" }
-forge-agent = { path = "../agent" }
-forge-tool = { path = "../tool" }
+hearth-core = { path = "../core" }
+hearth-session = { path = "../session" }
+hearth-llm = { path = "../llm" }
+hearth-agent = { path = "../agent" }
+hearth-tool = { path = "../tool" }
 serde.workspace = true
 serde_json.workspace = true

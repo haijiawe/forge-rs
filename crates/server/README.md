@@ -3,7 +3,7 @@ dir: crates/server
 layer: L3
 role: HTTP/1.1 and WebSocket over the session log
 public: [Server, Report, Entry]
-may_import: [forge-core, forge-session, forge-protocol, forge-subagent]
+may_import: [hearth-core, hearth-session, hearth-protocol, hearth-subagent]
 must_not:
   - import a crate from a higher layer
   - claim behaviour that does not exist yet
@@ -34,7 +34,7 @@ Everything a caller needs is re-exported from the crate root:
 impl Server {
     /// Validate options, prepare the data directory, load or create the bearer
     /// token, and prepare embedded assets. No listener is opened yet.
-    pub fn new(options: Options) -> forge_core::Result<Self>;
+    pub fn new(options: Options) -> hearth_core::Result<Self>;
 
     /// The bearer token the service accepts (also written to `<dataDir>/token`).
     pub fn token(&self) -> &str;
@@ -44,33 +44,33 @@ impl Server {
     pub fn addr(&self) -> Option<String>;
 
     /// Like `addr()`, but returns an error instead of `None` before bind.
-    pub fn bound_addr(&self) -> forge_core::Result<String>;
+    pub fn bound_addr(&self) -> hearth_core::Result<String>;
 
     /// Request graceful shutdown. Idempotent.
-    pub fn shutdown(&self) -> forge_core::Result<()>;
+    pub fn shutdown(&self) -> hearth_core::Result<()>;
 
     /// Bind and serve on the current thread; returns when shutdown completes.
     /// This is **blocking** and does **not** own a thread — the caller decides
     /// how to schedule it (e.g. `std::thread::spawn`). A non-loopback bind is
     /// refused with `server: refusing to bind "<addr>": protocol 1 is loopback only`.
-    pub fn listen_and_serve(&self) -> forge_core::Result<()>;
+    pub fn listen_and_serve(&self) -> hearth_core::Result<()>;
 
     /// Serve on an already-bound listener (useful for tests that bind first).
-    pub fn serve_listener(&self, listener: std::net::TcpListener) -> forge_core::Result<()>;
+    pub fn serve_listener(&self, listener: std::net::TcpListener) -> hearth_core::Result<()>;
 
     /// Create a session directly, without going through HTTP. The HTTP
     /// `POST /api/sessions` route calls the same validation.
     pub fn create_session(
         &self,
-        request: &forge_protocol::CreateSessionRequest,
-    ) -> forge_core::Result<forge_protocol::CreateSessionResponse>;
+        request: &hearth_protocol::CreateSessionRequest,
+    ) -> hearth_core::Result<hearth_protocol::CreateSessionResponse>;
 
     /// Append a fully-formed event to a session log and return its sequence.
     pub fn append_event(
         &self,
         session_id: &str,
-        event: &forge_core::Event,
-    ) -> forge_core::Result<u64>;
+        event: &hearth_core::Event,
+    ) -> hearth_core::Result<u64>;
     pub fn last_seq(&self, session_id: &str) -> u64;
     pub fn path(&self, session_id: &str) -> std::path::PathBuf;
 }
@@ -84,9 +84,9 @@ in-flight connections finish before their thread exits.
 
 ### Behaviour contract
 
-- **Auth & protocol**: every response carries `X-Forge-Protocol: 1`. `/healthz`
+- **Auth & protocol**: every response carries `X-Hearth-Protocol: 1`. `/healthz`
   is unauthenticated and touches no disk. `/api/*` requires `Authorization:
-  Bearer <token>` or a `forge_token` cookie, plus `X-Forge-Protocol: 1`; a
+  Bearer <token>` or a `hearth_token` cookie, plus `X-Hearth-Protocol: 1`; a
   missing header is `400 code=protocol_required`, a wrong version is
   `400 code=protocol_unsupported`. Only loopback peers are accepted.
 - **Routes**: `GET/POST /api/sessions`, `GET /api/sessions/{id}`,
@@ -109,8 +109,8 @@ in-flight connections finish before their thread exits.
 
 ## 依赖与边界
 
-Runtime dependencies are limited to `forge-core`, `forge-session`,
-`forge-protocol`, `serde`, and `serde_json` (see `Cargo.toml`). Do not put agent
+Runtime dependencies are limited to `hearth-core`, `hearth-session`,
+`hearth-protocol`, `serde`, and `serde_json` (see `Cargo.toml`). Do not put agent
 logic here: the server reads the log, appends intake records, and hands turns
 to a `TurnRunner`; it must not own a provider or a tool registry. Approval
 timeouts are a decision the log commits to, so the decision is appended under

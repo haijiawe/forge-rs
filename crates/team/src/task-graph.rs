@@ -28,7 +28,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use forge_core::{Error, ErrorKind};
+use hearth_core::{Error, ErrorKind};
 
 use crate::board::{Board, Task};
 use crate::run::Plan;
@@ -208,7 +208,7 @@ pub fn validate_board(board: &Board) -> Result<(), TeamTaskGraphError> {
 /// This opens the board the plan would run against, so it can be called before
 /// the plan is submitted. Board I/O errors propagate; a graph defect becomes an
 /// [`ErrorKind::Invalid`] error carrying the two task ids.
-pub fn validate_plan(plan: &Plan) -> forge_core::Result<()> {
+pub fn validate_plan(plan: &Plan) -> hearth_core::Result<()> {
     let board = Board::open(plan.root())?;
     validate_board(&board).map_err(Error::from)
 }

@@ -3,7 +3,7 @@ name: bench
 # Records a performance baseline for the runner's own platform.
 #
 # `scripts/bench/baseline.json` is a set of per-platform records and
-# `forge-bench -strict` compares only the record matching the host it runs on,
+# `hearth-bench -strict` compares only the record matching the host it runs on,
 # so a record measured here cannot loosen or tighten the gate on another
 # platform. The development box is Windows; this is how a Linux and a macOS
 # arm64 record ever get to exist.
@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           name="baseline-$(echo '${{ matrix.os }}' | cut -d- -f1).json"
-          cargo run --release -q -p forge-bench -- -out "$name" -baseline ""
+          cargo run --release -q -p hearth-bench -- -out "$name" -baseline ""
           echo "wrote $name"
           cat "$name"
 
@@ -54,4 +54,4 @@ jobs:
         # A run that cannot be compared is not a failure: the point of this job
         # is to produce the first record for a platform. This step only reports.
         continue-on-error: true
-        run: cargo run --release -q -p forge-bench -- -strict
+        run: cargo run --release -q -p hearth-bench -- -strict

@@ -1,12 +1,12 @@
 //! The subagent tree of one session, with the timing the logs already record.
 //!
-//! Layer L3. Everything here is a read: `forge_subagent::list::descendants`
-//! walks the parent catalog, `forge_subagent::timing::of_child` folds each
+//! Layer L3. Everything here is a read: `hearth_subagent::list::descendants`
+//! walks the parent catalog, `hearth_subagent::timing::of_child` folds each
 //! child's own log, and this module joins the two into one wire value. No
 //! process is started, no log is created, and nothing is appended -- the same
 //! discipline as `present_route` and `teams`.
 //!
-//! Why a route at all: `forge subagent tree` and `forge subagent timing` can
+//! Why a route at all: `hearth subagent tree` and `hearth subagent timing` can
 //! answer both halves separately, but a person watching a run wants them
 //! together -- "which children are still working, and how long did the ones
 //! that finished take". The browser cannot shell out, so without this route the
@@ -34,8 +34,8 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use forge_subagent::list::{self, Diagnostic, Node};
-use forge_subagent::timing;
+use hearth_subagent::list::{self, Diagnostic, Node};
+use hearth_subagent::timing;
 
 /// What went wrong reading the tree. The HTTP layer maps these to status codes;
 /// keeping them apart is what stops a disk error from being reported as "no
@@ -101,7 +101,7 @@ pub fn read(data_dir: &Path, session: &str) -> Result<Report, Problem> {
         return Err(Problem::NotFound);
     }
     let nodes = list::descendants(data_dir, session).map_err(|error| match error.kind() {
-        forge_core::ErrorKind::NotFound => Problem::NotFound,
+        hearth_core::ErrorKind::NotFound => Problem::NotFound,
         // The root log is there but unreadable. Blaming the caller for the disk
         // is the one thing this must not do.
         _ => Problem::Read(error.message().to_string()),
@@ -162,7 +162,8 @@ mod tests {
 
     #[test]
     fn a_missing_root_log_is_not_an_empty_tree() {
-        let dir = std::env::temp_dir().join(format!("forge-subagent-route-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("hearth-subagent-route-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(read(&dir, "nobody"), Err(Problem::NotFound));
     }

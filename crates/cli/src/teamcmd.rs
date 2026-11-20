@@ -1,4 +1,4 @@
-//! `forge team`: run a team definition from the roster, or list the teams.
+//! `hearth team`: run a team definition from the roster, or list the teams.
 //!
 //! A team in the roster is documentation — a coordinator, a list of members and
 //! each member's duty — and this command turns it into a dispatch: one worker
@@ -16,7 +16,7 @@ const EXIT_OK: i32 = 0;
 const EXIT_FAILURE: i32 = 1;
 const EXIT_USAGE: i32 = 2;
 
-pub const USAGE: &str = "usage: forge team <command> [flags]
+pub const USAGE: &str = "usage: hearth team <command> [flags]
 
 Run a team of workers or list the teams the roster holds. A worker is one
 subagent session; the members share a task board under <dataDir>/teams so their
@@ -29,7 +29,7 @@ commands:
 
 flags:
   --json               machine-readable output
-  --data-dir <dir>     data directory (default: the forge home's configured dataDir)
+  --data-dir <dir>     data directory (default: the hearth home's configured dataDir)
   --root <dir>         roster root; may be repeated (default: the configured
                        expert roots, then <dataDir>/experts)
   --max-parallel <n>   override the configured bound for this dispatch
@@ -83,7 +83,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         "list" => list(&sets, &roots, opt.json, stdout, stderr),
         "run" => run_team(&opt, &sets, &reordered, stdout, stderr),
         other => {
-            let _ = writeln!(stderr, "forge team: unknown command {other:?}\n\n{USAGE}");
+            let _ = writeln!(stderr, "hearth team: unknown command {other:?}\n\n{USAGE}");
             EXIT_USAGE
         }
     }
@@ -94,7 +94,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
-        // Positionals belong to the dispatch arm (`forge team run <slug>`); reading
+        // Positionals belong to the dispatch arm (`hearth team run <slug>`); reading
         // them as flags made every concrete invocation a usage error.
         if !arg.starts_with('-') {
             i += 1;
@@ -113,7 +113,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
                     match args.get(*index) {
                         Some(value) => Ok(value.clone()),
                         None => {
-                            let _ = writeln!(stderr, "forge team: --{name} needs a value");
+                            let _ = writeln!(stderr, "hearth team: --{name} needs a value");
                             Err(EXIT_USAGE)
                         }
                     }
@@ -132,7 +132,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
                     _ => {
                         let _ = writeln!(
                             stderr,
-                            "forge team: --max-parallel wants a positive number, got {raw:?}"
+                            "hearth team: --max-parallel wants a positive number, got {raw:?}"
                         );
                         return Err(EXIT_USAGE);
                     }
@@ -140,7 +140,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
             }
             "" => {}
             other => {
-                let _ = writeln!(stderr, "forge team: unknown flag --{other}");
+                let _ = writeln!(stderr, "hearth team: unknown flag --{other}");
                 return Err(EXIT_USAGE);
             }
         }
@@ -171,13 +171,13 @@ fn resolve_roots(opt: &Options) -> Vec<PathBuf> {
     vec![data_dir.join("experts")]
 }
 
-fn config_for(opt: &Options) -> forge_config::Config {
-    let mut cfg = forge_config::default_path()
+fn config_for(opt: &Options) -> hearth_config::Config {
+    let mut cfg = hearth_config::default_path()
         .ok()
-        .and_then(|path| forge_config::Config::load(&path).ok())
+        .and_then(|path| hearth_config::Config::load(&path).ok())
         .unwrap_or_default();
     // `--data-dir` overrides the config for this run, which is what makes
-    // `forge team run --data-dir X` land its board under X rather than under
+    // `hearth team run --data-dir X` land its board under X rather than under
     // whichever home the config names.
     if !opt.data_dir.trim().is_empty() {
         cfg.data_dir = opt.data_dir.trim().to_string();
@@ -197,13 +197,13 @@ fn data_dir(opt: &Options) -> PathBuf {
 fn scan_roots(
     roots: &[PathBuf],
     stderr: &mut dyn Write,
-) -> std::result::Result<Vec<forge_experts::Set>, i32> {
+) -> std::result::Result<Vec<hearth_experts::Set>, i32> {
     let mut sets = Vec::new();
     for root in roots {
-        match forge_experts::scan(root) {
+        match hearth_experts::scan(root) {
             Ok(set) => sets.push(set),
             Err(err) => {
-                let _ = writeln!(stderr, "forge team: {}: {err}", root.display());
+                let _ = writeln!(stderr, "hearth team: {}: {err}", root.display());
                 return Err(EXIT_FAILURE);
             }
         }
@@ -217,18 +217,18 @@ fn scan_roots(
 fn view(opt: &Options, args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     let positionals = positional(args, "view");
     let Some(dir) = positionals.first().copied() else {
-        let _ = writeln!(stderr, "forge team: view needs a board directory");
+        let _ = writeln!(stderr, "hearth team: view needs a board directory");
         return EXIT_USAGE;
     };
     let path = std::path::Path::new(dir);
     if !path.is_dir() {
-        let _ = writeln!(stderr, "forge team: no such board directory: {dir}");
+        let _ = writeln!(stderr, "hearth team: no such board directory: {dir}");
         return EXIT_FAILURE;
     }
-    let view = match forge_team::project(path) {
+    let view = match hearth_team::project(path) {
         Ok(view) => view,
         Err(err) => {
-            let _ = writeln!(stderr, "forge team: {}", err.message());
+            let _ = writeln!(stderr, "hearth team: {}", err.message());
             return EXIT_FAILURE;
         }
     };
@@ -270,13 +270,13 @@ fn view(opt: &Options, args: &[String], stdout: &mut dyn Write, stderr: &mut dyn
 }
 
 fn list(
-    sets: &[forge_experts::Set],
+    sets: &[hearth_experts::Set],
     roots: &[PathBuf],
     json: bool,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> i32 {
-    let teams: Vec<&forge_experts::Team> = sets.iter().flat_map(|set| set.teams()).collect();
+    let teams: Vec<&hearth_experts::Team> = sets.iter().flat_map(|set| set.teams()).collect();
     if json {
         let entries: Vec<serde_json::Value> = teams
             .iter()
@@ -339,7 +339,7 @@ fn list(
 
 fn run_team(
     opt: &Options,
-    sets: &[forge_experts::Set],
+    sets: &[hearth_experts::Set],
     args: &[String],
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -351,7 +351,7 @@ fn run_team(
     let Some(team) = sets.iter().find_map(|set| set.team(slug)) else {
         let _ = writeln!(
             stderr,
-            "forge team: no team named {slug:?}; known: {}",
+            "hearth team: no team named {slug:?}; known: {}",
             known(sets)
         );
         return EXIT_FAILURE;
@@ -365,13 +365,13 @@ fn run_team(
     for member in &team.members {
         let mut brief = match sets
             .iter()
-            .find_map(|set| forge_experts::prompt_for(set, &member.expert))
+            .find_map(|set| hearth_experts::prompt_for(set, &member.expert))
         {
             Some(brief) => brief,
             None => {
                 let _ = writeln!(
                     stderr,
-                    "forge team: member {:?} is not summonable (the roster names it, the scanner refused it)",
+                    "hearth team: member {:?} is not summonable (the roster names it, the scanner refused it)",
                     member.expert
                 );
                 return EXIT_FAILURE;
@@ -388,11 +388,11 @@ fn run_team(
     // One provider and one runner for the whole dispatch: the workers share the
     // model and the data directory, and a per-worker provider would multiply the
     // TLS handshakes for no gain.
-    let provider: Arc<dyn forge_llm::Provider> =
-        match forge_llm::Client::new(forge_llm::Options::default()) {
+    let provider: Arc<dyn hearth_llm::Provider> =
+        match hearth_llm::Client::new(hearth_llm::Options::default()) {
             Ok(client) => Arc::new(client),
             Err(err) => {
-                let _ = writeln!(stderr, "forge team: no LLM provider: {}", err.message());
+                let _ = writeln!(stderr, "hearth team: no LLM provider: {}", err.message());
                 return EXIT_FAILURE;
             }
         };
@@ -409,21 +409,21 @@ fn run_team(
         // do while we still know we are the team command.
         let _ = writeln!(
             stderr,
-            "forge team: no model configured: pass --model <name> or set \"model\" in config.json"
+            "hearth team: no model configured: pass --model <name> or set \"model\" in config.json"
         );
         return EXIT_FAILURE;
     }
-    let mut sub = forge_subagent::Options::new(
+    let mut sub = hearth_subagent::Options::new(
         Arc::clone(&provider),
         data_dir(opt),
         workspace.clone(),
         model,
     );
     sub.max_depth = cfg.subagent.max_depth.max(1) as usize;
-    let runner = match forge_subagent::Runner::new(sub) {
+    let runner = match hearth_subagent::Runner::new(sub) {
         Ok(runner) => Arc::new(runner),
         Err(err) => {
-            let _ = writeln!(stderr, "forge team: subagent: {}", err.message());
+            let _ = writeln!(stderr, "hearth team: subagent: {}", err.message());
             return EXIT_FAILURE;
         }
     };
@@ -434,12 +434,12 @@ fn run_team(
     // the first's completed tasks.
     let stamp = crate::epoch_stamp(now_secs());
     let board_root = crate::bridges::team_root(&data_dir(opt)).join(format!("{slug}-{stamp}"));
-    let board = match forge_team::Board::open(&board_root) {
+    let board = match hearth_team::Board::open(&board_root) {
         Ok(board) => board,
         Err(err) => {
             let _ = writeln!(
                 stderr,
-                "forge team: open board {}: {err}",
+                "hearth team: open board {}: {err}",
                 board_root.display()
             );
             return EXIT_FAILURE;
@@ -451,7 +451,7 @@ fn run_team(
     } else if cfg.team.max_parallel > 0 {
         cfg.team.max_parallel as usize
     } else {
-        forge_team::DEFAULT_MAX_PARALLEL
+        hearth_team::DEFAULT_MAX_PARALLEL
     };
 
     // A board task per member, named after the worker, so the report counts
@@ -459,23 +459,23 @@ fn run_team(
     // The id is the worker name because that is how the dispatcher binds a claim
     // to a worker: one name, one task, no lookup table.
     for (index, (name, _)) in prompts.iter().enumerate() {
-        let mut task = forge_team::NewTask::new(team.members[index].duty.clone());
+        let mut task = hearth_team::NewTask::new(team.members[index].duty.clone());
         task.description = format!("{} on team {}", team.members[index].expert, team.slug);
         let task = match board.add_task(task.id(name)) {
             Ok(task) => task,
             Err(err) => {
-                let _ = writeln!(stderr, "forge team: add task {name:?}: {err}");
+                let _ = writeln!(stderr, "hearth team: add task {name:?}: {err}");
                 return EXIT_FAILURE;
             }
         };
         let _ = task;
     }
-    let mut plan = forge_team::Plan::new(&board_root).max_parallel(parallel);
+    let mut plan = hearth_team::Plan::new(&board_root).max_parallel(parallel);
     for (name, prompt) in &prompts {
-        plan = plan.worker(forge_team::WorkerSpec::new(name, prompt).task(name));
+        plan = plan.worker(hearth_team::WorkerSpec::new(name, prompt).task(name));
     }
 
-    let report = forge_team::run::run(&plan, &board, &workers);
+    let report = hearth_team::run::run(&plan, &board, &workers);
     if opt.json {
         return crate::write_json(
             stdout,
@@ -539,13 +539,13 @@ fn worker_name(expert: &str, index: usize) -> String {
     if name.is_empty() {
         name = format!("worker-{index}");
     }
-    if !forge_team::valid_name(&name) {
+    if !hearth_team::valid_name(&name) {
         name = format!("worker-{index}");
     }
     name
 }
 
-fn known(sets: &[forge_experts::Set]) -> String {
+fn known(sets: &[hearth_experts::Set]) -> String {
     let mut names: Vec<String> = sets
         .iter()
         .flat_map(|set| set.teams().iter().map(|team| team.slug.clone()))
@@ -602,7 +602,7 @@ fn now_secs() -> i64 {
     }
 }
 
-/// The workspace the workers see: the directory `forge team run` was typed in.
+/// The workspace the workers see: the directory `hearth team run` was typed in.
 fn workspace_dir() -> String {
     match std::env::current_dir() {
         Ok(path) => path.to_string_lossy().to_string(),
@@ -611,7 +611,7 @@ fn workspace_dir() -> String {
 }
 
 fn usage(stderr: &mut dyn Write, message: &str) -> i32 {
-    let _ = writeln!(stderr, "forge team: {message}\n\n{USAGE}");
+    let _ = writeln!(stderr, "hearth team: {message}\n\n{USAGE}");
     EXIT_USAGE
 }
 
@@ -649,11 +649,11 @@ mod tests {
 
     #[test]
     fn listing_no_teams_is_success() {
-        let set = forge_experts::Set::empty();
+        let set = hearth_experts::Set::empty();
         let dir = std::env::temp_dir().join(format!(
-            "forge-team-cmd-{}-{}",
+            "hearth-team-cmd-{}-{}",
             std::process::id(),
-            forge_core::new_id().unwrap_or_default()
+            hearth_core::new_id().unwrap_or_default()
         ));
         let mut out = Vec::new();
         let mut err = Vec::new();
@@ -690,7 +690,7 @@ fn view_of_a_directory_that_does_not_exist_is_a_failure() {
 
 #[test]
 fn view_describes_an_empty_board() {
-    let dir = std::env::temp_dir().join(format!("forge-team-view-cli-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("hearth-team-view-cli-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create");
     let opt = Options::default();

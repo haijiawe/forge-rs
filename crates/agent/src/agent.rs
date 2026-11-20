@@ -2,7 +2,7 @@
 //!
 //! One public call [`Agent::run`] drives a single user turn. History is never
 //! cached: every run re-reads the append-only log and re-projects it through
-//! `forge_session` (invariant I1). Events for a turn are emitted in the frozen
+//! `hearth_session` (invariant I1). Events for a turn are emitted in the frozen
 //! events-v1 order; the envelope step is 1-based while payload indices stay
 //! 0-based.
 
@@ -10,9 +10,9 @@ use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use forge_core::{Error, ErrorKind, Event, EventType, Result};
-use forge_llm::{Aggregator, ContentPart, Message, Provider, Request, Stream, ToolCall, Usage};
-use forge_session::{Projection, Snapshot};
+use hearth_core::{Error, ErrorKind, Event, EventType, Result};
+use hearth_llm::{Aggregator, ContentPart, Message, Provider, Request, Stream, ToolCall, Usage};
+use hearth_session::{Projection, Snapshot};
 use serde_json::{json, Map, Value};
 
 use crate::cancel::Cancel;
@@ -40,7 +40,7 @@ pub type SteeringHook = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
 /// no bytes for it. Named rather than inlined: a closure type written twice is a
 /// type written twice, and the option around it reads as noise either way.
 pub type AttachmentHook =
-    Arc<dyn Fn(&forge_session::projection::Message) -> Vec<ContentPart> + Send + Sync>;
+    Arc<dyn Fn(&hearth_session::projection::Message) -> Vec<ContentPart> + Send + Sync>;
 /// Answers whether a projected message's seq sits behind a compressed block.
 ///
 /// The ledger that knows lives with the surface owning the log, so the loop is
@@ -201,7 +201,7 @@ impl Agent {
                 "agent: MaxSteps must be positive",
             ));
         }
-        let system_fingerprint = forge_core::fingerprint(opt.system.as_bytes());
+        let system_fingerprint = hearth_core::fingerprint(opt.system.as_bytes());
         Ok(Self {
             opt,
             cur_turn: AtomicU32::new(0),
@@ -220,7 +220,7 @@ impl Agent {
     // ---- the resident surface ---------------------------------------------
     //
     // DSH's `ReactLoopAgent` is a long-lived object with a phase, an inbox and a
-    // `kick()` that runs turns until there is nothing left. forge's loop has
+    // `kick()` that runs turns until there is nothing left. hearth's loop has
     // always been `run(text)` = exactly one turn, and that stays: the CLI, the
     // HTTP server and every golden file depend on it. What this section adds is
     // the *resident* shape on top, so a caller that wants a queue gets one that
@@ -456,7 +456,7 @@ impl Agent {
         Ok(())
     }
 
-    /// I1: re-read every event and re-project through forge_session. There is
+    /// I1: re-read every event and re-project through hearth_session. There is
     /// no second copy of conversation truth anywhere in this crate.
     fn snapshot(&self) -> Result<Snapshot> {
         let events = self.opt.log.read_all()?;
@@ -1024,7 +1024,7 @@ impl Agent {
     /// Consult a `request-error` hook for a retry the transport policy refused.
     /// Inert (`false`) when no hook is installed or the retry budget is spent, so
     /// the loop's behaviour with no hook is exactly the policy above.
-    fn hooks_request_retry(&self, attempt: usize, err: &Error) -> forge_core::Result<bool> {
+    fn hooks_request_retry(&self, attempt: usize, err: &Error) -> hearth_core::Result<bool> {
         if self.opt.hooks.is_empty() || attempt >= self.opt.max_retries {
             return Ok(false);
         }

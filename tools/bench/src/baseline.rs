@@ -239,7 +239,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("forge-bench-base-{tag}-{nanos}"));
+        let dir = std::env::temp_dir().join(format!("hearth-bench-base-{tag}-{nanos}"));
         fs::create_dir_all(&dir).unwrap();
         dir
     }

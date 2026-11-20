@@ -1,38 +1,38 @@
 [package]
-name = "forge-cli"
-description = "the forge binary: argument parsing, help, doctor"
+name = "hearth-cli"
+description = "the hearth binary: argument parsing, help, doctor"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "forge"
+name = "hearth"
 path = "src/main.rs"
 
 [dependencies]
-forge-core = { path = "../core" }
-forge-config = { path = "../config" }
-forge-sandbox = { path = "../sandbox" }
-forge-llm = { path = "../llm" }
-forge-session = { path = "../session" }
-forge-agent = { path = "../agent" }
-forge-tool = { path = "../tool" }
-forge-net = { path = "../net" }
-forge-server = { path = "../server" }
-forge-protocol = { path = "../protocol" }
-forge-store = { path = "../store" }
-forge-import = { path = "../import" }
-forge-mcp = { path = "../mcp" }
-forge-skill = { path = "../skill" }
-forge-subagent = { path = "../subagent" }
-forge-goal = { path = "../goal" }
-forge-schedule = { path = "../schedule" }
-forge-plugin = { path = "../plugin" }
-forge-experts = { path = "../experts" }
-forge-team = { path = "../team" }
-forge-market = { path = "../market" }
-forge-context = { path = "../context" }
+hearth-core = { path = "../core" }
+hearth-config = { path = "../config" }
+hearth-sandbox = { path = "../sandbox" }
+hearth-llm = { path = "../llm" }
+hearth-session = { path = "../session" }
+hearth-agent = { path = "../agent" }
+hearth-tool = { path = "../tool" }
+hearth-net = { path = "../net" }
+hearth-server = { path = "../server" }
+hearth-protocol = { path = "../protocol" }
+hearth-store = { path = "../store" }
+hearth-import = { path = "../import" }
+hearth-mcp = { path = "../mcp" }
+hearth-skill = { path = "../skill" }
+hearth-subagent = { path = "../subagent" }
+hearth-goal = { path = "../goal" }
+hearth-schedule = { path = "../schedule" }
+hearth-plugin = { path = "../plugin" }
+hearth-experts = { path = "../experts" }
+hearth-team = { path = "../team" }
+hearth-market = { path = "../market" }
+hearth-context = { path = "../context" }
 getrandom.workspace = true
 ctrlc = "3.4"
 serde.workspace = true

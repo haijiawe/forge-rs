@@ -7,7 +7,7 @@
 use std::fmt;
 use std::time::Duration;
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

@@ -6,21 +6,21 @@ starting a new plugin.
 ## Try it
 
 ```text
-forge plugin call hello greet --args '{"name":"world"}'
+hearth plugin call hello greet --args '{"name":"world"}'
 # hello, world
 ```
 
 To make it visible to `plugin list`, put the directory under `<dataDir>/plugins/`:
 
 ```text
-forge plugin new ignored-name          # only to show where the root is
-forge plugin doctor                    # prints root: <dataDir>/plugins
+hearth plugin new ignored-name          # only to show where the root is
+hearth plugin doctor                    # prints root: <dataDir>/plugins
 ```
 
-Or install it from a market, which is what `forge market pack` produces:
+Or install it from a market, which is what `hearth market pack` produces:
 
 ```text
-forge market pack examples/plugins/hello --out dist --base-url https://example.invalid/p
+hearth market pack examples/plugins/hello --out dist --base-url https://example.invalid/p
 # packed hello 1.0.0 (2 file(s)) + dist/index.json
 ```
 

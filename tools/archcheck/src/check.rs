@@ -49,7 +49,7 @@ pub fn run(root: &Path, architecture: &Architecture, crates: &[Crate]) -> Vec<Fi
                 // Only internal-looking names are the gate's business. An
                 // external crate called e.g. `serde_json` is not in the map
                 // and must not be reported as an unknown layer.
-                if dependency.name.starts_with("forge-") {
+                if dependency.name.starts_with("hearth-") {
                     findings.push(Finding::error(
                         format!("{}/Cargo.toml", krate.dir),
                         dependency.line,

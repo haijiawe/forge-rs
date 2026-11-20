@@ -24,7 +24,7 @@
 //!
 //! `<root>/journal/<lead>.jsonl`, one JSON [`Entry`] per line, append-only, one
 //! file per Lead. A journal is a team file, not a session log: no session event
-//! is written here, and `forge-session` never opens it.
+//! is written here, and `hearth-session` never opens it.
 //!
 //! # Ordering guarantee
 //!
@@ -41,7 +41,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::{lock, now_millis, valid_name};

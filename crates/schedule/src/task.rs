@@ -45,7 +45,7 @@ impl Task {
             // constructor cannot return one without making every caller handle
             // it. An empty id is unambiguous and `Registry::add` refuses it, so
             // the failure is still loud at the only place that matters.
-            id: forge_core::new_id().unwrap_or_default(),
+            id: hearth_core::new_id().unwrap_or_default(),
             rule: rule.trim().to_string(),
             prompt: prompt.trim().to_string(),
             target: None,

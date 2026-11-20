@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use forge_core::{Error, Result};
+use hearth_core::{Error, Result};
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, ServerName};
 
@@ -47,7 +47,7 @@ impl Roots {
         let mut roots = Self::public();
         let bytes = std::fs::read(ca_file).map_err(|e| {
             Error::new(
-                forge_core::ErrorKind::Io,
+                hearth_core::ErrorKind::Io,
                 format!("net: cannot read CA file {}: {e}", ca_file.display()),
             )
         })?;
@@ -60,7 +60,7 @@ impl Roots {
         let (valid, rejected) = roots.0.add_parsable_certificates(certs);
         if valid == 0 {
             return Err(Error::new(
-                forge_core::ErrorKind::Invalid,
+                hearth_core::ErrorKind::Invalid,
                 format!(
                     "net: no usable certificates in CA file {} ({rejected} rejected)",
                     ca_file.display()
@@ -93,7 +93,7 @@ pub fn parse_pem_certificates(bytes: &[u8]) -> Result<Vec<CertificateDer<'static
             Ok(cert) => certs.push(cert),
             Err(e) => {
                 return Err(Error::new(
-                    forge_core::ErrorKind::Invalid,
+                    hearth_core::ErrorKind::Invalid,
                     format!("invalid CA PEM: {e}"),
                 ))
             }
@@ -101,7 +101,7 @@ pub fn parse_pem_certificates(bytes: &[u8]) -> Result<Vec<CertificateDer<'static
     }
     if certs.is_empty() {
         return Err(Error::new(
-            forge_core::ErrorKind::Invalid,
+            hearth_core::ErrorKind::Invalid,
             "no certificates found in CA PEM".to_string(),
         ));
     }
@@ -173,7 +173,7 @@ pub fn connect(
 }
 
 fn transport(message: &str) -> Error {
-    Error::new(forge_core::ErrorKind::Io, format!("net: {message}"))
+    Error::new(hearth_core::ErrorKind::Io, format!("net: {message}"))
 }
 
 /// The TLS half of a connection.

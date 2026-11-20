@@ -1,12 +1,12 @@
 // The client's two security-critical behaviours, and its wire headers:
 //   * ?token= is read once, kept in sessionStorage (never localStorage) and
 //     removed from the URL, so it cannot leak into history or a screenshot.
-//   * every request carries X-Forge-Protocol, and the Bearer header only when
+//   * every request carries X-Hearth-Protocol, and the Bearer header only when
 //     a token exists (the server also accepts an HttpOnly cookie).
 import { describe, expect, it, vi } from 'vitest';
 import {
   ApiError,
-  ForgeClient,
+  HearthClient,
   TOKEN_STORAGE_KEY,
   captureToken,
   streamUrl,
@@ -90,10 +90,10 @@ describe('captureToken', () => {
   });
 });
 
-describe('ForgeClient', () => {
+describe('HearthClient', () => {
   it('sends the protocol header and the bearer token', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse({ sessions: [], nextCursor: undefined }));
-    const client = new ForgeClient({ token: 'tok', fetchImpl });
+    const client = new HearthClient({ token: 'tok', fetchImpl });
     await client.listSessions();
     const init = fetchImpl.mock.calls[0]?.[1] ?? {};
     const headers = init.headers as Record<string, string>;
@@ -103,7 +103,7 @@ describe('ForgeClient', () => {
 
   it('omits the bearer header when there is no token (cookie auth)', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse({ sessions: [] }));
-    const client = new ForgeClient({ token: '', fetchImpl });
+    const client = new HearthClient({ token: '', fetchImpl });
     await client.listSessions();
     const init = fetchImpl.mock.calls[0]?.[1] ?? {};
     expect((init.headers as Record<string, string>)['Authorization']).toBeUndefined();
@@ -113,7 +113,7 @@ describe('ForgeClient', () => {
     const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse({ error: { code: 'unauthorized', message: 'bad token' } }, { status: 401 }),
     );
-    const client = new ForgeClient({ token: 'x', fetchImpl });
+    const client = new HearthClient({ token: 'x', fetchImpl });
     await expect(client.getSession('s1')).rejects.toMatchObject({
       name: 'ApiError',
       code: 'unauthorized',
@@ -125,7 +125,7 @@ describe('ForgeClient', () => {
 
   it('sends an Idempotency-Key with a posted message', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse({ seq: 4, accepted: true, deduplicated: false }));
-    const client = new ForgeClient({ token: 'tok', fetchImpl });
+    const client = new HearthClient({ token: 'tok', fetchImpl });
     await client.postMessage('s1', 'hello');
     const init = fetchImpl.mock.calls[0]?.[1] ?? {};
     const headers = init.headers as Record<string, string>;
@@ -136,7 +136,7 @@ describe('ForgeClient', () => {
 
   it('posts a decision with and without a note', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse({ approvalId: 'a1', decision: 'allow', seq: 9 }));
-    const client = new ForgeClient({ token: 'tok', fetchImpl });
+    const client = new HearthClient({ token: 'tok', fetchImpl });
     await client.decide('s1', 'a1', 'allow');
     await client.decide('s1', 'a1', 'deny', '   ');
     const bodies = fetchImpl.mock.calls.map((call) => call[1]?.body);
@@ -147,6 +147,6 @@ describe('ForgeClient', () => {
     expect(streamUrl('http://127.0.0.1:8848', 'sess 1', 42)).toBe(
       'ws://127.0.0.1:8848/api/sessions/sess%201/stream?after=42',
     );
-    expect(streamUrl('https://forge.local', 'a', 0)).toBe('wss://forge.local/api/sessions/a/stream?after=0');
+    expect(streamUrl('https://hearth.local', 'a', 0)).toBe('wss://hearth.local/api/sessions/a/stream?after=0');
   });
 });

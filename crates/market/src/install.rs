@@ -28,7 +28,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use forge_core::Result;
+use hearth_core::Result;
 
 use crate::error::{
     conflict_with, invalid_with, not_found_with, refuse_with, ERR_EMPTY_BUNDLE, ERR_EXTRA_FILES,
@@ -451,7 +451,7 @@ mod tests {
 
     fn scratch(label: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "forge-market-install-{}-{label}",
+            "hearth-market-install-{}-{label}",
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&path);
@@ -745,7 +745,7 @@ mod tests {
             err.to_string().starts_with(crate::error::ERR_NOT_INSTALLED),
             "{err}"
         );
-        assert_eq!(err.kind(), forge_core::ErrorKind::NotFound);
+        assert_eq!(err.kind(), hearth_core::ErrorKind::NotFound);
         let _ = fs::remove_dir_all(&root);
     }
 

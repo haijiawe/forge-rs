@@ -11,7 +11,7 @@ use std::fmt;
 use std::io::{self, Read};
 use std::time::Duration;
 
-use forge_core::{Error, ErrorKind};
+use hearth_core::{Error, ErrorKind};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -45,7 +45,7 @@ pub const ERR_CLOSED: &str = "llm openai: stream closed";
 pub const ERR_MISSING_DONE: &str = "stream ended without data: [DONE]: the response was cut";
 
 /// A locally-owned carrier that lets [`ProviderError`] travel as the `source`
-/// of a `forge_core::Error` without modifying the frozen contract.
+/// of a `hearth_core::Error` without modifying the frozen contract.
 #[derive(Debug)]
 pub struct ProviderFailure(pub ProviderError);
 
@@ -57,7 +57,7 @@ impl fmt::Display for ProviderFailure {
 
 impl std::error::Error for ProviderFailure {}
 
-/// Rebuild a `forge_core::Error` whose message and source both carry `pe`.
+/// Rebuild a `hearth_core::Error` whose message and source both carry `pe`.
 pub(crate) fn provider_error_with(kind: ErrorKind, pe: ProviderError) -> Error {
     let message = pe.to_string();
     Error::new(kind, message).with_source(ProviderFailure(pe))

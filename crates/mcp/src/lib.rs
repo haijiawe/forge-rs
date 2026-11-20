@@ -1,7 +1,7 @@
 //! A dependency-free MCP client: JSON-RPC 2.0 over stdio or Streamable HTTP.
 //!
 //! This crate is an external-protocol client. It deliberately imports no other
-//! `forge-*` crate: MCP is a wire protocol, not an internal session concept.
+//! `hearth-*` crate: MCP is a wire protocol, not an internal session concept.
 //! `Dial` only connects; `Client::initialize` performs the handshake.
 
 use std::error::Error as StdError;
@@ -43,11 +43,11 @@ pub const ErrProtocolVersion: &str = ERR_PROTOCOL_VERSION;
 
 const DEFAULT_TIMEOUT_MS: u64 = 60_000;
 const MAX_TOOL_PAGES: usize = 100;
-const CLIENT_NAME: &str = "forge";
+const CLIENT_NAME: &str = "hearth";
 const CLIENT_VERSION: &str = "0.0.0-dev";
 
 /// Sink for child stderr and protocol diagnostics. Defined here so this crate
-/// has no dependency on any forge-internal logger type.
+/// has no dependency on any hearth-internal logger type.
 pub trait Logger: Send + Sync {
     fn debug(&self, message: &str);
     fn warn(&self, message: &str);

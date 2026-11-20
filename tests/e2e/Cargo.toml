@@ -1,6 +1,6 @@
 [package]
-name = "forge-e2e"
-description = "language-neutral end-to-end acceptance suite against the Rust forge binary"
+name = "hearth-e2e"
+description = "language-neutral end-to-end acceptance suite against the Rust hearth binary"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

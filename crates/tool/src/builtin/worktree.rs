@@ -1,11 +1,11 @@
 //! `worktree`: give one turn its own isolated copy of the workspace.
 //!
 //! The copy is a git worktree, so nothing is copied: `git worktree add` checks
-//! the same repository out again at `<workspace>/.forge/worktrees/<name>` on a
+//! the same repository out again at `<workspace>/.hearth/worktrees/<name>` on a
 //! new branch. That is what makes "edit and build without dirtying the main
 //! workspace" cheap enough to do per turn.
 //!
-//! Every process goes through `forge-exec`, exactly like `shell`: the harness
+//! Every process goes through `hearth-exec`, exactly like `shell`: the harness
 //! never builds a shell command line, so a worktree name is an argv element and
 //! never a fragment of a command string.
 //!
@@ -19,8 +19,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
-use forge_exec::{Command, Pipe, Result as ExecResult, Runner, Sandbox, ERR_SANDBOX, ERR_TIMEOUT};
-use forge_llm::ToolSpec;
+use hearth_exec::{Command, Pipe, Result as ExecResult, Runner, Sandbox, ERR_SANDBOX, ERR_TIMEOUT};
+use hearth_llm::ToolSpec;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -45,8 +45,8 @@ pub const WORKTREE_CODE_SANDBOX: &str = "sandbox_refused";
 /// The executable is looked up on `PATH`; the minimal child environment keeps
 /// `PATH`, so this is the same git a terminal would run.
 const GIT_PROGRAM: &str = "git";
-/// Fixed location: `<workspace>/.forge/worktrees/<name>`.
-const WORKTREE_DIR: [&str; 2] = [".forge", "worktrees"];
+/// Fixed location: `<workspace>/.hearth/worktrees/<name>`.
+const WORKTREE_DIR: [&str; 2] = [".hearth", "worktrees"];
 /// The name becomes one path component and one branch name. ASCII-only, and
 /// short enough for every filesystem this runs on to keep the full path usable.
 const MAX_NAME_LEN: usize = 64;
@@ -260,7 +260,7 @@ impl WorktreeTool {
 
         // The relative path keeps git's printed path and this tool's idea of the
         // location identical: cwd is the workspace.
-        let relative = format!(".forge/worktrees/{name}");
+        let relative = format!(".hearth/worktrees/{name}");
         let branch_arg = name.to_string();
         let argv = ["worktree", "add", relative.as_str(), "-b", &branch_arg];
         let executed = match self.run_git(workspace, &argv) {
@@ -434,9 +434,9 @@ impl Tool for WorktreeTool {
         };
         let description = format!(
             "Create, list and remove isolated copies of the workspace, one git worktree per turn.\n\n\
-When to use: a turn needs to edit, build or experiment without dirtying the main workspace, or two turns must not see each other's uncommitted changes. The copy is a git worktree, so no files are copied: it is a second checkout of the same repository on its own branch, at <workspace>/.forge/worktrees/<name>. Commits made there are ordinary commits of that repository. Use it for \"change this code but leave my working tree alone\"; do not use it as a backup or to copy files.\n\n\
+When to use: a turn needs to edit, build or experiment without dirtying the main workspace, or two turns must not see each other's uncommitted changes. The copy is a git worktree, so no files are copied: it is a second checkout of the same repository on its own branch, at <workspace>/.hearth/worktrees/<name>. Commits made there are ordinary commits of that repository. Use it for \"change this code but leave my working tree alone\"; do not use it as a backup or to copy files.\n\n\
 When not to use: the workspace is not a git repository (the call fails and says so), or the job is one file that fs_read/fs_edit can handle in place. A worktree carries committed content only: untracked files are not there, nothing is stashed, and results are not merged back. The branch is yours to merge from the main workspace with the shell tool.\n\n\
-Actions: create (needs name) runs `git worktree add .forge/worktrees/<name> -b <name>` in the workspace and returns the absolute path and the branch. list runs `git worktree list --porcelain` and prints only the worktrees under that directory, one line each: name<TAB>path<TAB>branch; a repository with none prints that fact instead of an empty answer. remove (needs name) runs `git worktree remove --force <path>`, which discards uncommitted changes in that worktree, so commit or copy anything you want to keep first.\n\n\
+Actions: create (needs name) runs `git worktree add .hearth/worktrees/<name> -b <name>` in the workspace and returns the absolute path and the branch. list runs `git worktree list --porcelain` and prints only the worktrees under that directory, one line each: name<TAB>path<TAB>branch; a repository with none prints that fact instead of an empty answer. remove (needs name) runs `git worktree remove --force <path>`, which discards uncommitted changes in that worktree, so commit or copy anything you want to keep first.\n\n\
 Name: required for create and remove, at most 64 characters from A-Z a-z 0-9 . _ - ; it becomes both a directory name and a branch name, so \".\" and \"..\" and anything with a path separator are rejected before git runs.\n\n\
 Failures: unlike the shell tool, there is no \"the command ran and returned non-zero\" case here: an action either happened or it did not, so every failure is is_error. A missing git, a workspace that is not a repository, an unknown action, a taken name and any non-zero git exit all include git's own message; read it before retrying.\n\n\
 {containment}\n\n\
@@ -451,7 +451,7 @@ Example arguments:\n{{\"action\":\"create\",\"name\":\"turn-1\"}}\n{{\"action\":
                     "action": {
                         "type": "string",
                         "enum": ["create", "list", "remove"],
-                        "description": "What to do: create a worktree, list the ones under <workspace>/.forge/worktrees/, or remove one."
+                        "description": "What to do: create a worktree, list the ones under <workspace>/.hearth/worktrees/, or remove one."
                     },
                     "name": {
                         "type": "string",
@@ -648,7 +648,7 @@ fn fold_case(text: &str) -> String {
     }
 }
 
-/// Every spelling of `<workspace>/.forge/worktrees` that git might print: the
+/// Every spelling of `<workspace>/.hearth/worktrees` that git might print: the
 /// path as given, and its canonical form (git reports resolved paths, so a
 /// symlinked workspace or a short name would otherwise never match).
 fn worktree_roots(workspace: &Path) -> Vec<String> {
@@ -775,7 +775,7 @@ mod tests {
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
         let dir = std::env::temp_dir().join(format!(
-            "forge-worktree-{tag}-{}-{nanos}-{tail}",
+            "hearth-worktree-{tag}-{}-{nanos}-{tail}",
             std::process::id()
         ));
         std::fs::create_dir_all(&dir).expect("create scratch directory");
@@ -907,7 +907,7 @@ mod tests {
         assert_eq!(spec.schema["additionalProperties"], json!(false));
 
         let description = &spec.description;
-        assert!(description.contains(".forge/worktrees/"), "{description}");
+        assert!(description.contains(".hearth/worktrees/"), "{description}");
         assert!(description.contains("git worktree add"), "{description}");
         assert!(
             description.contains("git worktree list --porcelain"),
@@ -929,7 +929,7 @@ mod tests {
         }
         let workspace = scratch("roundtrip");
         init_repo(&workspace);
-        let worktree = workspace.join(".forge").join("worktrees").join("wt-one");
+        let worktree = workspace.join(".hearth").join("worktrees").join("wt-one");
 
         let created = tool().call(call(&workspace, json!({"action":"create","name":"wt-one"})));
         assert!(!created.is_error, "create failed: {}", created.output);
@@ -1047,7 +1047,7 @@ mod tests {
         assert!(
             same_dir(
                 columns[1],
-                &workspace.join(".forge").join("worktrees").join("cn-one")
+                &workspace.join(".hearth").join("worktrees").join("cn-one")
             ),
             "listed path {:?} lost its spaces or non-ASCII bytes",
             columns[1]
@@ -1056,7 +1056,7 @@ mod tests {
         let removed = tool().call(call(&workspace, json!({"action":"remove","name":"cn-one"})));
         assert!(!removed.is_error, "remove failed: {}", removed.output);
         assert!(!workspace
-            .join(".forge")
+            .join(".hearth")
             .join("worktrees")
             .join("cn-one")
             .exists());
@@ -1113,7 +1113,7 @@ mod tests {
         let created = tool().call(call(&workspace, json!({"action":"create","name":"nope"})));
         assert!(created.is_error, "create must fail outside a repo");
         assert!(
-            !workspace.join(".forge").exists(),
+            !workspace.join(".hearth").exists(),
             "nothing should be left behind"
         );
 

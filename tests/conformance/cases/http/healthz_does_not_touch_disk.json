@@ -7,7 +7,7 @@
     "path": "/healthz",
     "headers": {
       "Authorization": "",
-      "X-Forge-Protocol": ""
+      "X-Hearth-Protocol": ""
     }
   },
   "expect": {

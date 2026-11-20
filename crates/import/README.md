@@ -14,17 +14,17 @@ public:
 may_import:
   - crates/core
 must_not:
-  - import any other forge crate at runtime
+  - import any other hearth crate at runtime
   - read old-format files outside this crate
   - overwrite an existing session log
-gate: cargo test -p forge-import --offline
+gate: cargo test -p hearth-import --offline
 ---
 
 # crates/import
 
 ## 做什么
 
-把旧项目（TypeScript 版 forge）的会话日志 `session[.vN].jsonl` 一次性转换成
+把旧项目（TypeScript 版 hearth）的会话日志 `session[.vN].jsonl` 一次性转换成
 新仓库的 v1 事件日志，写到 `<data_dir>/sessions/<new_id>.jsonl`。
 
 三步分开，副作用只有最后一步：
@@ -43,13 +43,13 @@ Rust 里两者可以同名，但为了与 Go 参考实现和调用方保持一�
 
 `Source`、`Detect`、`Plan`、`MakePlan`、`Write`，以及哨兵 `ERR_EXISTS` /
 `ERR_COMPRESSED` / `ERR_NO_DIR`（配合 `err.kind()` 与 `is_*` 判定函数使用）。
-所有函数返回 `forge_core::Result<T>`，错误类型是 `forge_core::Error`。
+所有函数返回 `hearth_core::Result<T>`，错误类型是 `hearth_core::Error`。
 
 ## 依赖与边界
 
 L2，运行时只依赖 `crates/core`（事件信封、id、规范化 JSON 与错误词汇）。
 `ring` 提供事件 id 的 SHA-256 指纹，`serde_json` 解析旧记录 —— 两者都在工作区
-依赖预算里。`forge-session` 只作为 dev-dependency 出现，供“重新解析并折叠导入日志”
+依赖预算里。`hearth-session` 只作为 dev-dependency 出现，供“重新解析并折叠导入日志”
 的验收测试使用，不进入运行时依赖图。
 
 旧格式的事实来源是旧仓库的代码和真实快照，回归样本已复制进 `tests/fixtures`；

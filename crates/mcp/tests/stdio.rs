@@ -6,7 +6,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use forge_mcp::{
+use hearth_mcp::{
     dial, CallResult, Client, Error, Logger, NoopLogger, Server, ServerInfo, Transport,
     PROTOCOL_VERSION,
 };
@@ -325,21 +325,21 @@ fn minimal_environment_is_used_by_default() {
     wait_for(&rx, "tool:env");
     let env = text(&result);
     assert!(env.contains("PATH="), "env was {env}");
-    assert!(!env.contains("FORGE_SECRET"), "env was {env}");
+    assert!(!env.contains("HEARTH_SECRET"), "env was {env}");
     let _ = client.close();
 }
 
 #[test]
 fn explicit_environment_is_exact() {
     let mut config = server("plain", None, 0);
-    config.env = vec!["FORGE_SECRET=only".into(), "EMPTY=".into()];
+    config.env = vec!["HEARTH_SECRET=only".into(), "EMPTY=".into()];
     let (logger, rx) = CapturingLogger::new();
     let mut client = dial(&config, logger).expect("dial");
     client.initialize().expect("initialize");
     let result = client.call("env", json!({})).expect("env");
     wait_for(&rx, "tool:env");
     let env = text(&result);
-    assert!(env.contains("FORGE_SECRET=only"), "env was {env}");
+    assert!(env.contains("HEARTH_SECRET=only"), "env was {env}");
     assert!(!env.contains("PATH="), "env was {env}");
     let _ = client.close();
 }
@@ -347,7 +347,7 @@ fn explicit_environment_is_exact() {
 #[test]
 fn graceful_close_writes_marker() {
     let marker =
-        std::env::temp_dir().join(format!("forge-mcp-graceful-{}.marker", std::process::id()));
+        std::env::temp_dir().join(format!("hearth-mcp-graceful-{}.marker", std::process::id()));
     let _ = fs::remove_file(&marker);
     let (logger, _rx) = CapturingLogger::new();
     let mut client = dial(&server("plain", Some(&marker), 0), logger).expect("dial");

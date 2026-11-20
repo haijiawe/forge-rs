@@ -90,7 +90,7 @@ fn main() {
             }
         }
         _ => {
-            eprintln!("forge-exec-helper: unknown mode {mode:?}");
+            eprintln!("hearth-exec-helper: unknown mode {mode:?}");
             std::process::exit(2);
         }
     }

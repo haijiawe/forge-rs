@@ -4,9 +4,9 @@
 //! edits them. A scripted `TurnRunner` replaces the model so no network or
 //! credentials are needed.
 
-use forge_core::{Event, EventType};
-use forge_server::api::{CancelToken, Options, TurnContext, TurnRunner};
-use forge_server::Server;
+use hearth_core::{Event, EventType};
+use hearth_server::api::{CancelToken, Options, TurnContext, TurnRunner};
+use hearth_server::Server;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -327,7 +327,7 @@ impl TurnRunner for FakeRunner {
         context: &TurnContext,
         session_id: &str,
         _text: &str,
-    ) -> forge_core::Result<()> {
+    ) -> hearth_core::Result<()> {
         let control = self
             .controls
             .lock()
@@ -387,7 +387,7 @@ impl TurnRunner for FakeRunner {
         Ok(())
     }
 
-    fn cancel(&self) -> forge_core::Result<()> {
+    fn cancel(&self) -> hearth_core::Result<()> {
         Ok(())
     }
 }
@@ -414,7 +414,7 @@ struct World {
     vars: HashMap<String, Value>,
     controls: Arc<Mutex<HashMap<String, RunnerControl>>>,
     releases: Arc<Mutex<Vec<Arc<AtomicBool>>>>,
-    serve_thread: Option<JoinHandle<forge_core::Result<()>>>,
+    serve_thread: Option<JoinHandle<hearth_core::Result<()>>>,
     _temp: TempGuard,
 }
 
@@ -423,7 +423,7 @@ impl World {
         static SEQUENCE: AtomicUsize = AtomicUsize::new(0);
         let index = SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let base = std::env::temp_dir().join(format!(
-            "forge-http-conf-{}-{index}-{label}",
+            "hearth-http-conf-{}-{index}-{label}",
             std::process::id()
         ));
         let data_dir = base.join("data");
@@ -487,7 +487,7 @@ impl World {
         body: Option<&[u8]>,
     ) -> (HttpResponse, Duration) {
         let mut headers = vec![
-            ("X-Forge-Protocol".to_string(), "1".to_string()),
+            ("X-Hearth-Protocol".to_string(), "1".to_string()),
             ("Origin".to_string(), format!("http://{}", self.addr)),
             (
                 "Authorization".to_string(),
@@ -705,7 +705,7 @@ impl World {
             String::from_utf8_lossy(&response.body)
         );
         assert_eq!(
-            response.header("X-Forge-Protocol"),
+            response.header("X-Hearth-Protocol"),
             Some("1"),
             "every response carries the negotiated protocol header"
         );

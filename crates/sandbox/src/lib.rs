@@ -15,8 +15,8 @@
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
-use forge_core::Result as CoreResult;
-pub use forge_core::{Error, ErrorKind};
+use hearth_core::Result as CoreResult;
+pub use hearth_core::{Error, ErrorKind};
 
 mod noop;
 mod resolve;
@@ -56,7 +56,7 @@ pub enum Mode {
 
 impl Mode {
     /// The config spelling. This exact string is what appears in config files
-    /// and in `forge doctor` output, so it is part of the contract.
+    /// and in `hearth doctor` output, so it is part of the contract.
     pub fn as_str(self) -> &'static str {
         match self {
             Mode::ReadOnly => "read-only",
@@ -104,7 +104,7 @@ pub struct Spec {
     pub extra_read: Vec<String>,
     /// The executable that hosts the re-exec wrapper, when that is not this
     /// process. The wrapper must call [`maybe_exec_helper`] as its first
-    /// statement; `forge` does, and so does the sandbox's own test child. A
+    /// statement; `hearth` does, and so does the sandbox's own test child. A
     /// host library that embeds this crate points it at itself.
     pub wrapper: Option<String>,
 }
@@ -136,7 +136,7 @@ pub struct Support {
     /// Whether a restriction is actually installed right now. `false` from
     /// [`available`] is a statement about that call, not about the machine.
     pub enforced: bool,
-    /// Human-readable explanation, used by `forge doctor` and error messages.
+    /// Human-readable explanation, used by `hearth doctor` and error messages.
     pub detail: String,
 }
 
@@ -161,7 +161,7 @@ impl Logger for NoopLogger {
 /// Implementations must be idempotent and safe to call from several threads:
 /// the tool layer can run concurrent commands under one enforcer.
 pub trait Enforcer: Send + Sync {
-    /// Stable name used in errors and `forge doctor`.
+    /// Stable name used in errors and `hearth doctor`.
     fn name(&self) -> &str;
 
     /// What this enforcer actually installed.
@@ -309,7 +309,7 @@ fn new_with(
 }
 
 /// Report what this host can enforce without installing anything. Used by
-/// `forge doctor`; `enforced` is always `false` here because nothing was
+/// `hearth doctor`; `enforced` is always `false` here because nothing was
 /// installed by this call.
 pub fn available() -> Support {
     current_platform().support()
@@ -371,7 +371,7 @@ pub fn maybe_exec_helper() {
 
 /// Whether this host can actually install an AppContainer. Consulted by the
 /// Windows enforcer so `support()` describes the machine, not a constant, and by
-/// `forge doctor`.
+/// `hearth doctor`.
 #[cfg(target_os = "windows")]
 pub fn appcontainer_available() -> bool {
     appcontainer::available()
@@ -382,7 +382,7 @@ pub fn appcontainer_available() -> bool {
 ///
 /// See [`appcontainer::prune`] for why this is maintenance rather than tidiness.
 #[cfg(target_os = "windows")]
-pub fn prune_appcontainer_profiles() -> forge_core::Result<appcontainer::PruneReport> {
+pub fn prune_appcontainer_profiles() -> hearth_core::Result<appcontainer::PruneReport> {
     appcontainer::prune()
 }
 
@@ -512,7 +512,7 @@ mod tests {
 
     fn temp_workspace() -> String {
         let path = std::env::temp_dir().join(format!(
-            "forge-sandbox-unit-{}-{:?}",
+            "hearth-sandbox-unit-{}-{:?}",
             std::process::id(),
             std::thread::current().id()
         ));

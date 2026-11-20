@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 use rustls_pki_types::{pem::PemObject, CertificateDer, ServerName};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -30,8 +30,8 @@ pub use crate::sse::{
 };
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
-const ENV_BASE_URL: &str = "FORGE_BASE_URL";
-const ENV_API_KEY: &str = "FORGE_API_KEY";
+const ENV_BASE_URL: &str = "HEARTH_BASE_URL";
+const ENV_API_KEY: &str = "HEARTH_API_KEY";
 const READ_TIMEOUT: Duration = Duration::from_millis(200);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 

@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
-use forge_llm::ToolSpec;
+use hearth_llm::ToolSpec;
 
 use crate::Tool;
 

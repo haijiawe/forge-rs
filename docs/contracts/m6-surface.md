@@ -33,11 +33,11 @@ M6 的一句话目标：**让"沙箱模式"从一条策略规则变成操作系�
 | 危险命令 | 一律 `ask`，人不在就 `deny` | 一份**恒拒绝**名单，不产生审批弹窗（问了也不该允许） |
 | 网络 | 无任何限制 | 能限制的平台限制；不能的限制就报告不能 |
 | 沙箱不可用 | 静默地按策略正常运行 | **fail-closed**：要求强制的模式下拒绝执行并说明原因 |
-| `forge doctor` | 检查 config/data/workspace/git/proxy/pty | 加沙箱可用性、磁盘、模型端点连通性、MCP 连通性 |
+| `hearth doctor` | 检查 config/data/workspace/git/proxy/pty | 加沙箱可用性、磁盘、模型端点连通性、MCP 连通性 |
 
 ---
 
-## 1. U1 · `internal/sandbox`（新包，L1，零 `forge/internal` 依赖）
+## 1. U1 · `internal/sandbox`（新包，L1，零 `hearth/internal` 依赖）
 
 放 L1 的理由和 `internal/exec`、`internal/mcp` 一样：它只认识操作系统，不认识会话、工具、模型。
 
@@ -104,14 +104,14 @@ func Available() Support
 
 | 平台 | 文件 | 手段 | 状态 |
 | --- | --- | --- | --- |
-| Windows | `windows.go` | 两层环：Job Object（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`、`JOB_OBJECT_LIMIT_PROCESS_MEMORY`、`JOB_OBJECT_LIMIT_ACTIVE_PROCESS`、`JOB_OBJECT_LIMIT_JOB_MEMORY`；`AssignProcessToJobObject` 在 `cmd.Start` 之后由 `exec` 回调）+ AppContainer（`CreateAppContainerProfile` 得到 package SID，给它一条继承式 ACE 授予 workspace 写权限，用 `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` 在容器里起进程；`allow_net` 才追加 `internetClient` 能力）；因为 `CreateProcessW` 的 attribute list 无法由 `std::process::Command` 表达，`Apply` 把命令改写成 `forge <program> <args…>`，wrapper 在 `main` 第一句回答 `maybe_exec_helper()` | **本机实测**（写工作区成功、写同级目录被 OS 拒绝、无能力时 loopback 连接被拒） |
+| Windows | `windows.go` | 两层环：Job Object（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`、`JOB_OBJECT_LIMIT_PROCESS_MEMORY`、`JOB_OBJECT_LIMIT_ACTIVE_PROCESS`、`JOB_OBJECT_LIMIT_JOB_MEMORY`；`AssignProcessToJobObject` 在 `cmd.Start` 之后由 `exec` 回调）+ AppContainer（`CreateAppContainerProfile` 得到 package SID，给它一条继承式 ACE 授予 workspace 写权限，用 `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` 在容器里起进程；`allow_net` 才追加 `internetClient` 能力）；因为 `CreateProcessW` 的 attribute list 无法由 `std::process::Command` 表达，`Apply` 把命令改写成 `hearth <program> <args…>`，wrapper 在 `main` 第一句回答 `maybe_exec_helper()` | **本机实测**（写工作区成功、写同级目录被 OS 拒绝、无能力时 loopback 连接被拒） |
 | Linux | `linux.go` | `landlock_create_ruleset` + `landlock_add_rule` + `landlock_restrict_self`（原始 syscall，`x/sys/unix` 若已提供则用包），ABI ≥ 1 限制文件系统，ABI ≥ 4 限制网络 | **运行时验证**（Ubuntu CI runner 每次 push 跑 `crates/sandbox/tests/linux.rs` 五个用例：workspace 内写成功、外被拒、read-only 拒写、`extra_write` 按名授权、无 `allow_net` 时 connect 被内核拒绝且 `allow_net` 时连通） |
 | macOS | `darwin.go` | 生成 `sandbox-exec` profile：`(deny default)` + 放行工作区读写 + `(deny network*)` | **运行时验证**（`sandbox macos-latest` job 每次 push 跑 `crates/sandbox/tests/macos.rs` 五个用例：模式矩阵、workspace 内写成功/外被拒、read-only 拒写、`extra_write` 按名授权、`allow_net` 两向） |
 | 其它/不支持 | `unsupported.go` | `New` 在要求限制时返回错误 | — |
 
-**Windows 的成本（如实写在 `Support.Detail` 与 README 里）**：AppContainer 的 package profile 按 workspace 路径命名，一个路径一个 profile，创建后长期留在 `%LOCALAPPDATA%\Packages`；容器里的进程读不到 `%USERPROFILE%` 与启动目录，所以依赖 home 目录的工具（git、npm、pip）可能失败。`CreateAppContainerProfile` 会因 profile 服务繁忙返回 `ERROR_ACCESS_DENIED`/`ERROR_PATH_NOT_FOUND`，实现里对这两个瞬时代码做 8 次退避重试（约 8 秒）——一次瞬时失败曾经让沙箱在能用的机器上拒绝执行命令。本机实测到一个更坏的形态：攒到约九十个 `forge.sandbox.*` profile 之后，profile 服务会成段时间**拒绝创建任何新名字**（新建 workspace 全线失败，而已有 profile 照常可用，几分钟后自行恢复）。因此实现分三级：**已存在就按目录 lookup 直接 derive（从不重建）→ 新建名失败则退避重试 → 仍失败则退到全用户共享的 `forge.sandbox` 身份**。积累的身份可以用 `forge doctor --prune-profiles` 删除（本机实测 106 个删到 0，第二次运行报 `0 found`）；它的默认清单式读授权见 §8。删除撞的是**同一个**限流：本机实测同一个命令半小时后变成 `57 found, 0 removed, 57 failed`（全 `0x80070005`），而同一时刻新建身份也全线失败——即服务整体拒绝，不是某个身份顽固。因此 prune 只对**第一个**名字付出完整重试预算（约 4 秒）作探针：全预算后仍被瞬时错误拒绝且一个都没删成，就停止并明说"服务正在拒绝，其余未尝试，过几分钟重试才是解法"（实测 3.9 秒结束，而不是逐个数完 57 个、白等 182 秒）。共享身份仍然把命令关在授予它的目录里，但不再保证两个 workspace 彼此隔离；这层降级必须被说出来，不能静默改用。
+**Windows 的成本（如实写在 `Support.Detail` 与 README 里）**：AppContainer 的 package profile 按 workspace 路径命名，一个路径一个 profile，创建后长期留在 `%LOCALAPPDATA%\Packages`；容器里的进程读不到 `%USERPROFILE%` 与启动目录，所以依赖 home 目录的工具（git、npm、pip）可能失败。`CreateAppContainerProfile` 会因 profile 服务繁忙返回 `ERROR_ACCESS_DENIED`/`ERROR_PATH_NOT_FOUND`，实现里对这两个瞬时代码做 8 次退避重试（约 8 秒）——一次瞬时失败曾经让沙箱在能用的机器上拒绝执行命令。本机实测到一个更坏的形态：攒到约九十个 `hearth.sandbox.*` profile 之后，profile 服务会成段时间**拒绝创建任何新名字**（新建 workspace 全线失败，而已有 profile 照常可用，几分钟后自行恢复）。因此实现分三级：**已存在就按目录 lookup 直接 derive（从不重建）→ 新建名失败则退避重试 → 仍失败则退到全用户共享的 `hearth.sandbox` 身份**。积累的身份可以用 `hearth doctor --prune-profiles` 删除（本机实测 106 个删到 0，第二次运行报 `0 found`）；它的默认清单式读授权见 §8。删除撞的是**同一个**限流：本机实测同一个命令半小时后变成 `57 found, 0 removed, 57 failed`（全 `0x80070005`），而同一时刻新建身份也全线失败——即服务整体拒绝，不是某个身份顽固。因此 prune 只对**第一个**名字付出完整重试预算（约 4 秒）作探针：全预算后仍被瞬时错误拒绝且一个都没删成，就停止并明说"服务正在拒绝，其余未尝试，过几分钟重试才是解法"（实测 3.9 秒结束，而不是逐个数完 57 个、白等 182 秒）。共享身份仍然把命令关在授予它的目录里，但不再保证两个 workspace 彼此隔离；这层降级必须被说出来，不能静默改用。
 
-**强制完整性级别是另一条不可忽视的前置条件**：进程的完整性级别取“父进程”和“自身镜像标签”中较低者，所以放在带 `Low` 标签目录里的二进制（浏览器解压的下载常见）以 Low 运行，而 Low 进程写不了 `%LOCALAPPDATA%`——profile 服务每次都以 `ERROR_ACCESS_DENIED` 拒绝，`GetNamedSecurityInfoW` 读 DACL 也会被拒。本机实测：整个项目树带 `Low` 标签，于是 `D:\...\bin\forge.exe` 全部失败、`%TEMP%` 下逐字节相同的二进制全部成功，一度被误诊为“非 ASCII 路径”问题。因此 `available()` 在 Low 进程里直接返回 `false`（严格模式宁可拒绝，也不声称做不到的遏制），`Support.Detail` 与拒绝文案都会点名这一条并给出 `icacls <dir> /setintegritylevel (OI)(CI)M /T /C`；边界判断用 `< Medium (0x2000)` 而不是 `< Low (0x1000)`，因为 Low 本身**就是** `0x1000`。
+**强制完整性级别是另一条不可忽视的前置条件**：进程的完整性级别取“父进程”和“自身镜像标签”中较低者，所以放在带 `Low` 标签目录里的二进制（浏览器解压的下载常见）以 Low 运行，而 Low 进程写不了 `%LOCALAPPDATA%`——profile 服务每次都以 `ERROR_ACCESS_DENIED` 拒绝，`GetNamedSecurityInfoW` 读 DACL 也会被拒。本机实测：整个项目树带 `Low` 标签，于是 `D:\...\bin\hearth.exe` 全部失败、`%TEMP%` 下逐字节相同的二进制全部成功，一度被误诊为“非 ASCII 路径”问题。因此 `available()` 在 Low 进程里直接返回 `false`（严格模式宁可拒绝，也不声称做不到的遏制），`Support.Detail` 与拒绝文案都会点名这一条并给出 `icacls <dir> /setintegritylevel (OI)(CI)M /T /C`；边界判断用 `< Medium (0x2000)` 而不是 `< Low (0x1000)`，因为 Low 本身**就是** `0x1000`。
 
 **macOS 与 Linux 的诚实要求**：`Support.Enforced` 只有在真的装成功后才为 `true`。
 两个平台现在都由 CI 在真实内核上跑过：Linux 是 ubuntu job 的 `crates/sandbox/tests/linux.rs`，
@@ -124,7 +124,7 @@ macOS 是 `sandbox macos-latest` job 的 `crates/sandbox/tests/macos.rs`。仍�
 
 1. `Mode == FullAccess` → 返回 no-op enforcer，`Support.Enforced == false`，不报错。
 2. `Mode == ReadOnly` 且本机无法限制**文件系统** → 返回错误，错误里带 `Support.Detail`。read-only 的全部承诺就是"不写"，进程树/内存上限挡不住 `echo x > C:\Windows\foo`，所以这里不能降级成更小的承诺却用同一个名字。
-3. `Mode == WorkspaceWrite` 且本机能装**至少一个真实维度**（`Filesystem || ProcessTree`）→ **允许**，但必须如实报告：`Support.Filesystem == false`，`Support.Detail` 点明缺的是文件系统维度，`New` 打一条 Warn，`forge doctor` 给 Warn 而不是 Fail。本机一个维度都装不了 → 按第 2 条返回错误。
+3. `Mode == WorkspaceWrite` 且本机能装**至少一个真实维度**（`Filesystem || ProcessTree`）→ **允许**，但必须如实报告：`Support.Filesystem == false`，`Support.Detail` 点明缺的是文件系统维度，`New` 打一条 Warn，`hearth doctor` 给 Warn 而不是 Fail。本机一个维度都装不了 → 按第 2 条返回错误。
 4. `Platform` 支持但装失败（job object 创建失败、landlock 返回 EPERM）→ 返回错误，**不许降级**（`Support.Enforced` 仍为 false 的实现一律视为装失败）。
 5. 用户显式要求"我知道这里挡不住"的唯一途径是改用 `full-access` 并承担它的后果；没有第二个开关。
 
@@ -204,24 +204,24 @@ func Dangerous(command string) (reason string)
 | --- | --- | --- |
 | `sandbox` | 构造真实 enforcer（`sandbox.New`，`o.newSandbox` 为测试缝）并关闭；判据来自 `Enforcer.Support()`，doctor 不自己推导平台矩阵 | 构造失败（`UnavailableError`）→ **Fail**，`Detail` 用 `Support.Detail` 原文；装上了但 `Support.Filesystem == false` → **Warn**；`full-access`（故意不装限制）或 `ErrInvalidSpec` → Skip |
 | `disk` | 数据目录所在卷剩余空间（`GetDiskFreeSpaceExW` / `Statfs`，向上找最近的已存在祖先） | < 512 MiB → Fail，< 2 GiB → Warn |
-| `model` | 对配置的 base URL 发 `HEAD <base>/models`，硬 2s 超时，不重试 | 连不上 → Warn（离线可用是特性）；401/403 → Warn 并提示 `FORGE_API_KEY`；其它状态 → Warn；**永不 Fail**；无 model → Skip |
+| `model` | 对配置的 base URL 发 `HEAD <base>/models`，硬 2s 超时，不重试 | 连不上 → Warn（离线可用是特性）；401/403 → Warn 并提示 `HEARTH_API_KEY`；其它状态 → Warn；**永不 Fail**；无 model → Skip |
 | `mcp` | **配置层**：不启动任何 server（只读诊断不该 spawn 进程），只核对条目可用性 | 无 server → Skip；有丢弃/重复 → Warn 并把 `MCPWarnings()` 放 `Hint`；全部可用 → OK 列出名字 |
 
 `-json` 输出的键不变（`checks[]` 里多四项），断言键表与检查项名字的测试要同步。
 
 **2026-11-16 修订**（实施后回填，两处原措辞已过时）：
 - `sandbox` 原写作"要求限制但不可用 → Fail；可限制但未启用 → Warn"。实施后按 §1 第 3 条修订执行：**部分执法是 Warn 而不是 Fail**，只有"一个维度都装不了"才 Fail。`full-access` 不是"未启用"而是"故意不装"，所以是 Skip 而不是 Warn——把用户的选择报成警告会训练人忽略警告。
-- `mcp` 原写作"对每个配置的 server 握手"。实施改为配置层核对：doctor 是无副作用诊断，spawn 一个 server 可能拉网络、写缓存、留下子进程，而它要回答的问题只是"你的配置里有没有坏条目"。真实握手留给运行时（`cmd/forge` 的 dial 循环）与 `forge mcp`（未做）。
+- `mcp` 原写作"对每个配置的 server 握手"。实施改为配置层核对：doctor 是无副作用诊断，spawn 一个 server 可能拉网络、写缓存、留下子进程，而它要回答的问题只是"你的配置里有没有坏条目"。真实握手留给运行时（`cmd/forge` 的 dial 循环）与 `hearth mcp`（未做）。
 
 ---
 
 ## 5. U5 · 接线（集成者，`cmd/forge` + `internal/config`）
 
-- `forge chat` / `forge web` 加 `--sandbox=read-only|workspace-write|full-access`（默认取 `config.Sandbox`；非法拼写 exit 2，任何 I/O 之前）。
-- 启动时 `sandbox.New(...)`：失败则**在打印 banner 之前**退出 1，错误里带 `Support.Detail`；部分执法时向 stderr 打**恰好一行** `forge: warning: <mode> is only partially enforced on this host: <detail>`。
+- `hearth chat` / `hearth web` 加 `--sandbox=read-only|workspace-write|full-access`（默认取 `config.Sandbox`；非法拼写 exit 2，任何 I/O 之前）。
+- 启动时 `sandbox.New(...)`：失败则**在打印 banner 之前**退出 1，错误里带 `Support.Detail`；部分执法时向 stderr 打**恰好一行** `hearth: warning: <mode> is only partially enforced on this host: <detail>`。
 - `ShellTool.Sandbox`（`internal/tool/builtin`）拿到 enforcer：类型是 `exec.Sandbox` 窄接口，不是 `sandbox.Enforcer`（工具不该拥有 `Close`/`Support`，enforcer 由启动者创建与关闭）。
-- `forge doctor` 打印 `sandbox: <name> <detail>`。
-- **未做**：`config.SandboxAllowNet`（`sandbox.Spec.AllowNet` 已在契约里，但没有任何平台实现能真正限制网络，加一个配置项等于给一个不执行的开关）；`forge web` 的 per-turn enforcer 重建（enforcer 是"这台服务器所有命令"的属性，每轮重建会让两轮对"遏制是什么"各说各话，所以每进程一次）。
+- `hearth doctor` 打印 `sandbox: <name> <detail>`。
+- **未做**：`config.SandboxAllowNet`（`sandbox.Spec.AllowNet` 已在契约里，但没有任何平台实现能真正限制网络，加一个配置项等于给一个不执行的开关）；`hearth web` 的 per-turn enforcer 重建（enforcer 是"这台服务器所有命令"的属性，每轮重建会让两轮对"遏制是什么"各说各话，所以每进程一次）。
 
 ---
 
@@ -241,16 +241,16 @@ func Dangerous(command string) (reason string)
 go build ./... && go vet ./... && go test ./... -count=1
 go run ./scripts/archcheck
 go run ./scripts/gen-protocol -check
-bin/forge.exe doctor                       # 六项 + 四项新检查
-bin/forge.exe doctor --json | ...          # 键表不变
-bin/forge.exe chat --sandbox=read-only "写一个文件到 /tmp"   # 必须被拒且说明原因
+bin/hearth.exe doctor                       # 六项 + 四项新检查
+bin/hearth.exe doctor --json | ...          # 键表不变
+bin/hearth.exe chat --sandbox=read-only "写一个文件到 /tmp"   # 必须被拒且说明原因
 ```
 
 另有两条**必须人工确认**的：
 
 - `workspace-write` 下一段试图写工作区外的 shell 命令被操作系统拒绝（本机 Windows 可实测；
   Linux/macOS 的同类证据由 CI 的两个沙箱 job 提供，见上表）。
-- 断网环境下 `forge doctor` 的 `model` 检查是 Warn 不是 Fail，且 `forge chat` 仍能跑（本地模型）。
+- 断网环境下 `hearth doctor` 的 `model` 检查是 Warn 不是 Fail，且 `hearth chat` 仍能跑（本地模型）。
 
 ## 8. 不做（明说，不是遗漏）
 

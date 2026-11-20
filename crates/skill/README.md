@@ -11,10 +11,10 @@ public:
   - SkillErrorKind
 may_import: []
 must_not:
-  - depend on any forge crate or any external crate
+  - depend on any hearth crate or any external crate
   - recurse into skill directories or write any file
   - guess at YAML structure that is not a scalar key: value pair
-gate: cargo test -p forge-skill --offline
+gate: cargo test -p hearth-skill --offline
 ---
 
 ## 做什么
@@ -41,7 +41,7 @@ receiver. Errors use `SkillError` / `SkillErrorKind`.
 
 ## 依赖与边界
 
-Standard library only. No forge-internal dependency, no external crate, no
+Standard library only. No hearth-internal dependency, no external crate, no
 async runtime. All filesystem access goes through `std::fs` and `std::path`;
 only the *output* strings are normalised to forward slashes so the golden is
 stable on Windows and Unix.

@@ -8,7 +8,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use forge_skill::{scan, Set};
+use hearth_skill::{scan, Set};
 
 fn quote(value: &str) -> String {
     format!("{value:?}")

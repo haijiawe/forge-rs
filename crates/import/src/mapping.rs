@@ -8,9 +8,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use forge_core::event::FORMAT_VERSION;
-use forge_core::json::encode;
-use forge_core::{new_id, Error, ErrorKind, Event, EventType, Result};
+use hearth_core::event::FORMAT_VERSION;
+use hearth_core::json::encode;
+use hearth_core::{new_id, Error, ErrorKind, Event, EventType, Result};
 use ring::digest::{Context, SHA256};
 use serde_json::{json, Map, Value};
 

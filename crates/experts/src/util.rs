@@ -1,6 +1,6 @@
 //! Small, dependency-free helpers so every diagnostic is byte-stable.
 //!
-//! Why this file exists instead of a `forge-core` import: `docs/09-platform-tier.md`
+//! Why this file exists instead of a `hearth-core` import: `docs/09-platform-tier.md`
 //! §3 gives this crate an empty "may import" column and `architecture.yaml`'s
 //! layer rule would let it reach *down*, but a loader for two Markdown formats
 //! should not be a reason for L1 to start importing L0 vocabulary it does not

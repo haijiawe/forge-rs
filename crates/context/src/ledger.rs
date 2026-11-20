@@ -7,8 +7,8 @@
 
 use crate::block::{Block, ERR_BAD_BLOCK, ERR_OVERLAP};
 use crate::wire;
-use forge_core::event::Event;
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::event::Event;
+use hearth_core::{Error, ErrorKind, Result};
 
 /// One match from [`Ledger::search`]. The block is cloned because the caller
 /// usually outlives the borrow (it is formatting a tool result), and a block is

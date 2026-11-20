@@ -16,14 +16,14 @@ public:
   - ERROR_CODES
 may_import: []
 must_not:
-  - depend on any forge crate or any external crate
+  - depend on any hearth crate or any external crate
   - resolve YAML that is not the documented scalar / flow-list / block-list subset
   - normalise, trim or re-encode a definition body
   - decide which expert a turn should summon
-gate: cargo test -p forge-experts --offline
+gate: cargo test -p hearth-experts --offline
 ---
 
-# forge-experts
+# hearth-experts
 
 ## 做什么
 
@@ -87,11 +87,11 @@ Codes, stable for the CLI: `missing_frontmatter`, `bad_frontmatter`,
 
 ## 依赖与边界
 
-Standard library only. No forge-internal dependency, no external crate, no
+Standard library only. No hearth-internal dependency, no external crate, no
 `anyhow`, no async runtime. The roster is text: a dependency would only add a
 version to argue about, and the brief's law 3 refuses one.
 
-Why `forge-skill`'s reader is not reused, even though it is a same-layer edge and
+Why `hearth-skill`'s reader is not reused, even though it is a same-layer edge and
 would have been legal on three counts:
 
 - its frontmatter parser and its walker are `pub(crate)`, so reuse means widening
@@ -126,8 +126,8 @@ policy and belongs above L1.
   reached twice is walked once, so a wrong root or a symlink cycle cannot hang
   the loader.
 - Not implemented, stated plainly: no writer (`scan` never creates or modifies a
-  file; there is no `forge expert new` here), no watching or caching (each `scan`
+  file; there is no `hearth expert new` here), no watching or caching (each `scan`
   re-reads the tree), no inheritance between experts, no validation that a
-  `tools:` name is a tool `forge-tool` actually registers — this crate does not
+  `tools:` name is a tool `hearth-tool` actually registers — this crate does not
   import L2 and cannot know, so a typo there is caught by the registry at call
   time, not here.

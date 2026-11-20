@@ -1,4 +1,4 @@
-# forge-rs
+# hearth
 
 A Rust rewrite of a Go implementation (`forge-go`) that was **deleted on
 2026-11-17**, after the port passed W6 and the five capability crates were wired
@@ -28,30 +28,30 @@ caught, including the defects that only a second machine could see.
 
 | Crate | Layer | Holds | Must not |
 | --- | --- | --- | --- |
-| `forge-core` | L0 | the frozen vocabulary — event envelope, ids, canonical JSON, typed errors | import any other forge crate |
-| `forge-config` | L0 | config file, home directory, defaults, MCP entry warnings | know about sessions |
-| `forge-exec` | L1 | spawn, stdio, timeouts, process-tree kill, sandbox hook | know about tools or sessions |
-| `forge-sandbox` | L1 | containment: job objects and AppContainers, Landlock, `sandbox-exec` | know about the model |
-| `forge-mcp` | L1 | external MCP client — stdio and Streamable HTTP | import any forge crate |
-| `forge-skill` | L1 | skill discovery, and loading a `SKILL.md` body only when asked | recurse into a skill directory |
-| `forge-net` | L1 | blocking HTTP(S) client, redirects, HTML to text | know about tools or the model |
-| `forge-experts` | L1 | expert and team definitions parsed from Markdown frontmatter | reach into skills or sessions |
-| `forge-session` | L2 | append-only log, projection, compaction, fork | perform I/O outside its log |
-| `forge-llm` | L2 | provider contract, OpenAI-compatible SSE client | know about sessions |
-| `forge-tool` | L2 | registry, executor, policy, approvals, builtin tools | write events, or decide policy itself |
-| `forge-protocol` | L2 | wire types shared by server and UI | depend on the server |
-| `forge-agent` | L2 | one-turn loop, event ordering, summarizer, hook seams | keep a history of its own between turns |
-| `forge-store` | L2 | rebuildable index — SQLite rows, FTS5 over boundary messages | write to a session log |
-| `forge-import` | L2 | read-only import of old session trees | overwrite an existing session |
-| `forge-subagent` | L2 | bounded-pool delegation on fresh child logs | run without a depth limit |
-| `forge-goal` | L2 | goal state folded from the log, and the continuation decision | write events itself |
-| `forge-schedule` | L2 | recurrence rules, the scheduled-task registry, due times | run a turn |
-| `forge-market` | L2 | market index, checksummed install, tamper-aware uninstall | trust a tarball before it is digested |
-| `forge-plugin` | L2 | plugin host — child processes speaking JSON-RPC over stdio | spawn anything from a listing |
-| `forge-team` | L2 | parallel workers over a shared board with per-worker mailboxes | depend on a provider or an async runtime |
-| `forge-context` | L2 | compressed blocks that can be named, restored and searched | hide a range no block names |
-| `forge-server` | L3 | HTTP/1.1 + WebSocket over the log | contain agent logic |
-| `forge-cli` | L3 | the `forge` binary | hold logic that belongs in a crate |
+| `hearth-core` | L0 | the frozen vocabulary — event envelope, ids, canonical JSON, typed errors | import any other hearth crate |
+| `hearth-config` | L0 | config file, home directory, defaults, MCP entry warnings | know about sessions |
+| `hearth-exec` | L1 | spawn, stdio, timeouts, process-tree kill, sandbox hook | know about tools or sessions |
+| `hearth-sandbox` | L1 | containment: job objects and AppContainers, Landlock, `sandbox-exec` | know about the model |
+| `hearth-mcp` | L1 | external MCP client — stdio and Streamable HTTP | import any hearth crate |
+| `hearth-skill` | L1 | skill discovery, and loading a `SKILL.md` body only when asked | recurse into a skill directory |
+| `hearth-net` | L1 | blocking HTTP(S) client, redirects, HTML to text | know about tools or the model |
+| `hearth-experts` | L1 | expert and team definitions parsed from Markdown frontmatter | reach into skills or sessions |
+| `hearth-session` | L2 | append-only log, projection, compaction, fork | perform I/O outside its log |
+| `hearth-llm` | L2 | provider contract, OpenAI-compatible SSE client | know about sessions |
+| `hearth-tool` | L2 | registry, executor, policy, approvals, builtin tools | write events, or decide policy itself |
+| `hearth-protocol` | L2 | wire types shared by server and UI | depend on the server |
+| `hearth-agent` | L2 | one-turn loop, event ordering, summarizer, hook seams | keep a history of its own between turns |
+| `hearth-store` | L2 | rebuildable index — SQLite rows, FTS5 over boundary messages | write to a session log |
+| `hearth-import` | L2 | read-only import of old session trees | overwrite an existing session |
+| `hearth-subagent` | L2 | bounded-pool delegation on fresh child logs | run without a depth limit |
+| `hearth-goal` | L2 | goal state folded from the log, and the continuation decision | write events itself |
+| `hearth-schedule` | L2 | recurrence rules, the scheduled-task registry, due times | run a turn |
+| `hearth-market` | L2 | market index, checksummed install, tamper-aware uninstall | trust a tarball before it is digested |
+| `hearth-plugin` | L2 | plugin host — child processes speaking JSON-RPC over stdio | spawn anything from a listing |
+| `hearth-team` | L2 | parallel workers over a shared board with per-worker mailboxes | depend on a provider or an async runtime |
+| `hearth-context` | L2 | compressed blocks that can be named, restored and searched | hide a range no block names |
+| `hearth-server` | L3 | HTTP/1.1 + WebSocket over the log | contain agent logic |
+| `hearth-cli` | L3 | the `hearth` binary | hold logic that belongs in a crate |
 
 ## Toolchain constraints
 
@@ -67,13 +67,13 @@ These were measured on this host, not chosen:
 - **The target directory must be all-ASCII, and it is set per environment, not
   in the tree.** With the target inside `D:\魔改版Agent框架\...`, every crate that
   compiles C dies in `cl.exe` with `D8050 ... 未能将命令行放入调试记录中`. A
-  committed `target-dir = "D:/forge-rs-target/forge-rs"` looked like the fix and
+  committed `target-dir = "D:/hearth-target/hearth"` looked like the fix and
   broke the first Linux CI job instead, because there `D:/...` is one path
   segment containing a colon. `.cargo/config.toml` therefore pins nothing:
   `check.ps1` derives `CARGO_TARGET_DIR` when this checkout's path is not
   all-ASCII, CI sets `target` per job, and a bare `cargo build` from a shell
   must export it yourself. It has to be an environment variable and not only
-  `build.target-dir`, because the e2e harness spawns a real `forge` binary and
+  `build.target-dir`, because the e2e harness spawns a real `hearth` binary and
   finds it through `CARGO_TARGET_DIR`.
 - **MSVC only.** The GNU toolchain is installed but broken:
   `error calling dlltool 'dlltool.exe': program not found`. A build failure must
@@ -85,7 +85,7 @@ These were measured on this host, not chosen:
 - **Cross targets are compile checks only.** `x86_64-unknown-linux-gnu` and
   `aarch64-apple-darwin` are installed; no linker for either triple exists on
   this host. `aarch64-unknown-linux-gnu` and `aarch64-pc-windows-msvc` are not
-  installed. `make release` checks every crate except `forge-cli`; that one is
+  installed. `make release` checks every crate except `hearth-cli`; that one is
   excluded because `rustls`/`ring` needs a target C compiler (`cc`) this host
   does not have. The native CLI is covered by `cargo build --release --offline`.
 
@@ -96,7 +96,7 @@ checkout, set the ASCII target directory first (or use `check.ps1`, which
 derives it):
 
 ```powershell
-$env:CARGO_TARGET_DIR = 'D:\forge-rs-target\forge-rs'
+$env:CARGO_TARGET_DIR = 'D:\hearth-target\hearth'
 cargo build --release --offline
 cargo test --offline
 cargo run -q -p archcheck --offline
@@ -113,37 +113,37 @@ Seventeen spellings; the first nine are the ones the Go oracle froze in
 
 | Command | What it does |
 | --- | --- |
-| `forge --version` | prints the version without reading config |
-| `forge help` | the usage block |
-| `forge doctor [--json]` | eleven read-only checks, in a fixed order |
-| `forge chat [flags] [prompt]` | one turn against the model, streaming to stdout |
-| `forge web [flags]` | the local browser UI on loopback |
-| `forge index [--rebuild] [--stats] [--search TEXT]` | query or rebuild the SQLite index |
-| `forge import <old-dir> [--dry-run]` | read-only import of an old-format session tree |
-| `forge session fork <id> [--at N] [--id NAME]` | open a new session at a given seq |
-| `forge session archive <id> [--reason TEXT]` | record that a session starts no new work |
-| `forge goal start\|status\|end` | record, inspect or close a goal |
-| `forge schedule add\|list\|remove\|next\|run` | recurring prompts, and the tick that opens them |
-| `forge plugin list\|start\|stop\|call\|doctor` | inspect and drive out-of-process plugins |
-| `forge expert list\|show` | the Markdown expert and team roster |
-| `forge skill list\|show` | list or show the skills the model was offered |
-| `forge subagent list\|tree\|resolve\|timing` | the children below a session: names, the tree, resolution, timing |
-| `forge subagent prompt\|interrupt\|providers\|worker` | resume a continuable child, stop one, list backends, run the worker |
-| `forge team list\|run` | run a roster team over a shared task board |
-| `forge market list\|search\|install\|remove\|verify` | install plugin bundles, verified by SHA-256 |
-| `forge "<prompt>"` | a bare prompt is shorthand for `forge chat "<prompt>"` |
+| `hearth --version` | prints the version without reading config |
+| `hearth help` | the usage block |
+| `hearth doctor [--json]` | eleven read-only checks, in a fixed order |
+| `hearth chat [flags] [prompt]` | one turn against the model, streaming to stdout |
+| `hearth web [flags]` | the local browser UI on loopback |
+| `hearth index [--rebuild] [--stats] [--search TEXT]` | query or rebuild the SQLite index |
+| `hearth import <old-dir> [--dry-run]` | read-only import of an old-format session tree |
+| `hearth session fork <id> [--at N] [--id NAME]` | open a new session at a given seq |
+| `hearth session archive <id> [--reason TEXT]` | record that a session starts no new work |
+| `hearth goal start\|status\|end` | record, inspect or close a goal |
+| `hearth schedule add\|list\|remove\|next\|run` | recurring prompts, and the tick that opens them |
+| `hearth plugin list\|start\|stop\|call\|doctor` | inspect and drive out-of-process plugins |
+| `hearth expert list\|show` | the Markdown expert and team roster |
+| `hearth skill list\|show` | list or show the skills the model was offered |
+| `hearth subagent list\|tree\|resolve\|timing` | the children below a session: names, the tree, resolution, timing |
+| `hearth subagent prompt\|interrupt\|providers\|worker` | resume a continuable child, stop one, list backends, run the worker |
+| `hearth team list\|run` | run a roster team over a shared task board |
+| `hearth market list\|search\|install\|remove\|verify` | install plugin bundles, verified by SHA-256 |
+| `hearth "<prompt>"` | a bare prompt is shorthand for `hearth chat "<prompt>"` |
 
 `chat` and `web` both build their tool set through one place (`crates/cli/src/wiring.rs`):
 the ten always-present tools (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`,
 `read_image`, `shell`, `todo_write`, `worktree`, `present`) and the two network tools
 `web_fetch` and `web_search` (absent when the capability cannot be built — an absent tool is
 discoverable, one that always fails is not), every tool a configured MCP server advertises
-(each one with its own `ask` rule, because it runs outside forge), one `<plugin>.<tool>` per
+(each one with its own `ask` rule, because it runs outside hearth), one `<plugin>.<tool>` per
 tool a loaded plugin advertises (also `ask`: it leaves this process), an `expert` tool when
 the roster has a summonable expert, a `team` tool when `team.maxParallel > 0` and the roster
 has a team (`ask`, because every worker spends money), a `skill` tool when at least one skill
 is found, and a `subagent` tool when `subagent.maxDepth > 0`. A `goal_end` tool joins them only
-inside a goal loop (`forge chat --goal`), because a verdict nobody reads is not a tool. A
+inside a goal loop (`hearth chat --goal`), because a verdict nobody reads is not a tool. A
 broken MCP entry or a plugin that fails to load is reported and skipped rather than stopping
 the runtime.
 
@@ -191,7 +191,7 @@ from "what is this" to "what may I change".
 [11](docs/11-adr-agent-hooks.md) the two rewrite seams), **execution records**
 ([10](docs/10-agent-parity.md) the wave plan, [12](docs/12-subagent-port.md) the
 subagent port, [agent-gaps](docs/agent-gaps.md) the gap ledger),
-**comparisons** ([dsh-vs-forge](docs/dsh-vs-forge.md) layer by layer from source,
+**comparisons** ([dsh-vs-hearth](docs/dsh-vs-hearth.md) layer by layer from source,
 [dsh-comparison](docs/dsh-comparison.md) measured on this host,
 [agent-comparison](docs/agent-comparison.md) the agent loops), and
 **operations** ([bench](docs/bench.md), [ci](docs/ci.md),
@@ -213,7 +213,7 @@ cargo fmt --check
 cargo clippy -- -D warnings
 cargo run -q -p archcheck --offline
 cargo test --offline
-cargo run --release -q -p forge-bench --offline -- -strict
+cargo run --release -q -p hearth-bench --offline -- -strict
 ```
 
 A clean architecture run ends with `archcheck: ok (.)`; on a complete tree the
@@ -248,7 +248,7 @@ Each of these was produced by a command on this host or on a hosted runner,
 and the document named in the paragraph holds the numbers and the way they
 were taken.
 
-- Compaction is wired on both surfaces (`forge chat` before each turn, `forge web`
+- Compaction is wired on both surfaces (`hearth chat` before each turn, `hearth web`
   at the top of a turn, both at the Go original's 200-record floor). The web
   surface folds only turns that are already closed, so the summary covers history
   the user can no longer see and lands inside the turn that triggered it — the
@@ -316,7 +316,7 @@ were taken.
   per directory per identity — repeat grants are skipped by asking the ACL, and a
   pause over two seconds prints what it is doing. One profile per
   workspace path is left behind in `%LOCALAPPDATA%\Packages` (permanent, keyed by
-  the path); `forge doctor --prune-profiles` deletes them — 106 were removed on this
+  the path); `hearth doctor --prune-profiles` deletes them — 106 were removed on this
   machine, after which the count read back as 0. That service is the one unreliable
   part of this story: on a host where enough of those
   profiles have accumulated it starts refusing *new* names outright for minutes at a

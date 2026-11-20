@@ -31,7 +31,7 @@ fn hex(bytes: &[u8]) -> String {
 
 /// A session id, checked once at the boundary.
 ///
-/// The rule is the one `forge chat --session` enforces: it becomes a file name
+/// The rule is the one `hearth chat --session` enforces: it becomes a file name
 /// (`<dataDir>/sessions/<id>.jsonl`), so it may not contain a separator, may
 /// not be empty, and may not start with a character a shell would eat.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

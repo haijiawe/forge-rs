@@ -5,7 +5,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 use std::time::Instant;
 
-use forge_llm::ToolSpec;
+use hearth_llm::ToolSpec;
 use serde_json::json;
 
 use crate::approval::{ApprovalRequest, Approver, Policy};

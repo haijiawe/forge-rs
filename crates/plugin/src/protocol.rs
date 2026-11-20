@@ -1,6 +1,6 @@
 //! The JSON-RPC 2.0 wire shapes, and the framing rules on top of them.
 //!
-//! One object per line, nothing else. This is the same framing `forge-mcp`
+//! One object per line, nothing else. This is the same framing `hearth-mcp`
 //! speaks, and it is deliberately blunt: a length-prefixed binary format would
 //! make a plugin in Python or Node harder to write for no gain, because the
 //! numbers already say the round trip costs the same either way

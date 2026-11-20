@@ -2,8 +2,8 @@
 //!
 //! Go's `Options` carries an `agent.ToolSet` (registry, policy, approver,
 //! limits) and receives a `context.Context` on every call. The frozen Rust
-//! `forge_agent::ToolRunner` exposes only `specs`/`run`, and
-//! `forge_tool::Tool::call` has no context parameter, so this port keeps the
+//! `hearth_agent::ToolRunner` exposes only `specs`/`run`, and
+//! `hearth_tool::Tool::call` has no context parameter, so this port keeps the
 //! policy and limits here, drops the approver entirely, and carries
 //! cancellation in [`Canceller`]. See the crate README for the full deviation
 //! list.
@@ -13,12 +13,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
-use forge_agent::{Cancel, ToolRunner};
-use forge_core::{Error, ErrorKind, Result};
-use forge_llm::Provider;
-use forge_tool::{Limits, Policy};
+use hearth_agent::{Cancel, ToolRunner};
+use hearth_core::{Error, ErrorKind, Result};
+use hearth_llm::Provider;
+use hearth_tool::{Limits, Policy};
 
-/// Epoch milliseconds, the same type `forge_agent` uses for event timestamps.
+/// Epoch milliseconds, the same type `hearth_agent` uses for event timestamps.
 pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
 /// Epoch milliseconds used only to mint a fresh child session id. Kept
@@ -82,7 +82,7 @@ impl Canceller {
         if let Ok(active) = self.active.lock() {
             for cancel in active.values() {
                 // The parent is going away; its children go with it.
-                cancel.cancel_with(forge_agent::Cause::Parent);
+                cancel.cancel_with(hearth_agent::Cause::Parent);
             }
         }
         Self::notify(&self.wake);

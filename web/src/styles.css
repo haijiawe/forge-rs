@@ -1,4 +1,4 @@
-/* forge web UI — hand-written CSS, no framework.
+/* hearth web UI — hand-written CSS, no framework.
  *
  * The layout is a full-height flex column: session header (fixed), transcript
  * (the only scroller), composer, status bar. The transcript must be the only
@@ -992,7 +992,7 @@ body {
 
 /* --- team boards ---
  *
- * On the session list, below the table: a board belongs to `forge team run`, not
+ * On the session list, below the table: a board belongs to `hearth team run`, not
  * to any one conversation. The three worker states get three looks because the
  * middle one is not a shade of either neighbour: `unknown` means this build
  * cannot say, and a grey-but-green pill would still read as "it worked". */

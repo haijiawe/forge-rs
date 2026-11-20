@@ -16,7 +16,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use forge_core::Result;
+use hearth_core::Result;
 
 use crate::error::{refuse_with, ERR_EMPTY_BUNDLE, ERR_UNSAFE_PATH};
 use crate::hash::sha256_hex;
@@ -67,8 +67,8 @@ pub fn unpack(archive: &Archive, dest: &Path) -> Result<Vec<Unpacked>> {
             .create_new(true)
             .open(&target)
             .map_err(|err| {
-                forge_core::Error::new(
-                    forge_core::ErrorKind::Io,
+                hearth_core::Error::new(
+                    hearth_core::ErrorKind::Io,
                     format!("market: cannot create {}: {err}", target.display()),
                 )
             })?;
@@ -140,7 +140,7 @@ mod tests {
 
     fn scratch(label: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "forge-market-unpack-{}-{label}",
+            "hearth-market-unpack-{}-{label}",
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&path);

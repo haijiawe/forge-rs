@@ -4,7 +4,7 @@
 //! user input must never be interpreted as FTS5 syntax (`" OR 1=1 --` is a
 //! search string, not an expression).
 
-use forge_core::Result;
+use hearth_core::Result;
 use rusqlite::params;
 
 use crate::store::{store_err, Hit, Query, Store};

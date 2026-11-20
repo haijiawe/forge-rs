@@ -42,7 +42,7 @@ pub use runtime::{next, reservation_to_open, Next, Snapshot};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use forge_core::{Event, EventType};
+    use hearth_core::{Event, EventType};
     use serde_json::json;
 
     #[test]

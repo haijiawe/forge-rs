@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection};
 
@@ -109,7 +109,7 @@ pub(crate) fn err_closed() -> Error {
     Error::new(ErrorKind::Refused, ERR_CLOSED)
 }
 
-/// Go used `errors.Is(err, ErrClosed)`; `forge_core::Error` has no downcast, so
+/// Go used `errors.Is(err, ErrClosed)`; `hearth_core::Error` has no downcast, so
 /// callers identify the sentinel by kind and message prefix instead.
 pub fn is_closed(error: &Error) -> bool {
     error.kind() == ErrorKind::Refused && error.message().starts_with(ERR_CLOSED)
@@ -270,7 +270,7 @@ impl Store {
 
     fn normalize(&self, mut value: Session) -> Session {
         if value.status.is_empty() {
-            value.status = forge_protocol::status::IDLE.to_owned();
+            value.status = hearth_protocol::status::IDLE.to_owned();
         }
         if value.created_at == 0 && value.updated_at == 0 {
             let now = self.now_ms();

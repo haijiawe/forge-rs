@@ -24,8 +24,8 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use forge_core::{Error, ErrorKind, Result};
-use forge_net::Client;
+use hearth_core::{Error, ErrorKind, Result};
+use hearth_net::Client;
 
 use crate::error::{
     invalid_with, refuse_with, ERR_BODY_TOO_LARGE, ERR_CHECKSUM_MISMATCH, ERR_CLIENT_CAP,
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn a_unique_path_does_not_overwrite_an_existing_file() {
-        let dir = std::env::temp_dir().join(format!("forge-market-dl-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-market-dl-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create");
         fs::write(dir.join("alpha.tar"), b"first").expect("write");

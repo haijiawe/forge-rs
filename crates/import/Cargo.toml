@@ -1,15 +1,15 @@
 [package]
-name = "forge-import"
-description = "One-way import of retired Forge session logs into the v1 event log"
+name = "hearth-import"
+description = "One-way import of retired Hearth session logs into the v1 event log"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-forge-core = { path = "../core" }
+hearth-core = { path = "../core" }
 ring.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-forge-session = { path = "../session" }
+hearth-session = { path = "../session" }

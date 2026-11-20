@@ -12,8 +12,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const PLACEHOLDER: &str = r#"<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Forge</title></head>
-<body><h1>Forge</h1><p>The browser bundle is not built in this checkout.</p>
+<html lang="en"><head><meta charset="utf-8"><title>Hearth</title></head>
+<body><h1>Hearth</h1><p>The browser bundle is not built in this checkout.</p>
 <p>Run <code>make web</code> from the workspace root, then rebuild the server.</p></body></html>
 "#;
 

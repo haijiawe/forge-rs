@@ -4,7 +4,7 @@
 // A hash route is deliberate: this bundle is served from a Go binary at '/',
 // so /s/<id> would need a fallback route on the server; '#/s/<id>' does not.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ForgeClient, captureToken } from './api/client';
+import { HearthClient, captureToken } from './api/client';
 import { SessionList } from './components/SessionList';
 import { SessionView } from './components/SessionView';
 
@@ -47,7 +47,7 @@ export function App({ baseUrl }: AppProps) {
   }, []);
 
   const api = useMemo(
-    () => new ForgeClient(baseUrl === undefined ? { token } : { token, baseUrl }),
+    () => new HearthClient(baseUrl === undefined ? { token } : { token, baseUrl }),
     [token, baseUrl],
   );
 

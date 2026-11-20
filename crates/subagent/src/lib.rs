@@ -2,7 +2,7 @@
 //!
 //! Layer L2. A `Runner` exposes one `subagent` tool; calling it opens a fresh
 //! child session log under `<data_dir>/sessions/<fresh-id>.jsonl`, runs one
-//! `forge_agent::Agent` turn there, and returns the child's last non-empty
+//! `hearth_agent::Agent` turn there, and returns the child's last non-empty
 //! assistant message. The event log is the only truth: final text and turn
 //! counts are read back from the log, never taken from the aggregate result.
 //!

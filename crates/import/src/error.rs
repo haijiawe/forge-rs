@@ -1,11 +1,11 @@
 //! Error sentinels for the importer.
 //!
-//! `forge_core::Error` is the only error type in the workspace, so sentinels
+//! `hearth_core::Error` is the only error type in the workspace, so sentinels
 //! are a `(kind, message tag)` pair: callers check `is_*` (or compare
 //! `err.kind()` and `err.message()`). Tags are plain user-facing words — no
 //! internal package names ever appear in an error from this crate.
 
-use forge_core::{Error, ErrorKind};
+use hearth_core::{Error, ErrorKind};
 
 /// The target session log already exists; `Write` never overwrites.
 pub const ERR_EXISTS: &str = "target session log already exists";

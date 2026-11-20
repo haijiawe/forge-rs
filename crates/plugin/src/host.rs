@@ -3,7 +3,7 @@
 //! `Host::start` never spawns anything. Loading is a separate, explicit act,
 //! because discovering what is installed must not run code: a listing of a
 //! directory is not consent to execute what is in it. That is the same rule
-//! `forge-skill` follows for a `SKILL.md`, and it matters more here, where the
+//! `hearth-skill` follows for a `SKILL.md`, and it matters more here, where the
 //! artifact is a program.
 //!
 //! The host holds one `Connection` per loaded plugin behind a `Mutex`, so a
@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use forge_mcp::{Logger, NoopLogger};
+use hearth_mcp::{Logger, NoopLogger};
 
 use crate::connection::{Connection, Stopped};
 use crate::error::{Error, Kind, Result};
@@ -46,7 +46,7 @@ pub struct Loaded {
 /// The host over one or more plugin roots.
 ///
 /// More than one root exists because a plugin reaches the machine two ways: the
-/// operator puts a directory under `<dataDir>/plugins`, or `forge market install`
+/// operator puts a directory under `<dataDir>/plugins`, or `hearth market install`
 /// unpacks a bundle under `<dataDir>/market/bundles`. Both are plugins; a host
 /// that only read the first would make the market's own promise — "install plugin
 /// bundles from an index" — end at a directory nothing loads.
@@ -144,7 +144,7 @@ impl Host {
     ///
     /// A directory whose `plugin.json` is broken is returned in `broken` rather
     /// than dropped: an installed plugin that stopped parsing is something the
-    /// operator has to see, and hiding it would make `forge plugin list` a
+    /// operator has to see, and hiding it would make `hearth plugin list` a
     /// report that only mentions the healthy.
     pub fn discover(&self) -> (Vec<Manifest>, Vec<(PathBuf, Error)>) {
         let mut found: Vec<Manifest> = Vec::new();
@@ -179,7 +179,7 @@ impl Host {
                                     Kind::BadManifest,
                                     format!(
                                         "plugin {:?} is installed twice: {} and {}; remove one \
-                                         (`forge market remove {}` for the market copy, or delete \
+                                         (`hearth market remove {}` for the market copy, or delete \
                                          the plugin directory for the other)",
                                         manifest.name,
                                         first.directory.display(),
@@ -267,7 +267,7 @@ impl Host {
         let id = self.next_id();
         let params = json!({
             "protocolVersion": self.protocol_version,
-            "client": { "name": "forge", "version": env!("CARGO_PKG_VERSION") },
+            "client": { "name": "hearth", "version": env!("CARGO_PKG_VERSION") },
         });
         let reply = connection.call(id, "initialize", Some(params), self.timeout);
         let result = match reply {
@@ -699,7 +699,7 @@ mod tests {
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir()
-            .join("forge-plugin-host-tests")
+            .join("hearth-plugin-host-tests")
             .join(format!("{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("mkdir");
@@ -715,7 +715,7 @@ mod tests {
 
     #[test]
     fn starting_a_host_spawns_nothing_and_a_missing_root_is_empty() {
-        let root = std::env::temp_dir().join("forge-plugin-nonexistent-root-xyz");
+        let root = std::env::temp_dir().join("hearth-plugin-nonexistent-root-xyz");
         let _ = std::fs::remove_dir_all(&root);
         let host = Host::start(&root);
         let (found, broken) = host.discover();

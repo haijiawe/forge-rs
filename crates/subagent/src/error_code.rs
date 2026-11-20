@@ -24,7 +24,7 @@
 //! that already contains it means. Renaming a code is not a cleanup; it is a
 //! new code.
 
-use forge_core::{Error, ErrorKind};
+use hearth_core::{Error, ErrorKind};
 
 /// One machine-routable subagent failure.
 ///

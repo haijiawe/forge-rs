@@ -17,7 +17,7 @@
 use std::fs;
 use std::path::Path;
 
-use forge_core::Result;
+use hearth_core::Result;
 
 use crate::crc32::crc32;
 use crate::error::{
@@ -284,7 +284,7 @@ mod tests {
     use crate::{gunzip, parse_tar};
 
     fn scratch(label: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("forge-pack-{}-{label}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-pack-{}-{label}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create scratch");
         dir

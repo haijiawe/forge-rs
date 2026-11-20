@@ -1,8 +1,8 @@
-//! Language-neutral end-to-end acceptance suite for the Rust `forge` port.
+//! Language-neutral end-to-end acceptance suite for the Rust `hearth` port.
 //!
 //! Everything runs on loopback with a scripted OpenAI-compatible SSE provider
 //! inside this test process: no real network, no API key, no external tools.
-//! The real compiled `forge` binary is spawned as a child process; its stdout,
+//! The real compiled `hearth` binary is spawned as a child process; its stdout,
 //! stderr, event log and HTTP surface are checked against the Go oracle.
 
 use std::collections::{HashMap, VecDeque};
@@ -52,10 +52,10 @@ fn target_root() -> PathBuf {
         .unwrap_or_else(|| workspace_root().join("target"))
 }
 
-/// Cargo only sets `CARGO_BIN_EXE_forge` for tests in the crate that owns the
+/// Cargo only sets `CARGO_BIN_EXE_hearth` for tests in the crate that owns the
 /// binary, so fall back to the shared target directory when it is absent.
-fn forge_bin() -> PathBuf {
-    if let Ok(value) = env::var("CARGO_BIN_EXE_forge") {
+fn hearth_bin() -> PathBuf {
+    if let Ok(value) = env::var("CARGO_BIN_EXE_hearth") {
         return PathBuf::from(value);
     }
     let profile = if cfg!(debug_assertions) {
@@ -63,11 +63,15 @@ fn forge_bin() -> PathBuf {
     } else {
         "release"
     };
-    let exe = if cfg!(windows) { "forge.exe" } else { "forge" };
+    let exe = if cfg!(windows) {
+        "hearth.exe"
+    } else {
+        "hearth"
+    };
     let path = target_root().join(profile).join(exe);
     assert!(
         path.is_file(),
-        "forge binary not found at {}; build it first with `cargo build -p forge-cli`",
+        "hearth binary not found at {}; build it first with `cargo build -p hearth-cli`",
         path.display()
     );
     path
@@ -378,15 +382,15 @@ impl CliRun {
     }
 
     fn session_id(&self) -> String {
-        self.stderr_line("forge chat: session=")
-            .trim_start_matches("forge chat: session=")
+        self.stderr_line("hearth chat: session=")
+            .trim_start_matches("hearth chat: session=")
             .to_owned()
     }
 
     fn log_path(&self) -> PathBuf {
         PathBuf::from(
-            self.stderr_line("forge chat: log=")
-                .trim_start_matches("forge chat: log="),
+            self.stderr_line("hearth chat: log=")
+                .trim_start_matches("hearth chat: log="),
         )
     }
 
@@ -403,16 +407,16 @@ fn run_chat(
     flags: &[&str],
     prompt: &str,
 ) -> CliRun {
-    let output = Command::new(forge_bin())
+    let output = Command::new(hearth_bin())
         .arg("chat")
         .arg("--model")
         .arg(MODEL)
         .args(flags)
         .arg(prompt)
         .current_dir(workspace)
-        .env("FORGE_HOME", home)
-        .env("FORGE_BASE_URL", &provider.base_url)
-        .env("FORGE_API_KEY", API_KEY)
+        .env("HEARTH_HOME", home)
+        .env("HEARTH_BASE_URL", &provider.base_url)
+        .env("HEARTH_API_KEY", API_KEY)
         .output()
         .unwrap();
     CliRun {
@@ -667,7 +671,7 @@ struct WebInfo {
 }
 
 fn start_web(home: &Path, workspace: &Path, provider: &FakeProvider) -> WebInfo {
-    let mut child = Command::new(forge_bin())
+    let mut child = Command::new(hearth_bin())
         .arg("web")
         .arg("--model")
         .arg(MODEL)
@@ -675,9 +679,9 @@ fn start_web(home: &Path, workspace: &Path, provider: &FakeProvider) -> WebInfo 
         .arg("--addr")
         .arg("127.0.0.1:0")
         .current_dir(workspace)
-        .env("FORGE_HOME", home)
-        .env("FORGE_BASE_URL", &provider.base_url)
-        .env("FORGE_API_KEY", API_KEY)
+        .env("HEARTH_HOME", home)
+        .env("HEARTH_BASE_URL", &provider.base_url)
+        .env("HEARTH_API_KEY", API_KEY)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
@@ -696,7 +700,7 @@ fn start_web(home: &Path, workspace: &Path, provider: &FakeProvider) -> WebInfo 
         let line = receiver
             .recv_timeout(Duration::from_millis(500))
             .unwrap_or_default();
-        if line.contains("forge web: open ") {
+        if line.contains("hearth web: open ") {
             break line;
         }
         assert!(
@@ -704,7 +708,7 @@ fn start_web(home: &Path, workspace: &Path, provider: &FakeProvider) -> WebInfo 
             "web did not print its open URL; last stderr line: {line}"
         );
     };
-    let open = open_line.trim_start_matches("forge web: open ");
+    let open = open_line.trim_start_matches("hearth web: open ");
     let (base, tail) = open
         .split_once("/?token=")
         .unwrap_or_else(|| panic!("bad open URL: {open}"));
@@ -723,7 +727,7 @@ fn start_web(home: &Path, workspace: &Path, provider: &FakeProvider) -> WebInfo 
 fn auth_headers(token: &str) -> Vec<(&'static str, String)> {
     vec![
         ("Authorization", format!("Bearer {token}")),
-        ("X-Forge-Protocol", "1".to_owned()),
+        ("X-Hearth-Protocol", "1".to_owned()),
     ]
 }
 
@@ -769,14 +773,14 @@ fn cli_plain_turn_streams_text_and_writes_dense_event_log() {
     let provider = FakeProvider::new(vec![Reply::Text(ANSWER.to_owned())]);
 
     let run = run_chat(&home, &workspace, &provider, &[], "say something");
-    assert!(run.status.success(), "forge chat failed:\n{}", run.stderr);
+    assert!(run.status.success(), "hearth chat failed:\n{}", run.stderr);
     assert_eq!(
         run.stdout,
         format!("{ANSWER}\n"),
         "stdout must carry only the assistant text"
     );
     assert!(
-        run.stderr.contains("forge chat: model=fake sandbox="),
+        run.stderr.contains("hearth chat: model=fake sandbox="),
         "missing model diagnostic:\n{}",
         run.stderr
     );
@@ -832,7 +836,7 @@ fn cli_tool_call_with_always_approval_runs_shell_and_final_answer_uses_output() 
         &["--approve=always"],
         "run a command",
     );
-    assert!(run.status.success(), "forge chat failed:\n{}", run.stderr);
+    assert!(run.status.success(), "hearth chat failed:\n{}", run.stderr);
     assert!(
         run.stdout.contains(TOOL_MARKER),
         "final answer lacks tool output: {}",
@@ -909,7 +913,7 @@ fn cli_tool_call_with_never_approval_has_no_approval_events_and_fails_tool() {
         &["--approve=never"],
         "run a command",
     );
-    assert!(run.status.success(), "forge chat failed:\n{}", run.stderr);
+    assert!(run.status.success(), "hearth chat failed:\n{}", run.stderr);
 
     let events = run.events();
     assert_dense_log(&events);
@@ -1037,7 +1041,7 @@ fn http_surface_matches_oracle_protocol_and_event_contract() {
 
     let health = http(port, "GET", "/healthz", &[], None);
     assert_eq!(health.status, 200, "healthz: {}", health.body);
-    assert_eq!(health.header("x-forge-protocol"), Some("1"));
+    assert_eq!(health.header("x-hearth-protocol"), Some("1"));
     let health_json = health.json();
     assert_eq!(str_field(&health_json, "status"), "ok");
     assert_eq!(health_json["protocol"].as_u64(), Some(1));
@@ -1052,7 +1056,7 @@ fn http_surface_matches_oracle_protocol_and_event_contract() {
         None,
     );
     assert_eq!(list.status, 200, "sessions: {}", list.body);
-    assert_eq!(list.header("x-forge-protocol"), Some("1"));
+    assert_eq!(list.header("x-hearth-protocol"), Some("1"));
     assert!(list.json()["sessions"]
         .as_array()
         .unwrap()
@@ -1076,7 +1080,7 @@ fn http_surface_matches_oracle_protocol_and_event_contract() {
         Some(&create_body),
     );
     assert_eq!(created.status, 201, "create session: {}", created.body);
-    assert_eq!(created.header("x-forge-protocol"), Some("1"));
+    assert_eq!(created.header("x-hearth-protocol"), Some("1"));
     let created_json = created.json();
     assert_eq!(created_json["lastSeq"].as_u64(), Some(1));
     let session = str_field(&created_json["session"], "id").to_owned();
@@ -1198,13 +1202,13 @@ fn http_surface_matches_oracle_protocol_and_event_contract() {
         "missing protocol header: {}",
         protocol_error.body
     );
-    assert_eq!(protocol_error.header("x-forge-protocol"), Some("1"));
+    assert_eq!(protocol_error.header("x-hearth-protocol"), Some("1"));
     assert_eq!(protocol_error.error_code(), "protocol_required");
 
     // A wrong protocol version is a separate 400 contract error.
     let unsupported = [
         ("Authorization", format!("Bearer {token}")),
-        ("X-Forge-Protocol", "2".to_owned()),
+        ("X-Hearth-Protocol", "2".to_owned()),
     ];
     let unsupported_error = http(
         port,
@@ -1223,7 +1227,7 @@ fn http_surface_matches_oracle_protocol_and_event_contract() {
     // A bad token is rejected before protocol checking.
     let bad_token = [
         ("Authorization", "Bearer wrong-token".to_owned()),
-        ("X-Forge-Protocol", "1".to_owned()),
+        ("X-Hearth-Protocol", "1".to_owned()),
     ];
     let unauthorized = http(
         port,
@@ -1233,7 +1237,7 @@ fn http_surface_matches_oracle_protocol_and_event_contract() {
         None,
     );
     assert_eq!(unauthorized.status, 401, "bad token: {}", unauthorized.body);
-    assert_eq!(unauthorized.header("x-forge-protocol"), Some("1"));
+    assert_eq!(unauthorized.header("x-hearth-protocol"), Some("1"));
     assert_eq!(unauthorized.error_code(), "unauthorized");
 
     provider.wait_for_requests(1);

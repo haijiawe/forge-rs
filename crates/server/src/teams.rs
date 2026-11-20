@@ -1,7 +1,7 @@
-//! Board state for a `forge team run`, read off the disk for the browser.
+//! Board state for a `hearth team run`, read off the disk for the browser.
 //!
 //! A run leaves a directory `<dataDir>/teams/<slug>-<YYYYMMDD-HHMMSS>/` holding
-//! `board.json` and `workers/<name>.jsonl`. `forge-team` owns that format and
+//! `board.json` and `workers/<name>.jsonl`. `hearth-team` owns that format and
 //! this crate may not depend on it (see `crates/server/README.md`), so the
 //! reader here parses the versioned JSON with `serde_json::Value` instead of
 //! sharing the structs. Two rules follow from that and are the whole point of
@@ -22,7 +22,7 @@ use std::time::UNIX_EPOCH;
 use serde::Serialize;
 use serde_json::Value;
 
-/// Directory under the data dir that `forge team run` writes into.
+/// Directory under the data dir that `hearth team run` writes into.
 const TEAMS_DIR: &str = "teams";
 /// The board inside a run directory (`crates/team/src/board.rs`).
 const BOARD_FILE: &str = "board.json";
@@ -60,7 +60,7 @@ pub struct Board {
     /// The slug without the timestamp. Both live in the directory name because
     /// nothing writes them into `board.json`.
     team: String,
-    /// How many workers may run at once. `forge team run` chooses this from
+    /// How many workers may run at once. `hearth team run` chooses this from
     /// `--max-parallel`, `team.max_parallel` or the default, and persists it
     /// nowhere, so this is `null` until something records it.
     parallel: Option<usize>,

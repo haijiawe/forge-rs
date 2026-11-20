@@ -34,7 +34,7 @@ and those are what the tests compare against.
 | `crates/tool` | registry, executor, policy, approvals, builtins | L2 |
 | `crates/protocol` | wire types shared with the UI | L2 |
 | `crates/server` | HTTP/1.1 + WebSocket | L3 |
-| `crates/cli` | the `forge` binary | L3 |
+| `crates/cli` | the `hearth` binary | L3 |
 | `tools/archcheck` | the dependency gate | — |
 | `tests/` | the shared oracle: conformance cases, fixtures, goldens | — |
 
@@ -55,7 +55,7 @@ make check                    # all of the above, in the order CI uses
 Two environment facts, both measured, both non-negotiable:
 
 - **The target directory must be ASCII.** `.cargo/config.toml` points it at
-  `D:/forge-rs-target/forge-rs`. Moving it inside this tree makes every crate
+  `D:/hearth-target/hearth`. Moving it inside this tree makes every crate
   that compiles C fail with `cl: D8050 ... 未能将命令行放入调试记录中`.
 - **MSVC only, offline.** The GNU toolchain is installed but broken
   (`dlltool.exe: program not found`), and crates.io is unreachable; the rsproxy

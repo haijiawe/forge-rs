@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use forge_plugin::{Host, Kind, Stopped};
+use hearth_plugin::{Host, Kind, Stopped};
 use serde_json::json;
 
 /// The directory the reference plugin lives in, at build time.
@@ -25,7 +25,7 @@ struct Scratch {
 impl Scratch {
     fn new(label: &str) -> Scratch {
         let dir = std::env::temp_dir()
-            .join("forge-plugin-it")
+            .join("hearth-plugin-it")
             .join(format!("{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create the plugin root");
@@ -713,7 +713,7 @@ fn the_manifest_the_reference_plugin_ships_parses_as_written() {
     assert_eq!(manifest["name"], json!("reference"));
     assert_eq!(manifest["runtime"], json!("node"));
     assert_eq!(manifest["entry"], json!("index.js"));
-    assert!(forge_plugin::is_valid_name(
+    assert!(hearth_plugin::is_valid_name(
         manifest["name"].as_str().expect("a name")
     ));
 }
@@ -723,7 +723,7 @@ fn the_manifest_the_reference_plugin_ships_parses_as_written() {
 // ---------------------------------------------------------------------------
 
 /// The native plugin this package builds, at its cargo output path.
-const NATIVE_EXE: &str = env!("CARGO_BIN_EXE_forge-plugin-native");
+const NATIVE_EXE: &str = env!("CARGO_BIN_EXE_hearth-plugin-native");
 
 /// Install the native binary as a plugin. The entry must live inside the plugin
 /// directory (`Manifest::command_line` joins it and refuses absolute paths), so
@@ -921,7 +921,7 @@ fn a_typescript_entry_runs_with_no_build_step() {
 
 // ---------------------------------------------------------------------------
 // Several roots: a plugin is installed by hand or by the market, and the host
-// must see both. Before this, `forge market install` unpacked into
+// must see both. Before this, `hearth market install` unpacked into
 // market/bundles/ while the host only read plugins/, so an installed plugin was
 // invisible to `plugin list` and to a turn.
 // ---------------------------------------------------------------------------

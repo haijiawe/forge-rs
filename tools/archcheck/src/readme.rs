@@ -230,7 +230,7 @@ fn check_shape(key: &str, value: &str, line: usize, file: &str, findings: &mut V
                     file,
                     line,
                     "readme.key",
-                    format!("{key} must be a list like [forge-core], got {value:?}"),
+                    format!("{key} must be a list like [hearth-core], got {value:?}"),
                 ));
             }
         }
@@ -279,8 +279,8 @@ mod tests {
          layer: L1\n\
          role: demo\n\
          public: [Demo]\n\
-         may_import: [forge-core]\n\
-         must_not: [forge-server]\n\
+         may_import: [hearth-core]\n\
+         must_not: [hearth-server]\n\
          gate: make arch\n\
          ---\n\
          \n\
@@ -291,7 +291,7 @@ mod tests {
          Demo type.\n\
          \n\
          ## 依赖与边界\n\
-         forge-core only.\n\
+         hearth-core only.\n\
          \n\
          ## 不要做\n\
          no upward imports.\n"

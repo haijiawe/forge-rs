@@ -55,8 +55,8 @@ impl Default for GoalEndTool {
 }
 
 impl Tool for GoalEndTool {
-    fn spec(&self) -> forge_llm::ToolSpec {
-        forge_llm::ToolSpec {
+    fn spec(&self) -> hearth_llm::ToolSpec {
+        hearth_llm::ToolSpec {
             name: "goal_end".into(),
             description: "Declare the current goal finished, or say what blocks it.\n\nWhen to use: a goal is active — the operator asked you to keep working until something is done, and the harness keeps opening new rounds for you. Call this as soon as the goal's condition is actually met, and call it with reason \"blocked\" when you cannot make progress for a reason the next round cannot fix (a missing credential, a decision only a human can make, a failing external service).\n\nHow to use it: \"complete\" means the work is done and checkable — say in the note what proves it. \"blocked\" means you stopped for a reason; say precisely what is blocking and what a human would have to do. Do not call it to escape difficulty: being unsure how to continue is what the next round is for.\n\nWhat happens next: the harness records the reason in the session log and stops opening rounds. Nothing here writes files; this call returns the reason to the loop.\n\nExample arguments:\n{\"reason\":\"complete\",\"note\":\"cargo test --workspace and check.ps1 are green\"}".into(),
             schema: json!({

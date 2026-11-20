@@ -20,7 +20,7 @@
 //! decision was made from, so "the log says round 3" and "I am allowed to run
 //! round 3" are answered by one read.
 
-use forge_core::Event;
+use hearth_core::Event;
 
 use crate::domain::{continuation_prompt, Action, Goal, Reservation, RoundIdentity, StopReason};
 use crate::fold::{self, CheckIn};

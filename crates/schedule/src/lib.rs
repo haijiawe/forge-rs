@@ -22,9 +22,9 @@
 //! for the same answer.
 //!
 //! ```no_run
-//! use forge_schedule::{parse_rule, Registry, Task};
+//! use hearth_schedule::{parse_rule, Registry, Task};
 //!
-//! # fn main() -> forge_core::Result<()> {
+//! # fn main() -> hearth_core::Result<()> {
 //! let registry = Registry::open("schedules");
 //! let rule = parse_rule("FREQ=WEEKLY;BYDAY=MO,WE,FR;BYHOUR=9;BYMINUTE=0")?;
 //! let task = Task::new("FREQ=WEEKLY;BYDAY=MO,WE,FR;BYHOUR=9;BYMINUTE=0", "stand up", 1_794_906_000_000, 1_794_906_000_000);

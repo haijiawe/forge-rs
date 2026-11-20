@@ -1,11 +1,11 @@
 #!/usr/bin/env pwsh
-# Install a built `forge.exe` into a directory on your PATH.
+# Install a built `hearth.exe` into a directory on your PATH.
 #
 # This copies a binary you already have; it does not download anything. Run it
 # after `cargo build --release` (or point -Source at a release artifact).
 #
-#   pwsh scripts/install.ps1                      # copy target/release/forge.exe
-#   pwsh scripts/install.ps1 -Source bin\forge.exe
+#   pwsh scripts/install.ps1                      # copy target/release/hearth.exe
+#   pwsh scripts/install.ps1 -Source bin\hearth.exe
 #   pwsh scripts/install.ps1 -AddToPath           # also edit the user PATH
 #
 # Exits 0 when the installed copy answers `--version`, 1 otherwise. Every step
@@ -21,14 +21,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Resolve-ForgeSource {
+function Resolve-HearthSource {
     param([string]$explicit)
     $candidates = @()
     if ($explicit) {
         $candidates += $explicit
     } else {
-        $candidates += (Join-Path $PSScriptRoot "..\target\release\forge.exe")
-        $candidates += (Join-Path $PSScriptRoot "..\bin\forge.exe")
+        $candidates += (Join-Path $PSScriptRoot "..\target\release\hearth.exe")
+        $candidates += (Join-Path $PSScriptRoot "..\bin\hearth.exe")
     }
     foreach ($candidate in $candidates) {
         $full = [System.IO.Path]::GetFullPath($candidate)
@@ -36,35 +36,35 @@ function Resolve-ForgeSource {
             return $full
         }
     }
-    throw "no forge.exe found; build one with 'cargo build --release' or pass -Source"
+    throw "no hearth.exe found; build one with 'cargo build --release' or pass -Source"
 }
 
-function Get-ForgeVersion {
+function Get-HearthVersion {
     param([string]$binary)
     $output = & $binary --version 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "$binary --version exited $LASTEXITCODE"
     }
     $line = ($output | Select-Object -First 1).ToString()
-    if (-not $line.StartsWith("forge ")) {
-        throw "$binary does not look like forge: '$line'"
+    if (-not $line.StartsWith("hearth ")) {
+        throw "$binary does not look like hearth: '$line'"
     }
     return $line
 }
 
-$sourceFull = Resolve-ForgeSource -explicit $Source
-$sourceVersion = Get-ForgeVersion -binary $sourceFull
+$sourceFull = Resolve-HearthSource -explicit $Source
+$sourceVersion = Get-HearthVersion -binary $sourceFull
 Write-Host "source:  $sourceFull"
 Write-Host "version: $sourceVersion"
 
 if (-not $Prefix) {
-    $Prefix = Join-Path $env:LOCALAPPDATA "forge\bin"
+    $Prefix = Join-Path $env:LOCALAPPDATA "hearth\bin"
 }
 $prefixFull = [System.IO.Path]::GetFullPath($Prefix)
 if (-not (Test-Path -LiteralPath $prefixFull -PathType Container)) {
     New-Item -ItemType Directory -Force -Path $prefixFull | Out-Null
 }
-$target = Join-Path $prefixFull "forge.exe"
+$target = Join-Path $prefixFull "hearth.exe"
 
 # Replacing a running binary fails on Windows; say so instead of throwing an
 # opaque access-denied from Copy-Item.
@@ -73,12 +73,12 @@ if ((Test-Path -LiteralPath $target) -and -not $Force) {
         $stream = [System.IO.File]::Open($target, "Open", "ReadWrite", "None")
         $stream.Dispose()
     } catch {
-        throw "$target is in use (a running forge?). Close it or pass -Force after stopping it."
+        throw "$target is in use (a running hearth?). Close it or pass -Force after stopping it."
     }
 }
 
 Copy-Item -LiteralPath $sourceFull -Destination $target -Force
-$installedVersion = Get-ForgeVersion -binary $target
+$installedVersion = Get-HearthVersion -binary $target
 if ($installedVersion -ne $sourceVersion) {
     throw "installed copy reports '$installedVersion', expected '$sourceVersion'"
 }
@@ -102,4 +102,4 @@ if ($AddToPath -and -not $inUserPath) {
 }
 
 Write-Host ""
-Write-Host "next: forge doctor"
+Write-Host "next: hearth doctor"

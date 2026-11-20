@@ -1,5 +1,5 @@
 [package]
-name = "forge-sandbox"
+name = "hearth-sandbox"
 description = "containment: job objects, landlock, sandbox-exec"
 version.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-forge-core = { path = "../core" }
+hearth-core = { path = "../core" }
 # The Linux Landlock enforcer re-executes the harness as a wrapper; the spec
 # travels to that child as JSON because the environment is the only channel
 # that survives execve without a second binary.

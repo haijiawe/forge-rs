@@ -1,4 +1,4 @@
-# forge plugin protocol, version 1
+# hearth plugin protocol, version 1
 
 A plugin is a child process that speaks newline-delimited JSON-RPC 2.0 over stdin and
 stdout. One JSON object per line, UTF-8, terminated by `\n`. No pretty-printing, no length
@@ -108,7 +108,7 @@ have one call's result silently delivered to another.
 Params:
 
 ```json
-{ "protocolVersion": 1, "client": { "name": "forge", "version": "0.1.0" } }
+{ "protocolVersion": 1, "client": { "name": "hearth", "version": "0.1.0" } }
 ```
 
 Result:

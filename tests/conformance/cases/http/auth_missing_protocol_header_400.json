@@ -1,11 +1,11 @@
 {
   "name": "auth_missing_protocol_header_400",
-  "description": "An API request without X-Forge-Protocol is rejected with 400 protocol_required; a client that cannot state its version must not be guessed at.",
+  "description": "An API request without X-Hearth-Protocol is rejected with 400 protocol_required; a client that cannot state its version must not be guessed at.",
   "request": {
     "method": "GET",
     "path": "/api/sessions",
     "headers": {
-      "X-Forge-Protocol": ""
+      "X-Hearth-Protocol": ""
     }
   },
   "expect": {

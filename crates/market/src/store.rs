@@ -22,7 +22,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use forge_core::Result;
+use hearth_core::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{
@@ -273,8 +273,8 @@ impl Store {
                 return Ok(InstalledSet::default())
             }
             Err(err) => {
-                return Err(forge_core::Error::new(
-                    forge_core::ErrorKind::Io,
+                return Err(hearth_core::Error::new(
+                    hearth_core::ErrorKind::Io,
                     format!("market: cannot read {}: {err}", path.display()),
                 ))
             }
@@ -323,8 +323,8 @@ impl Store {
         // MOVEFILE_REPLACE_EXISTING), so the record is never half-written.
         fs::rename(&temporary, &path).map_err(|err| {
             let _ = fs::remove_file(&temporary);
-            forge_core::Error::new(
-                forge_core::ErrorKind::Io,
+            hearth_core::Error::new(
+                hearth_core::ErrorKind::Io,
                 format!("market: cannot replace {}: {err}", path.display()),
             )
         })?;
@@ -445,8 +445,10 @@ mod tests {
     }
 
     fn scratch(label: &str) -> PathBuf {
-        let path =
-            std::env::temp_dir().join(format!("forge-market-store-{}-{label}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "hearth-market-store-{}-{label}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&path);
         path
     }
@@ -500,7 +502,7 @@ mod tests {
         fs::write(root.join(RECORD_NAME), br#"{"version":2,"bundles":[]}"#).expect("write");
         let err = Store::new(&root).load().unwrap_err();
         assert!(err.to_string().starts_with(ERR_RECORD_VERSION), "{err}");
-        assert_eq!(err.kind(), forge_core::ErrorKind::UnsupportedVersion);
+        assert_eq!(err.kind(), hearth_core::ErrorKind::UnsupportedVersion);
         let _ = fs::remove_dir_all(&root);
     }
 

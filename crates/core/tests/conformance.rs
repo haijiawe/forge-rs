@@ -8,7 +8,7 @@
 //! Files live in `tests/conformance/cases/events/`, copied verbatim from
 //! `forge-go/tests/conformance/cases/events/`. See docs/08-rust-port.md §5.
 
-use forge_core::{event::parse_log, json::encode, ErrorKind};
+use hearth_core::{event::parse_log, json::encode, ErrorKind};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -184,7 +184,7 @@ trait UnwrapErrOrElse<E> {
     fn unwrap_err_or_else(self, case: &Case) -> E;
 }
 
-impl<E> UnwrapErrOrElse<E> for Result<Vec<forge_core::Event>, E> {
+impl<E> UnwrapErrOrElse<E> for Result<Vec<hearth_core::Event>, E> {
     fn unwrap_err_or_else(self, case: &Case) -> E {
         match self {
             Ok(events) => panic!(

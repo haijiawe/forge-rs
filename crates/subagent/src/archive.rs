@@ -16,7 +16,7 @@
 
 use std::path::Path;
 
-use forge_core::{Error, ErrorKind, EventType, Result};
+use hearth_core::{Error, ErrorKind, EventType, Result};
 
 use crate::authority;
 
@@ -100,12 +100,12 @@ pub fn payload(reason: &str) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use forge_core::{new_id, Event};
+    use hearth_core::{new_id, Event};
     use std::path::PathBuf;
 
     fn scratch(label: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("forge-archive-{label}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("hearth-archive-{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sessions")).expect("sessions dir");
         dir

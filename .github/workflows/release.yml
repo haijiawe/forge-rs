@@ -41,17 +41,17 @@ jobs:
             os: windows
             arch: amd64
             triple: x86_64-pc-windows-msvc
-            artifact: forge-windows-amd64.exe
+            artifact: hearth-windows-amd64.exe
           - runner: ubuntu-latest
             os: linux
             arch: amd64
             triple: x86_64-unknown-linux-gnu
-            artifact: forge-linux-amd64
+            artifact: hearth-linux-amd64
           - runner: macos-latest
             os: darwin
             arch: arm64
             triple: aarch64-apple-darwin
-            artifact: forge-darwin-arm64
+            artifact: hearth-darwin-arm64
 
     defaults:
       run:
@@ -59,7 +59,7 @@ jobs:
 
     env:
       # `.cargo/config.toml` deliberately pins no target directory: a path like
-      # "D:/forge-rs-target" is one segment containing a colon to a Linux
+      # "D:/hearth-target" is one segment containing a colon to a Linux
       # loader, which is exactly how the first hosted ubuntu job failed. Every
       # runner gets its target directory from here instead, next to the
       # checkout.
@@ -131,15 +131,15 @@ jobs:
       - name: Build release binary
         # No --offline on hosted runners: Cargo.lock is committed, so --locked
         # keeps the dependency set reproducible without needing the private
-        # local mirror. Building the workspace also builds the `forge` binary
+        # local mirror. Building the workspace also builds the `hearth` binary
         # in crates/cli, and runs crates/server/build.rs against web/dist.
         run: cargo build --release --locked
 
       - name: Stage artifact under its release name
         run: |
           set -euo pipefail
-          src="target/release/forge"
-          if [ "${{ matrix.os }}" = "windows" ]; then src="target/release/forge.exe"; fi
+          src="target/release/hearth"
+          if [ "${{ matrix.os }}" = "windows" ]; then src="target/release/hearth.exe"; fi
           test -f "${src}" || { echo "::error::${src} was not produced"; exit 1; }
           cp "${src}" "target/release/${{ matrix.artifact }}"
           ls -l "target/release/${{ matrix.artifact }}"
@@ -161,7 +161,7 @@ jobs:
           got="$("${bin}" --version)"
           echo "${got}"
           case "${got}" in
-            "forge 0.0.0-dev (unknown) ${{ matrix.os }}/${{ matrix.arch }} rustc "*) ;;
+            "hearth 0.0.0-dev (unknown) ${{ matrix.os }}/${{ matrix.arch }} rustc "*) ;;
             *) echo "::error::unexpected --version output: ${got}"; exit 1 ;;
           esac
           if ! grep -aq 'assets/index-' "${bin}"; then
@@ -177,7 +177,7 @@ jobs:
           $bin = "target/release/${{ matrix.artifact }}"
           $got = & $bin --version
           Write-Output $got
-          $expected = "forge 0.0.0-dev (unknown) ${{ matrix.os }}/${{ matrix.arch }} rustc "
+          $expected = "hearth 0.0.0-dev (unknown) ${{ matrix.os }}/${{ matrix.arch }} rustc "
           if (-not $got.StartsWith($expected)) {
             Write-Error "unexpected --version output: $got"
             exit 1
@@ -222,7 +222,7 @@ jobs:
         run: |
           set -euo pipefail
           export LC_ALL=C
-          sha256sum forge-* > SHA256SUMS
+          sha256sum hearth-* > SHA256SUMS
           sha256sum --check SHA256SUMS
           echo "----- SHA256SUMS -----"
           cat SHA256SUMS
@@ -230,9 +230,9 @@ jobs:
       - name: Upload combined release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: forge-release-artifacts
+          name: hearth-release-artifacts
           path: |
-            dist/forge-*
+            dist/hearth-*
             dist/SHA256SUMS
           if-no-files-found: error
           retention-days: 30
@@ -255,4 +255,4 @@ jobs:
             --title "${version}" \
             --generate-notes \
             --verify-tag \
-            forge-* SHA256SUMS
+            hearth-* SHA256SUMS

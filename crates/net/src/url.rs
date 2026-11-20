@@ -5,7 +5,7 @@
 //! malformed URL is reported once, at parse time, instead of producing a
 //! request line the server reads as a different resource.
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 
 /// A parsed absolute HTTP(S) URL.
 ///

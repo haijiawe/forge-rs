@@ -17,7 +17,7 @@ use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use forge_core::{new_id, Error, ErrorKind, Event, EventType, Result};
+use hearth_core::{new_id, Error, ErrorKind, Event, EventType, Result};
 use serde_json::{Map, Value};
 
 use crate::projection::Projection;

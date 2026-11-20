@@ -18,7 +18,7 @@ pub mod worktree;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use forge_exec::{Runner, Sandbox};
+use hearth_exec::{Runner, Sandbox};
 
 use crate::truncate::Limits;
 use crate::Tool;
@@ -45,7 +45,7 @@ pub use worktree::WorktreeTool;
 pub struct Options {
     pub limits: Limits,
     /// Network client. Without it, `web_fetch` and `web_search` are absent.
-    pub net: Option<Arc<forge_net::Client>>,
+    pub net: Option<Arc<hearth_net::Client>>,
     /// Search endpoint and key. Both must be present for `web_search`.
     pub search: Option<SearchConfig>,
     /// Where `present` writes its manifest.
@@ -100,7 +100,7 @@ pub fn all(options: &Options) -> Vec<Arc<dyn Tool>> {
     }
 
     // Registered unconditionally: with no data directory the tool falls back to
-    // `<workspace>/.forge/presented.jsonl` and says so, which is a visible
+    // `<workspace>/.hearth/presented.jsonl` and says so, which is a visible
     // degradation. An absent tool would be a silent one.
     tools.push(Arc::new(PresentTool::new(limits, options.data_dir.clone())));
 

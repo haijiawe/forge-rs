@@ -4,7 +4,7 @@ Date: 2026-11-20. Host: Windows, MSVC build, `python` = 3.14.5
 (`C:\Users\Administrator\AppData\Local\Python\pythoncore-3.14-64\python.exe`).
 
 This is the verification record for `skills/office/SKILL.md`. The probe behind it
-(`forge doctor`, `crates/cli/src/office.rs`) was already known to work; what had
+(`hearth doctor`, `crates/cli/src/office.rs`) was already known to work; what had
 never been tested is whether **the instructions themselves** produce a real
 document. They did not, in five places, which are now fixed. Everything below was
 run on this host; nothing here is inferred from the code.
@@ -12,7 +12,7 @@ run on this host; nothing here is inferred from the code.
 ## 1. The probe
 
 ```powershell
-& 'D:\forge-rs-target\forge-rs\debug\forge.exe' doctor
+& 'D:\hearth-target\hearth\debug\hearth.exe' doctor
 ```
 
 ```
@@ -26,13 +26,13 @@ LibreOffice is absent. That is the correct verdict for this machine.
 
 ## 2. Following the shipped skill literally
 
-Scratch directory `D:\forge-rs-target\office-check\`. Per SKILL.md §2 each
+Scratch directory `D:\hearth-target\office-check\`. Per SKILL.md §2 each
 document gets its own `.py` file, written with the file tool and run with the
 interpreter the doctor named (`python`). The scripts were copied from §2
 verbatim, with the §3 read-back appended to the docx one.
 
 ```powershell
-cd 'D:\forge-rs-target\office-check'
+cd 'D:\hearth-target\office-check'
 python make_docx.py    # paragraphs: 3
 python make_xlsx.py    # (no output: the snippet prints nothing)
 python make_pptx.py    # (no output: the snippet prints nothing)
@@ -68,8 +68,8 @@ pptx read-back slide count: 1                       <-- one slide, not two
 
 ### The five things that were wrong
 
-1. **§1 could not run.** `forge` is not on `PATH` on this host; the literal
-   command fails with `forge: 术语 'forge' 不会被识别为 cmdlet、函数、脚本文件或可执行程序的名称。`
+1. **§1 could not run.** `hearth` is not on `PATH` on this host; the literal
+   command fails with `hearth: 术语 'hearth' 不会被识别为 cmdlet、函数、脚本文件或可执行程序的名称。`
    and the skill offered no fallback, so a model following it could not obtain
    the line it is told to read.
 2. **§1 did not describe the answer it would get.** The example shows a single
@@ -92,8 +92,8 @@ working tree). No behavioural rule was weakened; §1's STOP rule, §3's
 "zero means not a deliverable", and the "never claim what you did not run" rule
 are untouched.
 
-* §1: how to run the probe when `forge` is not on `PATH`
-  (`cargo run -q -p forge-cli -- doctor` — verified below), and that `WARN` is
+* §1: how to run the probe when `hearth` is not on `PATH`
+  (`cargo run -q -p hearth-cli -- doctor` — verified below), and that `WARN` is
   still an answer.
 * §2 `.xlsx`: `sheet["B2"].number_format = "#,##0"` and why the value alone
   leaves `General`.
@@ -185,8 +185,8 @@ placeholder-index print the skill now recommends works.
 The probe fallback is real too — the exact command the patched §1 gives:
 
 ```powershell
-$env:CARGO_TARGET_DIR='D:\forge-rs-target\forge-rs'
-cargo run -q -p forge-cli -- doctor
+$env:CARGO_TARGET_DIR='D:\hearth-target\hearth'
+cargo run -q -p hearth-cli -- doctor
 ```
 
 ```
@@ -194,11 +194,11 @@ WARN  office     docx=python 3.14 xlsx=python 3.14 pptx=python 3.14 convert=miss
                  -> unavailable on this machine: format conversion (LibreOffice soffice). Install LibreOffice for format conversion; say so instead of writing an empty file.
 ```
 
-(`forge-cli`, not `forge`: an earlier draft of the fix said `-p forge`, and cargo
+(`hearth-cli`, not `hearth`: an earlier draft of the fix said `-p hearth`, and cargo
 refused it — verbatim, with backticks as cargo printed them:
 
 ```
-error: package(s) `forge` not found in workspace `D:\魔改版Agent框架\forge-rs`
+error: package(s) `hearth` not found in workspace `D:\魔改版Agent框架\hearth`
 ```
 
 exit 101. The skill text carries the verified package name.)
@@ -231,10 +231,10 @@ No `.pdf` and no 0-byte file was produced. A model following the patched §Conve
 answers, in words:
 
 > I cannot produce the PDF: LibreOffice (`soffice`) is not installed on this
-> machine, so `forge doctor` reports `convert=missing`. PDF conversion is done by
+> machine, so `hearth doctor` reports `convert=missing`. PDF conversion is done by
 > LibreOffice, which is a separate application and cannot be installed with
 > `python -m pip`. `quarterly-report.pdf` was **not** created. The `.docx` at
-> `D:\forge-rs-target\office-check\fixed.docx` is the deliverable; install
+> `D:\hearth-target\office-check\fixed.docx` is the deliverable; install
 > LibreOffice if a PDF is needed.
 
 ## 6. Verdict
@@ -258,7 +258,7 @@ What is **not** verified here:
 * `=SUM(B2:B3)` is stored as text and `B3` is empty, so nothing computed it. The
   formula is present and re-reads as `'=SUM(B2:B3)'`; no recalculation was
   performed, since openpyxl does not do that.
-* `forge doctor` on a machine that *has* LibreOffice, and the `OK` branch of §1,
+* `hearth doctor` on a machine that *has* LibreOffice, and the `OK` branch of §1,
   were not exercised: `convert` is missing here.
 
 ## Files
@@ -267,7 +267,7 @@ What is **not** verified here:
 | --- | --- |
 | `skills/office/SKILL.md` | patched, +58 −1 |
 | `docs/office-run.md` | this transcript |
-| `D:\forge-rs-target\office-check\make_*.py` | the three literal scripts |
-| `D:\forge-rs-target\office-check\fixed_*.py` | the three scripts from the patched skill |
-| `D:\forge-rs-target\office-check\verify.py`, `verify_fixed.py` | zip + XML + read-back checks |
-| `D:\forge-rs-target\office-check\refusal_check.py` | the conversion refusal probe |
+| `D:\hearth-target\office-check\make_*.py` | the three literal scripts |
+| `D:\hearth-target\office-check\fixed_*.py` | the three scripts from the patched skill |
+| `D:\hearth-target\office-check\verify.py`, `verify_fixed.py` | zip + XML + read-back checks |
+| `D:\hearth-target\office-check\refusal_check.py` | the conversion refusal probe |

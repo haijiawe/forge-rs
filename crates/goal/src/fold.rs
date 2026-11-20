@@ -5,7 +5,7 @@
 //! live. Both take a plain slice, so both are testable without a session, a
 //! store, or a clock (H3).
 
-use forge_core::{Error, ErrorKind, Event, Result};
+use hearth_core::{Error, ErrorKind, Event, Result};
 use serde_json::{Map, Value};
 
 use crate::domain::{

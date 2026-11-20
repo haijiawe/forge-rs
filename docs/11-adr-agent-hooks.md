@@ -34,7 +34,7 @@ was — same events, same request, same ordering. Determinism is preserved as th
 | Seam | When | What a hook may change | What it may not change |
 |---|---|---|---|
 | `pre-step` | before each provider call, after the inbox/steering is folded into history | the message list handed to the provider | the model id, the session, the tool specs, or any already-written event |
-| `request` | immediately after `Request` is built, before it is sent | the request's messages and tool descriptions | the model id (selecting a model is its own operation, not a rewrite), and nothing that would forge a `llm/call` counter |
+| `request` | immediately after `Request` is built, before it is sent | the request's messages and tool descriptions | the model id (selecting a model is its own operation, not a rewrite), and nothing that would hearth a `llm/call` counter |
 | `request-error` | after a request attempt fails and the transport policy would give up | nothing durable — it answers only "retry or not" (`HookOutcome::Retry`) | anything on the log; it writes no `hook/rewrite` line because it rewrites nothing |
 
 The two rewrite seams are the useful subset; `request-error` is the one case where
@@ -46,13 +46,13 @@ No other phase is added. The closed set lives in one place
 (`crates/agent`'s hook module) and a phase outside it is refused by name, the way
 `crates/plugin/src/protocol.rs` already refuses `"during_breakfast"`.
 
-## 3. Why Rust, inside `forge-agent`, not a new crate
+## 3. Why Rust, inside `hearth-agent`, not a new crate
 
 The seam is ~two `Option<Arc<dyn Fn>>` fields and two call sites. A crate for it
 would be a boundary with one interior edge and no second implementer. It lives in
-`forge-agent`, the crate that owns the loop. The plugin bridge that *fills* the
-seam lives in `crates/cli` (it needs `forge-plugin`), exactly as the MCP bridge
-does — `forge-agent` must not learn that plugins or Cordis exist.
+`hearth-agent`, the crate that owns the loop. The plugin bridge that *fills* the
+seam lives in `crates/cli` (it needs `hearth-plugin`), exactly as the MCP bridge
+does — `hearth-agent` must not learn that plugins or Cordis exist.
 
 ## 4. Why this is safe to ship
 

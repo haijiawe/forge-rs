@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::store::err_bad_cursor;
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 
 const MAX_CURSOR_BYTES: usize = 512;
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";

@@ -1,12 +1,12 @@
 //! Rust mirror of the Go `internal/llm/openai` test suite.
 //!
 //! The source modules are included by path so the provider can be tested in
-//! isolation. `use forge_llm::*` brings the frozen contract into this test
+//! isolation. `use hearth_llm::*` brings the frozen contract into this test
 //! crate's root, where the included modules' `use crate::{Delta, …}` resolves.
 //! It is deliberately private: a `pub use` here would now shadow the real
 //! re-exports from `src/lib.rs` and trip `-D hidden_glob_reexports`.
 
-use forge_llm::*;
+use hearth_llm::*;
 
 #[path = "../src/openai.rs"]
 mod openai;
@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use forge_core::Error;
+use hearth_core::Error;
 use openai::{
     parse_retry_after, transport_for_scheme, Client, Options, Transport, CODE_BAD_EVENT,
     CODE_CLOSED, CODE_INVALID_REQUEST, CODE_STREAM, CODE_TRANSPORT, MAX_ERROR_BODY,
@@ -897,8 +897,8 @@ fn invalid_request_fails_before_connecting() {
 #[test]
 fn new_defaults_precedence_and_bad_urls() {
     let _guard = env_lock();
-    std::env::remove_var("FORGE_BASE_URL");
-    std::env::remove_var("FORGE_API_KEY");
+    std::env::remove_var("HEARTH_BASE_URL");
+    std::env::remove_var("HEARTH_API_KEY");
     let client = Client::new(Options::default()).unwrap();
     assert_eq!(client.base_url(), "https://api.openai.com/v1");
 
@@ -915,8 +915,8 @@ fn new_defaults_precedence_and_bad_urls() {
 
     // Environment fallback: observe both values through a local server.
     let server = scripted(&[]);
-    std::env::set_var("FORGE_BASE_URL", format!("{}/", server.url()));
-    std::env::set_var("FORGE_API_KEY", "env-key");
+    std::env::set_var("HEARTH_BASE_URL", format!("{}/", server.url()));
+    std::env::set_var("HEARTH_API_KEY", "env-key");
     let client = Client::new(Options::default()).unwrap();
     assert_eq!(client.base_url(), server.url());
     let mut stream = client.stream(&request("gpt-4o")).unwrap();
@@ -943,8 +943,8 @@ fn new_defaults_precedence_and_bad_urls() {
     server.finish();
     server2.finish();
 
-    std::env::remove_var("FORGE_BASE_URL");
-    std::env::remove_var("FORGE_API_KEY");
+    std::env::remove_var("HEARTH_BASE_URL");
+    std::env::remove_var("HEARTH_API_KEY");
 }
 
 #[test]
@@ -1032,8 +1032,12 @@ fn unique_temp_dir(tag: &str) -> std::path::PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir =
-        std::env::temp_dir().join(format!("forge-llm-ca-{}-{}-{}", std::process::id(), tag, n));
+    let dir = std::env::temp_dir().join(format!(
+        "hearth-llm-ca-{}-{}-{}",
+        std::process::id(),
+        tag,
+        n
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -1064,7 +1068,7 @@ fn missing_ca_file_is_a_typed_io_error() {
     let path = dir.join("does-not-exist.pem");
 
     let err = openai::build_root_store(Some(&path)).unwrap_err();
-    assert_eq!(err.kind(), forge_core::ErrorKind::Io);
+    assert_eq!(err.kind(), hearth_core::ErrorKind::Io);
     let pe = provider_error(&err);
     assert_eq!(pe.code, CODE_TRANSPORT);
     assert!(!pe.retryable);
@@ -1087,7 +1091,7 @@ fn client_new_reports_a_bad_ca_file_before_any_connection() {
     })
     .err()
     .expect("expected a CA configuration error");
-    assert_eq!(err.kind(), forge_core::ErrorKind::Io);
+    assert_eq!(err.kind(), hearth_core::ErrorKind::Io);
     let pe = provider_error(&err);
     assert_eq!(pe.code, CODE_TRANSPORT);
 
@@ -1105,7 +1109,7 @@ fn malformed_ca_pem_is_a_typed_invalid_error() {
     .unwrap();
 
     let err = openai::build_root_store(Some(&path)).unwrap_err();
-    assert_eq!(err.kind(), forge_core::ErrorKind::Invalid);
+    assert_eq!(err.kind(), hearth_core::ErrorKind::Invalid);
     let pe = provider_error(&err);
     assert_eq!(pe.code, CODE_TRANSPORT);
     // The message names the file but never echoes its bytes.
@@ -1127,7 +1131,7 @@ fn ca_file_without_certificates_is_a_typed_invalid_error() {
     std::fs::write(&path, "").unwrap();
 
     let err = openai::build_root_store(Some(&path)).unwrap_err();
-    assert_eq!(err.kind(), forge_core::ErrorKind::Invalid);
+    assert_eq!(err.kind(), hearth_core::ErrorKind::Invalid);
     let pe = provider_error(&err);
     assert_eq!(pe.code, CODE_TRANSPORT);
     assert!(!err.to_string().contains("-----BEGIN"));

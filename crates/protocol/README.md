@@ -3,7 +3,7 @@ dir: crates/protocol
 layer: L2
 role: the wire types shared by the server and the UI
 public: []
-may_import: [forge-core]
+may_import: [hearth-core]
 must_not:
   - import a crate from a higher layer
   - claim behaviour that does not exist yet

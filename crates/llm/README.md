@@ -3,7 +3,7 @@ dir: crates/llm
 layer: L2
 role: provider contract and the OpenAI-compatible SSE client
 public: [Provider, Stream, Request, Message, ToolSpec, Delta, Usage, Aggregator, ProviderError, Client, Options, OpenAiStream, Canceller]
-may_import: [forge-core]
+may_import: [hearth-core]
 must_not:
   - import a crate from a higher layer
   - claim behaviour that does not exist yet
@@ -24,7 +24,7 @@ The frozen `contract.rs` surface (`Provider`, `Stream`, `Request`, `Message`, `T
 
 ## 依赖与边界
 
-Do not import `forge-session`: the provider must not know that a log exists, or replaying a stream becomes impossible to unit test. Do not add an async runtime; the stream is read on the calling thread.
+Do not import `hearth-session`: the provider must not know that a log exists, or replaying a stream becomes impossible to unit test. Do not add an async runtime; the stream is read on the calling thread.
 
 ## 不要做
 

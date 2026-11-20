@@ -9,7 +9,7 @@
 //!
 //! The rule this module exists to keep: **a probe that cannot answer says
 //! `unknown`, never `missing`, and never blocks.** Every child gets a deadline.
-//! `forge doctor` is what an operator runs when the machine is already
+//! `hearth doctor` is what an operator runs when the machine is already
 //! misbehaving, so a probe that waits forever would turn one diagnosis into a
 //! second outage. `stdin` is closed and `stderr` discarded, and only a handful of
 //! bytes are read from `stdout`, so a dead child cannot fill a pipe and stall the
@@ -47,11 +47,11 @@ const LIBRARIES: [(&str, &str); 3] = [("docx", "docx"), ("xlsx", "openpyxl"), ("
 /// probe must not misreport "missing" because the only interpreter is old.
 const PROBE_SCRIPT: &str = concat!(
     "import importlib, sys\n",
-    "print('forge-office python %d.%d' % sys.version_info[:2])\n",
+    "print('hearth-office python %d.%d' % sys.version_info[:2])\n",
     "for name in ('docx', 'openpyxl', 'pptx'):\n",
     "    try:\n",
     "        importlib.import_module(name)\n",
-    "        print('forge-office module ' + name)\n",
+    "        print('hearth-office module ' + name)\n",
     "    except Exception:\n",
     "        pass\n",
 );
@@ -320,7 +320,7 @@ fn interpreter_candidates() -> Vec<Vec<&'static str>> {
 /// answer seen.
 ///
 /// One answering interpreter is the toolchain, so the loop stops as soon as one
-/// imports all three: three interpreter starts per `forge doctor` would be a real
+/// imports all three: three interpreter starts per `hearth doctor` would be a real
 /// cost on a cold box, and a second answer would only disagree if the operator
 /// had deliberately built two unrelated Pythons. A launcher that answers with
 /// *nothing* importable is clearly not the toolchain, so the loop keeps looking.
@@ -371,7 +371,7 @@ fn parse_answer(launcher: &str, text: &str) -> Option<Answer> {
     let mut version: Option<String> = None;
     let mut modules: Vec<String> = Vec::new();
     for line in text.lines() {
-        let Some(rest) = line.trim().strip_prefix("forge-office ") else {
+        let Some(rest) = line.trim().strip_prefix("hearth-office ") else {
             continue;
         };
         if let Some(found) = rest.strip_prefix("python ") {
@@ -616,7 +616,7 @@ mod tests {
 
     #[test]
     fn the_script_marker_parses_the_version_and_the_modules() {
-        let text = "forge-office python 3.12\nforge-office module docx\n";
+        let text = "hearth-office python 3.12\nhearth-office module docx\n";
         let answer = parse_answer("python", text).expect("an answer");
         assert_eq!(answer.label, "python 3.12");
         assert_eq!(answer.modules, vec!["docx"]);
@@ -624,7 +624,7 @@ mod tests {
 
     #[test]
     fn a_launcher_other_than_python_is_named_in_the_label() {
-        let text = "forge-office python 3.12\n";
+        let text = "hearth-office python 3.12\n";
         let answer = parse_answer("py -3", text).expect("an answer");
         assert_eq!(answer.label, "python 3.12 via py -3");
     }
@@ -638,7 +638,7 @@ mod tests {
     #[test]
     fn a_program_that_is_not_installed_is_missing_not_unknown() {
         let outcome = run_capped(
-            Command::new("forge-definitely-not-a-program-2c9f"),
+            Command::new("hearth-definitely-not-a-program-2c9f"),
             Duration::from_secs(1),
         );
         match &outcome {

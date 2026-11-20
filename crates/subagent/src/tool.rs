@@ -6,10 +6,10 @@
 
 use std::sync::Arc;
 
-use forge_agent::Cancel;
-use forge_core::Error;
-use forge_llm::ToolSpec;
-use forge_tool::{Call, Result as ToolResult, Tool, CODE_CANCELLED, ERR_BAD_ARGS};
+use hearth_agent::Cancel;
+use hearth_core::Error;
+use hearth_llm::ToolSpec;
+use hearth_tool::{Call, Result as ToolResult, Tool, CODE_CANCELLED, ERR_BAD_ARGS};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -185,7 +185,7 @@ impl Tool for DelegateTool {
             return match run {
                 Ok(out) => result(out, None, false),
                 Err(e) => {
-                    if forge_agent::is_cancelled(&e) {
+                    if hearth_agent::is_cancelled(&e) {
                         cancelled_result("")
                     } else {
                         result(ChildRun::default(), Some(e), false)
@@ -291,7 +291,7 @@ impl Tool for DelegateTool {
         let out = match run {
             Ok(out) => out,
             Err(e) => {
-                if forge_agent::is_cancelled(&e) {
+                if hearth_agent::is_cancelled(&e) {
                     return cancelled_result("");
                 }
                 return result(ChildRun::default(), Some(e), schema.is_some());

@@ -1,8 +1,8 @@
 //! The three tools that make a compressed block addressable.
 //!
-//! They live in the CLI rather than in `forge-tool` for the same reason the MCP
+//! They live in the CLI rather than in `hearth-tool` for the same reason the MCP
 //! and plugin bridges do: they need the *log*, which is an L2 concern owned by
-//! the surface that knows which session is running. `forge-tool` sees an
+//! the surface that knows which session is running. `hearth-tool` sees an
 //! `Arc<dyn Tool>` and nothing else.
 //!
 //! Three rules:
@@ -21,13 +21,13 @@
 
 use std::path::{Path, PathBuf};
 
-use forge_context::{Block, Ledger, ERR_OVERLAP};
-use forge_core::event::Event;
-use forge_core::ids::new_id;
-use forge_core::{Error, Result as CoreResult};
-use forge_llm::ToolSpec;
-use forge_session::Store;
-use forge_tool::{decode_args, truncate, Call, Limits, Result as ToolResult, Tool, ERR_BAD_ARGS};
+use hearth_context::{Block, Ledger, ERR_OVERLAP};
+use hearth_core::event::Event;
+use hearth_core::ids::new_id;
+use hearth_core::{Error, Result as CoreResult};
+use hearth_llm::ToolSpec;
+use hearth_session::Store;
+use hearth_tool::{decode_args, truncate, Call, Limits, Result as ToolResult, Tool, ERR_BAD_ARGS};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -45,7 +45,7 @@ pub const CODE_BAD_RANGE: &str = "bad_range";
 
 /// The store for one log. Opening is cheap; the file is only read when asked.
 fn open(log: &Path) -> CoreResult<Store> {
-    Store::open(log, forge_session::Options::default())
+    Store::open(log, hearth_session::Options::default())
 }
 
 fn read_events(store: &Store) -> CoreResult<Vec<Event>> {
@@ -78,13 +78,13 @@ fn failed(err: Error) -> ToolResult {
     let message = err.message().to_string();
     let code = if message.starts_with(ERR_OVERLAP) {
         CODE_OVERLAP
-    } else if message.starts_with(forge_context::ERR_BAD_BLOCK)
-        || message.starts_with(forge_context::ERR_EMPTY_SUMMARY)
-        || message.starts_with(forge_context::ERR_BLOCK_TOO_LARGE)
+    } else if message.starts_with(hearth_context::ERR_BAD_BLOCK)
+        || message.starts_with(hearth_context::ERR_EMPTY_SUMMARY)
+        || message.starts_with(hearth_context::ERR_BLOCK_TOO_LARGE)
     {
         ERR_BAD_ARGS
     } else {
-        forge_tool::CODE_IO_ERROR
+        hearth_tool::CODE_IO_ERROR
     };
     ToolResult::error(code, message)
 }
@@ -446,17 +446,17 @@ pub fn hidden_hook(log: &Path) -> impl Fn(u64) -> bool + Send + Sync + 'static {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use forge_core::event::EventType;
+    use hearth_core::event::EventType;
 
     fn scratch(label: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("forge-ctx-{label}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-ctx-{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("dir");
         dir.join("session.jsonl")
     }
 
     fn seed(log: &Path, count: usize) -> Store {
-        let store = Store::open(log, forge_session::Options::default()).expect("open");
+        let store = Store::open(log, hearth_session::Options::default()).expect("open");
         for _ in 0..count {
             let event = Event::new(
                 "s_01jya7c9q3r5t7v9w1x3y5z7",
@@ -492,7 +492,7 @@ mod tests {
         assert_eq!(payload["from"], json!(1));
         assert_eq!(payload["to"], json!(3));
         assert_eq!(payload["summary"], json!("the first three"));
-        let parsed = forge_context::wire::decode(&payload, 9).expect("decodes");
+        let parsed = hearth_context::wire::decode(&payload, 9).expect("decodes");
         assert_eq!(parsed.span(), 3);
         assert!(result.output.contains(&parsed.id), "{}", result.output);
     }
@@ -550,10 +550,10 @@ mod tests {
         let log = scratch("overlap");
         let store = seed(&log, 6);
         let first =
-            forge_context::Block::new("d1b2c3d4e5f60718293a4b5c6d7e8f93", 1, 3, "the first three")
+            hearth_context::Block::new("d1b2c3d4e5f60718293a4b5c6d7e8f93", 1, 3, "the first three")
                 .expect("block");
-        let event =
-            forge_context::context_compressed("s_01jya7c9q3r5t7v9w1x3y5z7", &first).expect("event");
+        let event = hearth_context::context_compressed("s_01jya7c9q3r5t7v9w1x3y5z7", &first)
+            .expect("event");
         store.append(&event).expect("append");
 
         let tool = CompressTool::new(Limits::default(), &log);
@@ -578,8 +578,8 @@ mod tests {
             "two messages about a message",
         )
         .expect("block");
-        let event =
-            forge_context::context_compressed("s_01jya7c9q3r5t7v9w1x3y5z7", &block).expect("event");
+        let event = hearth_context::context_compressed("s_01jya7c9q3r5t7v9w1x3y5z7", &block)
+            .expect("event");
         store.append(&event).expect("append");
 
         let tool = DecompressTool::new(Limits::default(), &log);
@@ -628,8 +628,8 @@ mod tests {
             "we settled the bench tolerance question",
         )
         .expect("block");
-        let event =
-            forge_context::context_compressed("s_01jya7c9q3r5t7v9w1x3y5z7", &block).expect("event");
+        let event = hearth_context::context_compressed("s_01jya7c9q3r5t7v9w1x3y5z7", &block)
+            .expect("event");
         store.append(&event).expect("append");
 
         let tool = SearchContextTool::new(Limits::default(), &log);

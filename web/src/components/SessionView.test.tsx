@@ -1,15 +1,15 @@
 // Turn-control wiring, end to end: the real Composer + SessionStore + SessionView
-// against a fake ForgeApi and a fake WebSocket. What the Composer test cannot
+// against a fake HearthApi and a fake WebSocket. What the Composer test cannot
 // see live here: the session id on the wire, that a running turn's Enter goes to
 // POST /steer instead of POST /messages, and that a failed steer becomes a
 // visible role="alert" banner without losing the draft.
 //
 // No second harness: mount/flush/waitFor/interact/typeInto all come from
 // test/render.tsx. The fake API is a local object literal because render.tsx has
-// no API fixture (client.ts only says ForgeApi exists so tests can fake it).
+// no API fixture (client.ts only says HearthApi exists so tests can fake it).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
-import type { ForgeApi } from '../api/client';
+import type { HearthApi } from '../api/client';
 import type { CancelResponse, EventsPage, SessionDetail } from '../api/types';
 import type { EventEnvelope } from '../api/events';
 import { SessionView } from './SessionView';
@@ -67,8 +67,8 @@ class FakeWebSocket {
   }
 }
 
-function fakeApi(overrides: Partial<ForgeApi> = {}): ForgeApi {
-  const base: ForgeApi = {
+function fakeApi(overrides: Partial<HearthApi> = {}): HearthApi {
+  const base: HearthApi = {
     listSessions: vi.fn(async () => ({ sessions: [] })),
     getSession: vi.fn(async () => sessionDetail),
     events: vi.fn(async () => eventsPage(['session/start'])),
@@ -97,7 +97,7 @@ function fakeApi(overrides: Partial<ForgeApi> = {}): ForgeApi {
   return { ...base, ...overrides };
 }
 
-function mountView(api: ForgeApi) {
+function mountView(api: HearthApi) {
   return mount(
     <SessionView api={api} sessionId="sess-1" token="tok" onBack={() => undefined} />,
   );

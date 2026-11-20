@@ -1,9 +1,9 @@
-//! `forge subagent`: inspect, resume, and (in worker mode) run a child.
+//! `hearth subagent`: inspect, resume, and (in worker mode) run a child.
 //!
 //! The catalog lives in the parent's own log: every `subagent/catalog` row the
 //! loop appended when it started a child. `list` only reads that log. `prompt`
 //! appends a turn to a continuable child in the place it ran. `worker` is the
-//! other end of [`forge_subagent::ProcessBackend`]: it reads one request line on
+//! other end of [`hearth_subagent::ProcessBackend`]: it reads one request line on
 //! stdin, runs that child here, and writes one response line on stdout. Worker
 //! is what makes "out of process" real — a second copy of *our own binary* with
 //! its own memory and crash domain, not a call to any external service.
@@ -12,13 +12,13 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use forge_llm::{Client as LlmClient, Options as LlmOptions, Provider};
+use hearth_llm::{Client as LlmClient, Options as LlmOptions, Provider};
 
 const EXIT_OK: i32 = 0;
 const EXIT_FAILURE: i32 = 1;
 const EXIT_USAGE: i32 = 2;
 
-pub const USAGE: &str = "usage: forge subagent <command> [flags]
+pub const USAGE: &str = "usage: hearth subagent <command> [flags]
 
 Inspect the children a session started, walk the tree below one, resume or stop a
 child, or run a child in worker mode. The listings read `subagent/catalog` events
@@ -41,7 +41,7 @@ flags:
   --text <prompt>      the prompt for `prompt`
   --model <name>       override the model for `prompt`
   --as <id|user>       who is asking, for `interrupt` (default: user)
-  --data-dir <dir>     data directory (default: the forge home's configured dataDir)
+  --data-dir <dir>     data directory (default: the hearth home's configured dataDir)
   -h, --help           this message
 
 stdout: the listing, the tree, the resolved id, the timing, or the child's answer.
@@ -91,7 +91,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         other => {
             let _ = writeln!(
                 stderr,
-                "forge subagent: unknown command {other:?}\n\n{USAGE}"
+                "hearth subagent: unknown command {other:?}\n\n{USAGE}"
             );
             EXIT_USAGE
         }
@@ -122,7 +122,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
                     match args.get(*index) {
                         Some(value) => Ok(value.clone()),
                         None => {
-                            let _ = writeln!(stderr, "forge subagent: --{name} needs a value");
+                            let _ = writeln!(stderr, "hearth subagent: --{name} needs a value");
                             Err(EXIT_USAGE)
                         }
                     }
@@ -137,7 +137,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
             "model" => opt.model = take(&mut i)?,
             "as" => opt.actor = take(&mut i)?,
             other => {
-                let _ = writeln!(stderr, "forge subagent: unknown flag --{other}");
+                let _ = writeln!(stderr, "hearth subagent: unknown flag --{other}");
                 return Err(EXIT_USAGE);
             }
         }
@@ -155,9 +155,9 @@ fn resolve_data_dir(opt: &Options) -> std::result::Result<PathBuf, i32> {
 
 /// Best-effort config; a missing or broken config is not fatal for these
 /// commands because the data dir and model can be given on the command line.
-fn load_config() -> Option<forge_config::Config> {
-    let path = forge_config::default_path().ok()?;
-    forge_config::Config::load(&path).ok()
+fn load_config() -> Option<hearth_config::Config> {
+    let path = hearth_config::default_path().ok()?;
+    hearth_config::Config::load(&path).ok()
 }
 
 /// The named backends from config, and whether each program can be found. The
@@ -254,7 +254,7 @@ fn which(program: &str) -> Option<PathBuf> {
 
 fn list(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     if opt.session.is_empty() {
-        let _ = writeln!(stderr, "forge subagent: list needs --session <id>");
+        let _ = writeln!(stderr, "hearth subagent: list needs --session <id>");
         return EXIT_USAGE;
     }
     let data_dir = match resolve_data_dir(opt) {
@@ -268,15 +268,15 @@ fn list(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
         // A missing log is not "no children": it means there is no such session.
         let _ = writeln!(
             stderr,
-            "forge subagent: no such session log: {}",
+            "hearth subagent: no such session log: {}",
             path.display()
         );
         return EXIT_FAILURE;
     }
-    let entries = match forge_subagent::list::children_in_log(&path) {
+    let entries = match hearth_subagent::list::children_in_log(&path) {
         Ok(entries) => entries,
         Err(err) => {
-            let _ = writeln!(stderr, "forge subagent: {}: {err}", path.display());
+            let _ = writeln!(stderr, "hearth subagent: {}: {err}", path.display());
             return EXIT_FAILURE;
         }
     };
@@ -286,14 +286,14 @@ fn list(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
             .unwrap_or_else(|_| "[]".to_string());
         let _ = writeln!(stdout, "{text}");
     } else {
-        let _ = stdout.write_all(forge_subagent::list::render(&entries).as_bytes());
+        let _ = stdout.write_all(hearth_subagent::list::render(&entries).as_bytes());
     }
     EXIT_OK
 }
 
 fn tree(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     let Some(root) = rest.first() else {
-        let _ = writeln!(stderr, "forge subagent: tree needs a root session id");
+        let _ = writeln!(stderr, "hearth subagent: tree needs a root session id");
         return EXIT_USAGE;
     };
     let data_dir = match resolve_data_dir(opt) {
@@ -307,15 +307,15 @@ fn tree(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut dyn
     if !log.is_file() {
         let _ = writeln!(
             stderr,
-            "forge subagent: no such session log: {}",
+            "hearth subagent: no such session log: {}",
             log.display()
         );
         return EXIT_FAILURE;
     }
-    let nodes = match forge_subagent::list::descendants(&data_dir, root) {
+    let nodes = match hearth_subagent::list::descendants(&data_dir, root) {
         Ok(nodes) => nodes,
         Err(err) => {
-            let _ = writeln!(stderr, "forge subagent: {root}: {}", err.message());
+            let _ = writeln!(stderr, "hearth subagent: {root}: {}", err.message());
             return EXIT_FAILURE;
         }
     };
@@ -326,12 +326,12 @@ fn tree(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut dyn
         let _ = writeln!(stdout, "{text}");
         return EXIT_OK;
     }
-    let rendered = forge_subagent::list::render_tree(&nodes);
+    let rendered = hearth_subagent::list::render_tree(&nodes);
     let _ = stdout.write_all(rendered.as_bytes());
     EXIT_OK
 }
 
-fn node_json(node: &forge_subagent::list::Node) -> serde_json::Value {
+fn node_json(node: &hearth_subagent::list::Node) -> serde_json::Value {
     let children: Vec<serde_json::Value> = node.children.iter().map(node_json).collect();
     let mut row = node.entry.to_payload();
     if let Some(object) = row.as_object_mut() {
@@ -355,7 +355,7 @@ fn resolve(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut 
     let (Some(root), Some(name)) = (rest.first(), rest.get(1)) else {
         let _ = writeln!(
             stderr,
-            "forge subagent: resolve needs a root session id and a name"
+            "hearth subagent: resolve needs a root session id and a name"
         );
         return EXIT_USAGE;
     };
@@ -363,7 +363,7 @@ fn resolve(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut 
         Ok(dir) => dir,
         Err(code) => return code,
     };
-    match forge_subagent::list::resolve_name(&data_dir, root, name) {
+    match hearth_subagent::list::resolve_name(&data_dir, root, name) {
         Ok(session_id) => {
             if opt.json {
                 let row = serde_json::json!({
@@ -379,7 +379,7 @@ fn resolve(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut 
             EXIT_OK
         }
         Err(err) => {
-            let _ = writeln!(stderr, "forge subagent: {name}: {}", err.message());
+            let _ = writeln!(stderr, "hearth subagent: {name}: {}", err.message());
             EXIT_FAILURE
         }
     }
@@ -391,7 +391,7 @@ fn timing(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut d
         Err(code) => return code,
     };
     if let Some(child) = rest.first() {
-        return match forge_subagent::timing::of_child(&data_dir, child) {
+        return match hearth_subagent::timing::of_child(&data_dir, child) {
             Ok(timing) => {
                 if opt.json {
                     let text = serde_json::to_string_pretty(&timing_json(&timing))
@@ -403,13 +403,13 @@ fn timing(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut d
                 EXIT_OK
             }
             Err(err) => {
-                let _ = writeln!(stderr, "forge subagent: {child}: {}", err.message());
+                let _ = writeln!(stderr, "hearth subagent: {child}: {}", err.message());
                 EXIT_FAILURE
             }
         };
     }
     if !opt.session.is_empty() {
-        return match forge_subagent::timing::children(&data_dir, &opt.session) {
+        return match hearth_subagent::timing::children(&data_dir, &opt.session) {
             Ok(all) => {
                 if opt.json {
                     let rows: Vec<serde_json::Value> = all.iter().map(timing_json).collect();
@@ -417,7 +417,7 @@ fn timing(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut d
                         .unwrap_or_else(|_| "[]".to_string());
                     let _ = writeln!(stdout, "{text}");
                 } else if all.is_empty() {
-                    let _ = writeln!(stdout, "forge subagent: {} has no children", opt.session);
+                    let _ = writeln!(stdout, "hearth subagent: {} has no children", opt.session);
                 } else {
                     for timing in &all {
                         let _ = writeln!(stdout, "{}", timing_line(timing));
@@ -426,19 +426,24 @@ fn timing(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut d
                 EXIT_OK
             }
             Err(err) => {
-                let _ = writeln!(stderr, "forge subagent: {}: {}", opt.session, err.message());
+                let _ = writeln!(
+                    stderr,
+                    "hearth subagent: {}: {}",
+                    opt.session,
+                    err.message()
+                );
                 EXIT_FAILURE
             }
         };
     }
     let _ = writeln!(
         stderr,
-        "forge subagent: timing needs a child id or --session <id>"
+        "hearth subagent: timing needs a child id or --session <id>"
     );
     EXIT_USAGE
 }
 
-fn timing_json(timing: &forge_subagent::Timing) -> serde_json::Value {
+fn timing_json(timing: &hearth_subagent::Timing) -> serde_json::Value {
     serde_json::json!({
         "sessionId": timing.child_id,
         "settledMs": timing.settled_ms,
@@ -448,7 +453,7 @@ fn timing_json(timing: &forge_subagent::Timing) -> serde_json::Value {
     })
 }
 
-fn timing_line(timing: &forge_subagent::Timing) -> String {
+fn timing_line(timing: &hearth_subagent::Timing) -> String {
     let state = if timing.active { "active" } else { "idle" };
     let closed = match timing.last_turn_completed {
         Some(ts) => format!("last closed at {ts}"),
@@ -464,25 +469,25 @@ fn build_runner(
     opt: &Options,
     workspace: &str,
     model: &str,
-) -> std::result::Result<forge_subagent::Runner, String> {
+) -> std::result::Result<hearth_subagent::Runner, String> {
     let client = LlmClient::new(LlmOptions::default())
         .map_err(|e| format!("no LLM provider: {}", e.message()))?;
     let provider: Arc<dyn Provider> = Arc::new(client);
     let data_dir =
         resolve_data_dir(opt).map_err(|_| "cannot resolve the data directory".to_string())?;
     let mut sub =
-        forge_subagent::Options::new(provider, data_dir, workspace.to_string(), model.to_string());
+        hearth_subagent::Options::new(provider, data_dir, workspace.to_string(), model.to_string());
     sub.system = String::new();
-    forge_subagent::Runner::new(sub).map_err(|e| e.message().to_string())
+    hearth_subagent::Runner::new(sub).map_err(|e| e.message().to_string())
 }
 
 fn prompt(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     let Some(child) = rest.first() else {
-        let _ = writeln!(stderr, "forge subagent: prompt needs a child id");
+        let _ = writeln!(stderr, "hearth subagent: prompt needs a child id");
         return EXIT_USAGE;
     };
     if opt.text.trim().is_empty() {
-        let _ = writeln!(stderr, "forge subagent: prompt needs --text <prompt>");
+        let _ = writeln!(stderr, "hearth subagent: prompt needs --text <prompt>");
         return EXIT_USAGE;
     }
     let cfg = load_config();
@@ -497,7 +502,7 @@ fn prompt(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut d
     let runner = match build_runner(opt, &workspace, &model) {
         Ok(runner) => runner,
         Err(message) => {
-            let _ = writeln!(stderr, "forge subagent: {message}");
+            let _ = writeln!(stderr, "hearth subagent: {message}");
             return EXIT_FAILURE;
         }
     };
@@ -507,7 +512,7 @@ fn prompt(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut d
             EXIT_OK
         }
         Err(err) => {
-            let _ = writeln!(stderr, "forge subagent: {}", err.message());
+            let _ = writeln!(stderr, "hearth subagent: {}", err.message());
             EXIT_FAILURE
         }
     }
@@ -520,7 +525,7 @@ fn interrupt(
     stderr: &mut dyn Write,
 ) -> i32 {
     let Some(child) = rest.first() else {
-        let _ = writeln!(stderr, "forge subagent: interrupt needs a child id");
+        let _ = writeln!(stderr, "hearth subagent: interrupt needs a child id");
         return EXIT_USAGE;
     };
     let data_dir = match resolve_data_dir(opt) {
@@ -532,27 +537,27 @@ fn interrupt(
     // marker file is just transport; this check is the policy. Default is the
     // operator, because a person typing this command is one.
     let caller = if opt.actor.is_empty() || opt.actor == "user" {
-        forge_subagent::authority::Caller::User
+        hearth_subagent::authority::Caller::User
     } else {
-        forge_subagent::authority::Caller::Session(opt.actor.clone())
+        hearth_subagent::authority::Caller::Session(opt.actor.clone())
     };
-    if let forge_subagent::authority::Verdict::Deny(reason) =
-        forge_subagent::authority::check(&data_dir, &caller, child)
+    if let hearth_subagent::authority::Verdict::Deny(reason) =
+        hearth_subagent::authority::check(&data_dir, &caller, child)
     {
-        let _ = writeln!(stderr, "forge subagent: {reason}");
+        let _ = writeln!(stderr, "hearth subagent: {reason}");
         return EXIT_FAILURE;
     }
-    match forge_subagent::cancel_file::request(&data_dir, child) {
+    match hearth_subagent::cancel_file::request(&data_dir, child) {
         Ok(path) => {
             let _ = writeln!(
                 stdout,
-                "forge subagent: interrupt requested for {child} (marker: {})",
+                "hearth subagent: interrupt requested for {child} (marker: {})",
                 path.display()
             );
             EXIT_OK
         }
         Err(err) => {
-            let _ = writeln!(stderr, "forge subagent: {}", err.message());
+            let _ = writeln!(stderr, "hearth subagent: {}", err.message());
             EXIT_FAILURE
         }
     }
@@ -565,7 +570,7 @@ fn worker(stdout: &mut dyn Write) -> i32 {
     let mut input = String::new();
     if std::io::stdin().read_to_string(&mut input).is_err() {
         let line =
-            forge_subagent::BackendOutcome::failure("io", "cannot read the request from stdin");
+            hearth_subagent::BackendOutcome::failure("io", "cannot read the request from stdin");
         let _ = writeln!(
             stdout,
             "{}",
@@ -574,7 +579,7 @@ fn worker(stdout: &mut dyn Write) -> i32 {
         return EXIT_FAILURE;
     }
     let Some(first) = input.lines().next() else {
-        let line = forge_subagent::BackendOutcome::failure("usage", "empty request");
+        let line = hearth_subagent::BackendOutcome::failure("usage", "empty request");
         let _ = writeln!(
             stdout,
             "{}",
@@ -582,10 +587,10 @@ fn worker(stdout: &mut dyn Write) -> i32 {
         );
         return EXIT_USAGE;
     };
-    let request: forge_subagent::BackendRequest = match serde_json::from_str(first) {
+    let request: hearth_subagent::BackendRequest = match serde_json::from_str(first) {
         Ok(request) => request,
         Err(err) => {
-            let line = forge_subagent::BackendOutcome::failure("bad_request", format!("{err}"));
+            let line = hearth_subagent::BackendOutcome::failure("bad_request", format!("{err}"));
             let _ = writeln!(
                 stdout,
                 "{}",
@@ -604,7 +609,7 @@ fn worker(stdout: &mut dyn Write) -> i32 {
     EXIT_OK
 }
 
-fn run_worker(request: &forge_subagent::BackendRequest) -> forge_subagent::BackendOutcome {
+fn run_worker(request: &hearth_subagent::BackendRequest) -> hearth_subagent::BackendOutcome {
     let cfg = load_config();
     let model = request
         .model
@@ -623,12 +628,12 @@ fn run_worker(request: &forge_subagent::BackendRequest) -> forge_subagent::Backe
     let opt = Options::default();
     let runner = match build_runner(&opt, &workspace, &model) {
         Ok(runner) => runner,
-        Err(message) => return forge_subagent::BackendOutcome::failure("provider", message),
+        Err(message) => return hearth_subagent::BackendOutcome::failure("provider", message),
     };
 
     if request.op == "resume" {
         let Some(child) = &request.child else {
-            return forge_subagent::BackendOutcome::failure(
+            return hearth_subagent::BackendOutcome::failure(
                 "bad_request",
                 "resume needs a child id",
             );
@@ -640,7 +645,7 @@ fn run_worker(request: &forge_subagent::BackendRequest) -> forge_subagent::Backe
             "",
         ) {
             Ok(run) => {
-                let mut out = forge_subagent::BackendOutcome::success(
+                let mut out = hearth_subagent::BackendOutcome::success(
                     &run.id, &run.text, run.turns, run.steps,
                 );
                 if let Some(value) = run.structured {
@@ -648,7 +653,7 @@ fn run_worker(request: &forge_subagent::BackendRequest) -> forge_subagent::Backe
                 }
                 out
             }
-            Err(err) => forge_subagent::BackendOutcome::failure("resume_failed", err.message()),
+            Err(err) => hearth_subagent::BackendOutcome::failure("resume_failed", err.message()),
         };
     }
 
@@ -658,10 +663,10 @@ fn run_worker(request: &forge_subagent::BackendRequest) -> forge_subagent::Backe
     let mode = request
         .mode
         .as_deref()
-        .and_then(forge_subagent::Mode::parse)
-        .unwrap_or(forge_subagent::Mode::OneShot);
-    let ctx = forge_subagent::CallContext {
-        cancel: forge_agent::Cancel::default(),
+        .and_then(hearth_subagent::Mode::parse)
+        .unwrap_or(hearth_subagent::Mode::OneShot);
+    let ctx = hearth_subagent::CallContext {
+        cancel: hearth_agent::Cancel::default(),
         parent_session_id: String::new(),
         workspace: workspace.clone(),
     };
@@ -671,19 +676,19 @@ fn run_worker(request: &forge_subagent::BackendRequest) -> forge_subagent::Backe
         request.system.as_deref().unwrap_or(""),
         "",
         request.schema.clone(),
-        forge_subagent::Mode::OneShot,
+        hearth_subagent::Mode::OneShot,
         None,
     ) {
         Ok(run) => {
             let _ = mode;
             let mut out =
-                forge_subagent::BackendOutcome::success(&run.id, &run.text, run.turns, run.steps);
+                hearth_subagent::BackendOutcome::success(&run.id, &run.text, run.turns, run.steps);
             if let Some(value) = run.structured {
                 out = out.with_structured(value);
             }
             out
         }
-        Err(err) => forge_subagent::BackendOutcome::failure("run_failed", err.message()),
+        Err(err) => hearth_subagent::BackendOutcome::failure("run_failed", err.message()),
     }
 }
 
@@ -747,7 +752,7 @@ mod tests {
 
     #[test]
     fn interrupt_writes_a_marker_next_to_the_child_log() {
-        let root = std::env::temp_dir().join(format!("forge-cli-int-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hearth-cli-int-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let opt = Options {
             data_dir: root.to_string_lossy().into_owned(),
@@ -803,18 +808,18 @@ mod tests {
     /// A data directory holding one session log with only its `session/start`
     /// row: a session that exists and started no children.
     fn seeded_root(label: &str) -> (PathBuf, String) {
-        let root = std::env::temp_dir().join(format!("forge-cli-{label}-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hearth-cli-{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let sessions = root.join("sessions");
         std::fs::create_dir_all(&sessions).expect("sessions dir");
         let session = "root-session-0001";
         let path = sessions.join(format!("{session}.jsonl"));
-        let store = forge_session::Store::open(&path, forge_session::Options::default())
+        let store = hearth_session::Store::open(&path, hearth_session::Options::default())
             .expect("store opens");
         store
-            .append(&forge_core::Event::new(
+            .append(&hearth_core::Event::new(
                 session,
-                forge_core::EventType::SESSION_START,
+                hearth_core::EventType::SESSION_START,
                 Some(serde_json::json!({
                     "workspace": ".",
                     "model": "m",
@@ -853,7 +858,8 @@ mod tests {
 
     #[test]
     fn tree_of_a_session_that_never_existed_names_it_in_the_failure() {
-        let root = std::env::temp_dir().join(format!("forge-cli-tree-gone-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("hearth-cli-tree-gone-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let opt = Options {
             data_dir: root.to_string_lossy().into_owned(),
@@ -914,7 +920,7 @@ mod tests {
 
     #[test]
     fn a_caller_that_cannot_be_identified_is_refused_before_the_marker_is_written() {
-        let root = std::env::temp_dir().join(format!("forge-cli-int-deny-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hearth-cli-int-deny-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let opt = Options {
             data_dir: root.to_string_lossy().into_owned(),

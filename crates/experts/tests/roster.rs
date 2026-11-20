@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use forge_experts::{prompt_for, scan, team_prompt, ErrorKind};
+use hearth_experts::{prompt_for, scan, team_prompt, ErrorKind};
 
 /// The root of one fixture tree.
 fn fixture(name: &str) -> PathBuf {
@@ -135,12 +135,12 @@ fn prompt_for_appends_the_tool_restriction_only_when_the_file_states_one() {
     let limited = prompt_for(&set, "bench-owner").expect("prompt");
     assert!(limited.starts_with(&set.expert("bench-owner").expect("expert").prompt));
     assert!(limited.ends_with(
-        "\n[forge-experts] Tool restriction: fs_read, shell. This expert must not call any other tool.\n"
+        "\n[hearth-experts] Tool restriction: fs_read, shell. This expert must not call any other tool.\n"
     ));
 
     let none = prompt_for(&set, "api-reviewer").expect("prompt");
     assert!(none.ends_with(
-        "\n[forge-experts] Tool restriction: this expert may not call any tool. Answer from what you are given.\n"
+        "\n[hearth-experts] Tool restriction: this expert may not call any tool. Answer from what you are given.\n"
     ));
 
     assert_eq!(prompt_for(&set, "no-such-expert"), None);

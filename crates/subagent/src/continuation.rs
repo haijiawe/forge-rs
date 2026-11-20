@@ -3,7 +3,7 @@
 //! DSH models continuation as messages on the parent's inbox: an
 //! `agent-message` relayed from a named child, or a `subagent-settled` notice
 //! that says the child finished and what it stopped on
-//! (`subagent/src/continuation-messages.ts`). forge-rs runs a child
+//! (`subagent/src/continuation-messages.ts`). hearth runs a child
 //! synchronously — its answer is the tool result, not a later message — but the
 //! same text still has to be produced when a caller wants to relay a child's
 //! progress into a parent it is no longer attached to (cold resume, a UI that

@@ -28,7 +28,7 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::path::Path;
 
-use forge_core::{Error, ErrorKind, Event, EventType, Result};
+use hearth_core::{Error, ErrorKind, Event, EventType, Result};
 use serde_json::Value;
 
 use crate::catalog;

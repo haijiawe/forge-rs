@@ -17,12 +17,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Protocol version carried in `X-Forge-Protocol` and in every server-sent
+/// Protocol version carried in `X-Hearth-Protocol` and in every server-sent
 /// WebSocket frame. A client that does not know this number must refuse the
 /// connection rather than guess.
 pub const VERSION: u8 = 1;
 /// Header used by a client to state the protocol it speaks; echoed on responses.
-pub const HEADER_VERSION: &str = "X-Forge-Protocol";
+pub const HEADER_VERSION: &str = "X-Hearth-Protocol";
 /// Makes `POST /messages` retry-safe: a replay must not append a second message.
 pub const IDEMPOTENCY_KEY_HEADER: &str = "Idempotency-Key";
 

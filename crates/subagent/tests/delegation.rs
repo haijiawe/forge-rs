@@ -12,10 +12,10 @@ use std::thread;
 use std::time::Duration;
 
 use common::*;
-use forge_agent::provider_error;
-use forge_llm::Role;
-use forge_subagent::{CallContext, Options, Runner, CODE_DEPTH_EXCEEDED, CODE_FAILED};
-use forge_tool::{Call, CODE_CANCELLED, ERR_BAD_ARGS};
+use hearth_agent::provider_error;
+use hearth_llm::Role;
+use hearth_subagent::{CallContext, Options, Runner, CODE_DEPTH_EXCEEDED, CODE_FAILED};
+use hearth_tool::{Call, CODE_CANCELLED, ERR_BAD_ARGS};
 use serde_json::{json, Value};
 
 const FIXED_NOW_MS: i64 = 1_777_863_721_000;
@@ -32,7 +32,7 @@ fn make_runner(dir: &TempDir, provider: Arc<ScriptedProvider>) -> Arc<Runner> {
     Arc::new(Runner::new(opt).expect("runner"))
 }
 
-fn call_tool(runner: &Arc<Runner>, id: &str, args: Value) -> forge_tool::Result {
+fn call_tool(runner: &Arc<Runner>, id: &str, args: Value) -> hearth_tool::Result {
     runner.tool().call(Call::new(id, "subagent", args, ""))
 }
 
@@ -42,7 +42,7 @@ fn only_child(dir: &TempDir) -> String {
     ids[0].clone()
 }
 
-fn child_events(dir: &TempDir, id: &str) -> Vec<forge_core::Event> {
+fn child_events(dir: &TempDir, id: &str) -> Vec<hearth_core::Event> {
     read_events_at(&dir.sessions().join(format!("{id}.jsonl")))
 }
 
@@ -159,7 +159,7 @@ fn final_text_is_the_last_non_empty_assistant_message_not_the_aggregate() {
         ]),
         text_response("final answer"),
     ]));
-    let tools: Arc<dyn forge_agent::ToolRunner> =
+    let tools: Arc<dyn hearth_agent::ToolRunner> =
         Arc::new(RecordingTools::new(vec![tool_spec("echo")]));
     let mut opt = Options::new(provider.clone(), dir.path(), "ws", "test-model");
     opt.now = Arc::new(|| FIXED_NOW_MS);
@@ -337,7 +337,7 @@ fn nested_delegation_chains_parents_and_increments_depth() {
         text_response("grandchild answer"),
         text_response("child answer"),
     ]));
-    let tools: Arc<dyn forge_agent::ToolRunner> =
+    let tools: Arc<dyn hearth_agent::ToolRunner> =
         Arc::new(RecordingTools::new(vec![tool_spec("echo")]));
     let mut opt = Options::new(provider.clone(), dir.path(), "ws", "test-model");
     opt.now = Arc::new(|| FIXED_NOW_MS);
@@ -383,7 +383,7 @@ fn child_inherits_policy_but_never_an_approver() {
     let tools: Arc<RecordingTools> = Arc::new(RecordingTools::new(vec![tool_spec("danger")]));
     let mut opt = Options::new(provider, dir.path(), "ws", "test-model");
     opt.now = Arc::new(|| FIXED_NOW_MS);
-    opt.tools = Some(tools.clone() as Arc<dyn forge_agent::ToolRunner>);
+    opt.tools = Some(tools.clone() as Arc<dyn hearth_agent::ToolRunner>);
     opt.policy = Some(Arc::new(AskDanger));
     let runner = Arc::new(Runner::new(opt).expect("runner"));
 
@@ -422,7 +422,7 @@ fn system_prompt_reaches_the_header_clipped_at_the_byte_cap() {
     assert_eq!(head["systemBytes"], json!(expected_bytes));
     let kept = head["system"].as_str().unwrap();
     assert!(
-        kept.len() <= forge_agent::MAX_SYSTEM_BYTES,
+        kept.len() <= hearth_agent::MAX_SYSTEM_BYTES,
         "{}",
         kept.len()
     );

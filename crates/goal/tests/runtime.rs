@@ -5,8 +5,8 @@
 //! async state machine that reacts to agent events; here the same lifecycle is
 //! six assertions over a `Vec<Event>`.
 
-use forge_core::{Event, EventType};
-use forge_goal::{
+use hearth_core::{Event, EventType};
+use hearth_goal::{
     fold, goal_continued, goal_created, goal_ended, next, reservation_to_open, Goal, Next,
     Reservation, Snapshot, Status, StopReason,
 };

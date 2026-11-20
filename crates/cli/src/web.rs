@@ -1,4 +1,4 @@
-//! `forge web` — serve the browser UI on loopback.
+//! `hearth web` — serve the browser UI on loopback.
 //!
 //! Layer L3. Ported from `forge-go/cmd/forge/web.go`. The server owns every log
 //! append; this runner owns only the model loop and answering approvals by
@@ -13,18 +13,18 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use forge_agent::{Agent, EventLog, Options as AgentOptions, ProviderSummarizer};
-use forge_config::Config;
-use forge_core::{event::parse_log, Event, EventType, Result};
-use forge_llm::{Client as LlmClient, Options as LlmOptions, Provider};
-use forge_protocol::decision;
-use forge_protocol::{CreateSessionRequest, CreateSessionResponse};
-use forge_sandbox::{mode_from_str, Mode as SandboxMode, Spec as SandboxSpec};
-use forge_server::{CancelToken, Options as ServerOptions, TurnContext, TurnRunner};
-use forge_session::DecisionWatcher;
+use hearth_agent::{Agent, EventLog, Options as AgentOptions, ProviderSummarizer};
+use hearth_config::Config;
+use hearth_core::{event::parse_log, Event, EventType, Result};
+use hearth_llm::{Client as LlmClient, Options as LlmOptions, Provider};
+use hearth_protocol::decision;
+use hearth_protocol::{CreateSessionRequest, CreateSessionResponse};
+use hearth_sandbox::{mode_from_str, Mode as SandboxMode, Spec as SandboxSpec};
+use hearth_server::{CancelToken, Options as ServerOptions, TurnContext, TurnRunner};
+use hearth_session::DecisionWatcher;
 
-use forge_tool::truncate::DefaultLimits;
-use forge_tool::{ApprovalRequest, Approver};
+use hearth_tool::truncate::DefaultLimits;
+use hearth_tool::{ApprovalRequest, Approver};
 use serde_json::json;
 
 use crate::chat::{AlwaysApprover, RecordingApprover, ToolRunnerAdapter};
@@ -35,7 +35,7 @@ const EXIT_OK: i32 = 0;
 const EXIT_FAILURE: i32 = 1;
 const EXIT_USAGE: i32 = 2;
 
-const WEB_USAGE: &str = "usage: forge web [flags]\n\n\
+const WEB_USAGE: &str = "usage: hearth web [flags]\n\n\
 Serve the browser UI on loopback (default 127.0.0.1:8420).\n\n\
   --addr <host:port>  listen address (loopback only)\n\
   --model <name>      model to use (otherwise config.json's \"model\")\n\
@@ -130,7 +130,7 @@ fn parse_web_flags(
         match name {
             "addr" | "model" | "workspace" | "sandbox" | "approve" => {
                 let val = value.ok_or_else(|| {
-                    let _ = writeln!(stderr, "forge web: flag needs an argument: -{name}");
+                    let _ = writeln!(stderr, "hearth web: flag needs an argument: -{name}");
                     EXIT_USAGE
                 })?;
                 match name {
@@ -144,7 +144,7 @@ fn parse_web_flags(
             }
             "no-browser" => opts.no_browser = true,
             _ => {
-                let _ = writeln!(stderr, "forge web: unknown flag -{name}");
+                let _ = writeln!(stderr, "hearth web: unknown flag -{name}");
                 let _ = write!(stderr, "{WEB_USAGE}");
                 return Err(EXIT_USAGE);
             }
@@ -155,13 +155,13 @@ fn parse_web_flags(
 }
 
 fn usage_error(stderr: &mut dyn Write, message: &str) -> i32 {
-    let _ = writeln!(stderr, "forge web: {message}");
+    let _ = writeln!(stderr, "hearth web: {message}");
     let _ = write!(stderr, "{WEB_USAGE}");
     EXIT_USAGE
 }
 
 fn runtime_error(stderr: &mut dyn Write, message: &str) -> i32 {
-    let _ = writeln!(stderr, "forge web: {message}");
+    let _ = writeln!(stderr, "hearth web: {message}");
     EXIT_FAILURE
 }
 
@@ -172,7 +172,7 @@ fn web_approve_mode(raw: &str, stderr: &mut dyn Write) -> std::result::Result<We
         "always" => Ok(WebApproveMode::Always),
         "prompt" => Err(usage_error(
             stderr,
-            "--approve=prompt reads stdin, which `forge web` does not ask on: use --approve=web to answer in the browser",
+            "--approve=prompt reads stdin, which `hearth web` does not ask on: use --approve=web to answer in the browser",
         )),
         other => Err(usage_error(
             stderr,
@@ -182,8 +182,8 @@ fn web_approve_mode(raw: &str, stderr: &mut dyn Write) -> std::result::Result<We
 }
 
 fn load_config(stderr: &mut dyn Write) -> std::result::Result<Config, i32> {
-    let path =
-        forge_config::default_path().map_err(|e| runtime_error(stderr, &format!("config: {e}")))?;
+    let path = hearth_config::default_path()
+        .map_err(|e| runtime_error(stderr, &format!("config: {e}")))?;
     let cfg = Config::load(&path).map_err(|e| runtime_error(stderr, &format!("config: {e}")))?;
     if let Err(err) = cfg.validate() {
         if !err.message().contains("mcp") {
@@ -191,7 +191,7 @@ fn load_config(stderr: &mut dyn Write) -> std::result::Result<Config, i32> {
         }
         let _ = writeln!(
             stderr,
-            "forge web: {err} (continuing without those servers)"
+            "hearth web: {err} (continuing without those servers)"
         );
     }
     Ok(cfg)
@@ -201,7 +201,7 @@ fn load_config(stderr: &mut dyn Write) -> std::result::Result<Config, i32> {
 /// WebSocket layers see the same lines the agent writes. `read_all` is a plain
 /// file read: the log is append-only and the server is the only writer.
 struct ServerLog {
-    server: Arc<forge_server::Server>,
+    server: Arc<hearth_server::Server>,
     session: String,
 }
 
@@ -220,8 +220,8 @@ impl EventLog for ServerLog {
             Ok(text) => parse_log(&text),
             // A brand-new session has no log yet; that is an empty projection.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-            Err(e) => Err(forge_core::Error::new(
-                forge_core::ErrorKind::Io,
+            Err(e) => Err(hearth_core::Error::new(
+                hearth_core::ErrorKind::Io,
                 format!("web: read log: {e}"),
             )),
         }
@@ -232,7 +232,7 @@ impl EventLog for ServerLog {
 /// handler appended for a browser click (`decidedBy: user`).
 struct WebApprover {
     path: PathBuf,
-    cancel: forge_agent::Cancel,
+    cancel: hearth_agent::Cancel,
 }
 
 impl Approver for WebApprover {
@@ -277,7 +277,7 @@ struct TurnEnv {
 
 /// One turn runner per session, supplied to the server by the factory closure.
 struct WebRunner {
-    server: Arc<forge_server::Server>,
+    server: Arc<hearth_server::Server>,
     provider: Arc<dyn Provider>,
     /// The host the provider points at, for `request/context`. Empty when the
     /// base URL did not name one, and then the event omits the field.
@@ -288,7 +288,7 @@ struct WebRunner {
     approve: WebApproveMode,
     env: TurnEnv,
     /// The agent's cancellation flag; `cancel()` flips it without appending.
-    agent_cancel: Arc<Mutex<forge_agent::Cancel>>,
+    agent_cancel: Arc<Mutex<hearth_agent::Cancel>>,
     /// Bridges the server's per-turn token to the agent's flag.
     turn_cancel: Arc<Mutex<Option<CancelToken>>>,
     /// One resident agent per session, built on the first turn and reused after
@@ -309,7 +309,7 @@ impl WebRunner {
     // one ordering that matters (the server must exist before a runner can).
     #[allow(clippy::too_many_arguments)]
     fn new(
-        server: Arc<forge_server::Server>,
+        server: Arc<hearth_server::Server>,
         provider: Arc<dyn Provider>,
         provider_name: String,
         model: String,
@@ -327,7 +327,7 @@ impl WebRunner {
             sandbox,
             approve,
             env,
-            agent_cancel: Arc::new(Mutex::new(forge_agent::Cancel::default())),
+            agent_cancel: Arc::new(Mutex::new(hearth_agent::Cancel::default())),
             turn_cancel: Arc::new(Mutex::new(None)),
             hosts: Mutex::new(HashMap::new()),
             host_builds: std::sync::atomic::AtomicUsize::new(0),
@@ -339,7 +339,7 @@ impl WebRunner {
     /// Fold the oldest complete history into one summary record, when there is
     /// something worth folding. Returns whether a record landed.
     ///
-    /// The read goes through a short-lived [`forge_session::Store`] because the file
+    /// The read goes through a short-lived [`hearth_session::Store`] because the file
     /// is the interface, and the write goes through `Server::append_event` because
     /// the server owns the seq counter: a second writer holding its own counter
     /// would mint duplicate seqs.
@@ -349,7 +349,7 @@ impl WebRunner {
     /// because a summary could not be produced.
     fn compact(&self, session_id: &str) -> Result<bool> {
         let path = self.server.path(session_id);
-        let store = forge_session::Store::open(&path, forge_session::Options::default())?;
+        let store = hearth_session::Store::open(&path, hearth_session::Options::default())?;
         let mut events: Vec<Event> = Vec::new();
         store.read_from(1, |event| {
             events.push(event.clone());
@@ -362,7 +362,7 @@ impl WebRunner {
         if (events.len() as u64) < WEB_COMPACT_MESSAGE_EVENTS {
             return Ok(false);
         }
-        let plan = forge_session::plan_compaction(&events, 0)?;
+        let plan = hearth_session::plan_compaction(&events, 0)?;
         if plan.is_empty() {
             return Ok(false);
         }
@@ -412,7 +412,7 @@ impl WebRunner {
 /// can serve many requests without losing the one that is live.
 struct ResidentHost {
     agent: Agent,
-    cancel: forge_agent::Cancel,
+    cancel: hearth_agent::Cancel,
     slot: Arc<Mutex<Option<TurnContext>>>,
     /// Turns are serialised: two runs at once would interleave two turns in one
     /// log, and the second would read a history the first is still writing.
@@ -477,7 +477,7 @@ impl WebRunner {
         self.host_builds
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-        let cancel = forge_agent::Cancel::default();
+        let cancel = hearth_agent::Cancel::default();
         *self
             .agent_cancel
             .lock()
@@ -526,19 +526,19 @@ impl WebRunner {
         });
         note_diagnostics(&self.env.data_dir, &wired.notes);
         let executor = wired.executor();
-        let tools: Option<Arc<dyn forge_agent::ToolRunner>> =
+        let tools: Option<Arc<dyn hearth_agent::ToolRunner>> =
             Some(Arc::new(ToolRunnerAdapter { executor }));
 
         let slot: Arc<Mutex<Option<TurnContext>>> = Arc::new(Mutex::new(None));
         let delta_slot = Arc::clone(&slot);
-        let on_delta: forge_agent::DeltaHook = Arc::new(move |turn, step, text| {
+        let on_delta: hearth_agent::DeltaHook = Arc::new(move |turn, step, text| {
             let live = delta_slot.lock().ok().and_then(|guard| guard.clone());
             if let Some(ctx) = live {
                 ctx.delta(turn, step, text);
             }
         });
         let steer_slot = Arc::clone(&slot);
-        let steering: forge_agent::SteeringHook = Arc::new(move || {
+        let steering: hearth_agent::SteeringHook = Arc::new(move || {
             steer_slot
                 .lock()
                 .ok()
@@ -570,8 +570,8 @@ impl WebRunner {
         let agent = match Agent::new(opts) {
             Ok(agent) => agent,
             Err(e) => {
-                return Err(forge_core::Error::new(
-                    forge_core::ErrorKind::Invalid,
+                return Err(hearth_core::Error::new(
+                    hearth_core::ErrorKind::Invalid,
                     format!("web: agent: {}", e.message()),
                 ))
             }
@@ -607,7 +607,7 @@ impl TurnRunner for WebRunner {
 
     fn cancel(&self) -> Result<()> {
         if let Ok(guard) = self.agent_cancel.lock() {
-            guard.cancel_with(forge_agent::Cause::User);
+            guard.cancel_with(hearth_agent::Cause::User);
         }
         Ok(())
     }
@@ -636,7 +636,7 @@ fn note_diagnostics(data_dir: &Path, notes: &[String]) {
         return;
     };
     for note in notes {
-        let _ = writeln!(file, "forge web: {note}");
+        let _ = writeln!(file, "hearth web: {note}");
     }
 }
 
@@ -653,7 +653,7 @@ fn open_browser(url: &str) {
     }
 }
 
-/// Run `forge web`.
+/// Run `hearth web`.
 pub fn run(args: &[String], _stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     run_inner(args, stderr)
 }
@@ -753,7 +753,7 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
     enforcer_spec.extra_read = grants.read;
     enforcer_spec.extra_write = grants.write;
     enforcer_spec.allow_net = grants.allow_net;
-    let _enforcer = match forge_sandbox::new(enforcer_spec, None) {
+    let _enforcer = match hearth_sandbox::new(enforcer_spec, None) {
         Ok(enforcer) => enforcer,
         Err(e) => return runtime_error(stderr, &format!("sandbox: {}", e.message())),
     };
@@ -769,7 +769,7 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
         version: VERSION.to_string(),
         // A snapshot, not a query: plugins are loaded once, so what the model
         // can reach does not change while this process runs. Discovering it here
-        // keeps `forge-server` free of the four crates that would be needed.
+        // keeps `hearth-server` free of the four crates that would be needed.
         capabilities: crate::capabilities::report(
             &cfg,
             &crate::capabilities::Facts {
@@ -788,7 +788,7 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
     // rebuilds the tool set (the approver is bound to one session log), so hand
     // the shared pieces over as owned values.
     let cfg = Arc::new(cfg);
-    let server_slot: Arc<Mutex<Option<Arc<forge_server::Server>>>> = Arc::new(Mutex::new(None));
+    let server_slot: Arc<Mutex<Option<Arc<hearth_server::Server>>>> = Arc::new(Mutex::new(None));
     {
         let slot = Arc::clone(&server_slot);
         let provider = Arc::clone(&provider);
@@ -820,7 +820,7 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
         }));
     }
 
-    let server = match forge_server::Server::new(server_options) {
+    let server = match hearth_server::Server::new(server_options) {
         Ok(server) => Arc::new(server),
         Err(e) => return runtime_error(stderr, &format!("server: {}", e.message())),
     };
@@ -873,14 +873,14 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
     let base_url = format!("http://{bound_addr}");
     let open_url = format!("{base_url}/?token={}#/s/{session_id}", server.token());
 
-    let _ = writeln!(stderr, "forge web: serving {base_url}");
+    let _ = writeln!(stderr, "hearth web: serving {base_url}");
     let _ = writeln!(
         stderr,
-        "forge web: session={session_id} model={model} workspace={workspace_str} sandbox={} approve={}",
+        "hearth web: session={session_id} model={model} workspace={workspace_str} sandbox={} approve={}",
         sandbox.as_str(),
         approve.as_str()
     );
-    let _ = writeln!(stderr, "forge web: open {open_url}");
+    let _ = writeln!(stderr, "hearth web: open {open_url}");
 
     let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel::<()>();
     let signals = Arc::new(AtomicUsize::new(0));
@@ -936,7 +936,7 @@ mod tests {
     /// create one.
     #[test]
     fn diagnostics_go_to_a_file_and_not_to_stderr() {
-        let dir = std::env::temp_dir().join(format!("forge-web-notes-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-web-notes-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
 
@@ -949,9 +949,9 @@ mod tests {
         note_diagnostics(&dir, &["skill: root missing".to_string()]);
         note_diagnostics(&dir, &["mcp server skipped: boom".to_string()]);
         let text = std::fs::read_to_string(dir.join("web.log")).expect("diagnostics file");
-        assert!(text.contains("forge web: skill: root missing"), "{text}");
+        assert!(text.contains("hearth web: skill: root missing"), "{text}");
         assert!(
-            text.contains("forge web: mcp server skipped: boom"),
+            text.contains("hearth web: mcp server skipped: boom"),
             "{text}"
         );
         assert_eq!(
@@ -1034,9 +1034,9 @@ mod tests {
         text: Option<String>,
     }
 
-    impl forge_llm::Stream for FixedStream {
-        fn recv(&mut self) -> Result<Option<forge_llm::Delta>> {
-            Ok(self.text.take().map(|text| forge_llm::Delta {
+    impl hearth_llm::Stream for FixedStream {
+        fn recv(&mut self) -> Result<Option<hearth_llm::Delta>> {
+            Ok(self.text.take().map(|text| hearth_llm::Delta {
                 text,
                 ..Default::default()
             }))
@@ -1045,7 +1045,7 @@ mod tests {
     }
 
     impl Provider for FixedProvider {
-        fn stream(&self, _request: &forge_llm::Request) -> Result<Box<dyn forge_llm::Stream>> {
+        fn stream(&self, _request: &hearth_llm::Request) -> Result<Box<dyn hearth_llm::Stream>> {
             Ok(Box::new(FixedStream {
                 text: Some(self.0.clone()),
             }))
@@ -1063,12 +1063,12 @@ mod tests {
     /// projection. Nothing is deferred to the next turn.
     #[test]
     fn web_compaction_folds_closed_turns_into_one_summary() {
-        let dir = std::env::temp_dir().join(format!("forge-web-compact-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-web-compact-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let server = Arc::new(
-            forge_server::Server::new(ServerOptions {
+            hearth_server::Server::new(ServerOptions {
                 addr: "127.0.0.1:0".to_string(),
                 data_dir: dir.clone(),
                 version: "test".to_string(),
@@ -1191,12 +1191,12 @@ mod tests {
     /// gains no account of it.
     #[test]
     fn web_compaction_refuses_an_empty_summary() {
-        let dir = std::env::temp_dir().join(format!("forge-web-empty-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-web-empty-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let server = Arc::new(
-            forge_server::Server::new(ServerOptions {
+            hearth_server::Server::new(ServerOptions {
                 addr: "127.0.0.1:0".to_string(),
                 data_dir: dir.clone(),
                 version: "test".to_string(),
@@ -1259,12 +1259,12 @@ mod tests {
     /// timer or a background thread: `run_turn` simply asks after it is done.
     #[test]
     fn a_message_queued_by_another_process_is_drained_after_the_turn() {
-        let dir = std::env::temp_dir().join(format!("forge-web-drain-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-web-drain-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let server = Arc::new(
-            forge_server::Server::new(ServerOptions {
+            hearth_server::Server::new(ServerOptions {
                 addr: "127.0.0.1:0".to_string(),
                 data_dir: dir.clone(),
                 version: "test".to_string(),
@@ -1287,11 +1287,12 @@ mod tests {
             server.append_event(session, &event).expect("open turn");
         }
         // Somebody else asks for work to happen after this turn.
-        let queued = forge_agent::inbox::Msg::new("work from another process").expect("message id");
-        let empty = forge_agent::inbox::fold(&[]);
-        let enqueue = forge_agent::inbox::enqueue(
+        let queued =
+            hearth_agent::inbox::Msg::new("work from another process").expect("message id");
+        let empty = hearth_agent::inbox::fold(&[]);
+        let enqueue = hearth_agent::inbox::enqueue(
             session,
-            forge_agent::inbox::Target::NextTurn,
+            hearth_agent::inbox::Target::NextTurn,
             &empty,
             &queued,
         );
@@ -1331,7 +1332,7 @@ mod tests {
             asked.contains(&"work from another process"),
             "the drained prompt must reach the model, saw {asked:?}"
         );
-        let left = forge_agent::inbox::fold(&events);
+        let left = hearth_agent::inbox::fold(&events);
         assert!(
             left.is_empty(),
             "a drained queue must be empty afterwards, saw {left:?}"
@@ -1348,12 +1349,12 @@ mod tests {
     /// plugins are dialled once per session instead of once per message.
     #[test]
     fn a_session_keeps_one_agent_across_turns() {
-        let dir = std::env::temp_dir().join(format!("forge-web-resident-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-web-resident-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let server = Arc::new(
-            forge_server::Server::new(ServerOptions {
+            hearth_server::Server::new(ServerOptions {
                 addr: "127.0.0.1:0".to_string(),
                 data_dir: dir.clone(),
                 version: "test".to_string(),
@@ -1429,12 +1430,12 @@ mod tests {
     /// answers nothing, and the log says the operator stopped it.
     #[test]
     fn a_cancelled_turn_does_not_cancel_the_next_one() {
-        let dir = std::env::temp_dir().join(format!("forge-web-reset-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-web-reset-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let server = Arc::new(
-            forge_server::Server::new(ServerOptions {
+            hearth_server::Server::new(ServerOptions {
                 addr: "127.0.0.1:0".to_string(),
                 data_dir: dir.clone(),
                 version: "test".to_string(),

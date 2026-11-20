@@ -1,4 +1,4 @@
-//! `forge chat` — run one agent turn and stream the answer to stdout.
+//! `hearth chat` — run one agent turn and stream the answer to stdout.
 //!
 //! Layer L3. Ported from `forge-go/cmd/forge/chat.go`. The event log is the only
 //! truth: every fact is appended before it is reported, so a restart never loses
@@ -9,17 +9,17 @@ use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use forge_agent::{
+use hearth_agent::{
     Agent, EventLog, Options as AgentOptions, ProviderSummarizer, ToolResult as AgentToolResult,
 };
-use forge_config::Config;
-use forge_core::{Event, EventType, Result};
-use forge_llm::{Client as LlmClient, Options as LlmOptions, Provider, Usage};
-use forge_sandbox::{mode_from_str, Mode as SandboxMode, Spec as SandboxSpec};
-use forge_session::{Projection, Store};
-use forge_tool::executor::Executor;
-use forge_tool::truncate::DefaultLimits;
-use forge_tool::{ApprovalRequest, Approver, Call as ToolCall};
+use hearth_config::Config;
+use hearth_core::{Event, EventType, Result};
+use hearth_llm::{Client as LlmClient, Options as LlmOptions, Provider, Usage};
+use hearth_sandbox::{mode_from_str, Mode as SandboxMode, Spec as SandboxSpec};
+use hearth_session::{Projection, Store};
+use hearth_tool::executor::Executor;
+use hearth_tool::truncate::DefaultLimits;
+use hearth_tool::{ApprovalRequest, Approver, Call as ToolCall};
 use serde_json::{json, Value};
 
 use crate::reorder_flags;
@@ -36,8 +36,8 @@ const EXIT_INTERRUPTED: i32 = 130;
 /// floor the Go original uses.
 const COMPACT_MESSAGE_EVENTS: u64 = 200;
 
-const CHAT_USAGE: &str = "usage: forge chat [flags] [prompt]\n\n\
-Run one agent turn and stream the answer to stdout. With no prompt argument the prompt is read from stdin until EOF, so `echo hi | forge chat` works.\n\n\
+const CHAT_USAGE: &str = "usage: hearth chat [flags] [prompt]\n\n\
+Run one agent turn and stream the answer to stdout. With no prompt argument the prompt is read from stdin until EOF, so `echo hi | hearth chat` works.\n\n\
   --model <name>     model to use (otherwise config.json's \"model\")\n\
   --session <id>     session id to use (generated if absent)\n\
   --resume <id>      resume an existing session, adopting its open turn\n\
@@ -54,7 +54,7 @@ exit: 0 turn completed, 1 error, 2 usage error, 130 cancelled\n";
 
 const CHAT_STDIN_HINT: &str =
     "reading prompt from stdin; end with Ctrl+Z then Enter (Windows) or Ctrl+D\n";
-const NO_APPROVER_HINT: &str = "forge chat: a tool call was denied because --approve=never: rerun with --approve=always to allow every call, or --approve=prompt to answer each one (the turn itself succeeded)\n";
+const NO_APPROVER_HINT: &str = "hearth chat: a tool call was denied because --approve=never: rerun with --approve=always to allow every call, or --approve=prompt to answer each one (the turn itself succeeded)\n";
 
 const CHAT_VALUE_FLAGS: &[&str] = &[
     "model",
@@ -68,7 +68,7 @@ const CHAT_VALUE_FLAGS: &[&str] = &[
     "max-rounds",
 ];
 
-/// Whether bare `forge` arguments are a prompt (contract §2.5).
+/// Whether bare `hearth` arguments are a prompt (contract §2.5).
 pub fn is_prompt_invocation(args: &[String]) -> bool {
     let Some(first) = args.first() else {
         return false;
@@ -159,7 +159,7 @@ fn parse_chat_flags(
                 let val = value.ok_or_else(|| {
                     usage_error(
                         stderr,
-                        &format!("forge chat: flag needs an argument: -{name}\n"),
+                        &format!("hearth chat: flag needs an argument: -{name}\n"),
                     )
                 })?;
                 match name {
@@ -181,7 +181,7 @@ fn parse_chat_flags(
             _ => {
                 return Err(usage_error(
                     stderr,
-                    &format!("forge chat: unknown flag -{name}\n"),
+                    &format!("hearth chat: unknown flag -{name}\n"),
                 ));
             }
         }
@@ -224,19 +224,19 @@ fn resolve_model(flag: &str, cfg: &Config) -> std::result::Result<String, i32> {
 }
 
 fn runtime_error_msg(message: &str) -> i32 {
-    eprintln!("forge chat: {message}");
+    eprintln!("hearth chat: {message}");
     EXIT_FAILURE
 }
 
 fn load_config() -> std::result::Result<Config, i32> {
     let path =
-        forge_config::default_path().map_err(|e| runtime_error_msg(&format!("config: {e}")))?;
+        hearth_config::default_path().map_err(|e| runtime_error_msg(&format!("config: {e}")))?;
     let cfg = Config::load(&path).map_err(|e| runtime_error_msg(&format!("config: {e}")))?;
     if let Err(err) = cfg.validate() {
         if !err.message().contains("mcp") {
             return Err(runtime_error_msg(&format!("config: {err}")));
         }
-        eprintln!("forge: {err} (continuing without those servers)");
+        eprintln!("hearth: {err} (continuing without those servers)");
     }
     Ok(cfg)
 }
@@ -255,7 +255,7 @@ fn resolve_sandbox(flag: &str, cfg: &Config) -> std::result::Result<SandboxMode,
 }
 
 fn usage_error_msg(message: &str) -> i32 {
-    eprintln!("forge chat: {message}");
+    eprintln!("hearth chat: {message}");
     let _ = std::io::stderr().write_all(CHAT_USAGE.as_bytes());
     EXIT_USAGE
 }
@@ -282,7 +282,7 @@ enum ApproveMode {
     Prompt,
 }
 
-/// Run `forge chat`. Kept as a thin wrapper so the whole surface is testable.
+/// Run `hearth chat`. Kept as a thin wrapper so the whole surface is testable.
 pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     match run_inner(args, stdout, stderr) {
         Ok(code) => code,
@@ -317,7 +317,7 @@ fn run_inner(
     }
     let approve = approval_mode(&opts.approve)?;
     if approve == ApproveMode::Prompt && !std::io::stdin().is_terminal() {
-        return Err(runtime_error_str(stderr, "--approve=prompt needs a terminal on stdin: use --approve=always to allow every tool call, or run forge chat in a terminal"));
+        return Err(runtime_error_str(stderr, "--approve=prompt needs a terminal on stdin: use --approve=always to allow every tool call, or run hearth chat in a terminal"));
     }
 
     let cfg = load_config()?;
@@ -364,7 +364,7 @@ fn run_inner(
             &workspace_str,
             approve,
             false,
-            forge_agent::Cancel::default(),
+            hearth_agent::Cancel::default(),
             None,
             stdout,
             stderr,
@@ -385,13 +385,13 @@ fn run_inner(
     )
 }
 
-/// `--max-rounds` as a budget. Absent means `forge_goal::DEFAULT_MAX_ROUNDS`;
+/// `--max-rounds` as a budget. Absent means `hearth_goal::DEFAULT_MAX_ROUNDS`;
 /// zero would be a goal that can never run a turn, so it is refused rather than
 /// silently treated as "one".
 fn parse_max_rounds(raw: &str) -> std::result::Result<u32, i32> {
     let text = raw.trim();
     if text.is_empty() {
-        return Ok(forge_goal::DEFAULT_MAX_ROUNDS);
+        return Ok(hearth_goal::DEFAULT_MAX_ROUNDS);
     }
     match text.parse::<u32>() {
         Ok(0) => Err(usage_error_msg("--max-rounds must be at least 1")),
@@ -429,14 +429,14 @@ fn execute_goal(
             if goal.text != opts.goal.trim() {
                 let _ = writeln!(
                     stderr,
-                    "forge chat: session {session_id} already pursues {:?}; end it with `forge goal end` before starting another",
+                    "hearth chat: session {session_id} already pursues {:?}; end it with `hearth goal end` before starting another",
                     goal.text
                 );
                 return Ok(EXIT_FAILURE);
             }
             let _ = writeln!(
                 stderr,
-                "forge chat: continuing goal {} round {}/{max_rounds}",
+                "hearth chat: continuing goal {} round {}/{max_rounds}",
                 goal.id,
                 goal.rounds + 1
             );
@@ -445,7 +445,7 @@ fn execute_goal(
         Some(goal) => {
             let _ = writeln!(
                 stderr,
-                "forge chat: session {session_id} already finished its goal ({}); start a new session or `forge goal start`",
+                "hearth chat: session {session_id} already finished its goal ({}); start a new session or `hearth goal start`",
                 goal.status.as_str()
             );
             return Ok(EXIT_FAILURE);
@@ -457,7 +457,7 @@ fn execute_goal(
                 })?;
             let _ = writeln!(
                 stderr,
-                "forge chat: goal {} recorded in session {session_id}",
+                "hearth chat: goal {} recorded in session {session_id}",
                 started.id
             );
             started
@@ -470,10 +470,10 @@ fn execute_goal(
     // the next round starts. `ctrlc` may already be installed by another caller
     // (or a second goal in one process); if so we keep the first handler, which
     // is the one this run's token is not, so a failed install is not fatal.
-    let pause = forge_agent::Cancel::default();
+    let pause = hearth_agent::Cancel::default();
     {
         let pause = pause.clone();
-        let _ = ctrlc::set_handler(move || pause.cancel_with(forge_agent::Cause::User));
+        let _ = ctrlc::set_handler(move || pause.cancel_with(hearth_agent::Cause::User));
     }
     loop {
         // Before a round begins, honour a pause that arrived during the last one.
@@ -486,7 +486,7 @@ fn execute_goal(
             )?;
             let _ = writeln!(
                 stderr,
-                "forge chat: goal {} paused; ended as cancelled",
+                "hearth chat: goal {} paused; ended as cancelled",
                 goal.id
             );
             return Ok(EXIT_INTERRUPTED);
@@ -494,7 +494,7 @@ fn execute_goal(
         let before = goalcmd::read_events(&log)
             .map(|events| events.last().map(|e| e.seq).unwrap_or(0))
             .unwrap_or(0);
-        let reservation = forge_goal::Reservation {
+        let reservation = hearth_goal::Reservation {
             goal_id: goal.id.clone(),
             revision: goal.revision,
             round: goal.rounds,
@@ -530,7 +530,7 @@ fn execute_goal(
                 )?;
                 let _ = writeln!(
                     stderr,
-                    "forge chat: goal {} paused; ended as cancelled",
+                    "hearth chat: goal {} paused; ended as cancelled",
                     goal.id
                 );
             }
@@ -540,7 +540,7 @@ fn execute_goal(
         let events = goalcmd::read_events(&log).map_err(|e| {
             runtime_error_str(stderr, &format!("read goal: {}", one_line(e.message())))
         })?;
-        let this_round: Vec<forge_core::Event> =
+        let this_round: Vec<hearth_core::Event> =
             events.into_iter().filter(|e| e.seq > before).collect();
         let verdict = goalcmd::round_verdict(&this_round);
 
@@ -556,7 +556,7 @@ fn execute_goal(
             })?;
             let _ = writeln!(
                 stderr,
-                "forge chat: goal {} ended as {} after {} round(s)",
+                "hearth chat: goal {} ended as {} after {} round(s)",
                 goal.id,
                 reason.as_str(),
                 goal.rounds + 1
@@ -565,29 +565,29 @@ fn execute_goal(
         }
 
         match goal.next_action() {
-            forge_goal::Action::Continue { round } => {
+            hearth_goal::Action::Continue { round } => {
                 // Open the round only if no other entry advanced this goal since
-                // we folded it. Two `forge chat --goal` processes on one session
+                // we folded it. Two `hearth chat --goal` processes on one session
                 // both reach here with the same revision; the loser must not run
                 // a second turn for work the winner is already doing.
                 match goalcmd::append_continued_at(&log, session_id, &goal, round) {
-                    Ok(forge_goal::CasOutcome::Written(revision)) => {
+                    Ok(hearth_goal::CasOutcome::Written(revision)) => {
                         goal.revision = revision;
                         goal.rounds = round;
                         let _ = writeln!(
                             stderr,
-                            "forge chat: goal {} round {}/{max_rounds}",
+                            "hearth chat: goal {} round {}/{max_rounds}",
                             goal.id,
                             round + 1
                         );
-                        round_prompt = forge_goal::continuation_prompt(&goal);
+                        round_prompt = hearth_goal::continuation_prompt(&goal);
                     }
-                    Ok(forge_goal::CasOutcome::Stale { expected, found }) => {
+                    Ok(hearth_goal::CasOutcome::Stale { expected, found }) => {
                         // Another entry already opened this round. We stop here
                         // rather than double-run; it owns the goal now.
                         let _ = writeln!(
                             stderr,
-                            "forge chat: goal {} was advanced by another entry (expected revision {expected}, found {found}); not opening round {}",
+                            "hearth chat: goal {} was advanced by another entry (expected revision {expected}, found {found}); not opening round {}",
                             goal.id,
                             round + 1
                         );
@@ -601,13 +601,13 @@ fn execute_goal(
                     }
                 }
             }
-            forge_goal::Action::Stop { reason } => {
+            hearth_goal::Action::Stop { reason } => {
                 goalcmd::end_goal(&log, session_id, &goal, reason, None).map_err(|e| {
                     runtime_error_str(stderr, &format!("record goal: {}", one_line(e.message())))
                 })?;
                 let _ = writeln!(
                     stderr,
-                    "forge chat: goal {} ended as {} after {} round(s)",
+                    "hearth chat: goal {} ended as {} after {} round(s)",
                     goal.id,
                     reason.as_str(),
                     goal.rounds + 1
@@ -629,12 +629,12 @@ fn session_log_path(cfg: &Config, session_id: &str) -> PathBuf {
 }
 
 fn runtime_error_str(stderr: &mut dyn Write, message: &str) -> i32 {
-    let _ = writeln!(stderr, "forge chat: {message}");
+    let _ = writeln!(stderr, "hearth chat: {message}");
     EXIT_FAILURE
 }
 
 fn usage_error_str(stderr: &mut dyn Write, message: &str) -> i32 {
-    let _ = writeln!(stderr, "forge chat: {message}");
+    let _ = writeln!(stderr, "hearth chat: {message}");
     let _ = stderr.write_all(CHAT_USAGE.as_bytes());
     EXIT_USAGE
 }
@@ -671,7 +671,7 @@ pub(crate) struct RecordingApprover {
     inner: Arc<dyn Approver>,
     name: String,
     /// When true a successful answer is recorded by somebody else (the HTTP
-    /// handler in `forge web`), so only the failure path is written here.
+    /// handler in `hearth web`), so only the failure path is written here.
     inner_records_decision: bool,
 }
 
@@ -693,10 +693,10 @@ impl RecordingApprover {
     }
 }
 
-/// `forge_core::new_id` is 16 random bytes (32 hex); the contract asks for a
+/// `hearth_core::new_id` is 16 random bytes (32 hex); the contract asks for a
 /// fresh opaque id with exactly that shape.
 fn approval_id() -> std::result::Result<String, String> {
-    forge_core::new_id().map_err(|e| e.message().to_string())
+    hearth_core::new_id().map_err(|e| e.message().to_string())
 }
 
 /// Classify a failed ask. The three values are different audit facts and must
@@ -830,7 +830,7 @@ impl Approver for PromptApprover {
         let mut stderr = std::io::stderr().lock();
         let _ = write!(
             stderr,
-            "forge chat: approve tool={} in {}? {} [y/N] ",
+            "hearth chat: approve tool={} in {}? {} [y/N] ",
             request.call.name, request.call.workspace, request.reason
         );
         let _ = stderr.flush();
@@ -845,7 +845,7 @@ impl Approver for PromptApprover {
         let yes = answer.eq_ignore_ascii_case("y") || answer.eq_ignore_ascii_case("yes");
         let _ = writeln!(
             stderr,
-            "forge chat: approval: {}",
+            "hearth chat: approval: {}",
             if yes { "allow" } else { "deny" }
         );
         Ok(yes)
@@ -857,12 +857,12 @@ pub(crate) struct ToolRunnerAdapter {
     pub(crate) executor: Executor,
 }
 
-impl forge_agent::ToolRunner for ToolRunnerAdapter {
-    fn specs(&self) -> Vec<forge_llm::ToolSpec> {
+impl hearth_agent::ToolRunner for ToolRunnerAdapter {
+    fn specs(&self) -> Vec<hearth_llm::ToolSpec> {
         self.executor.specs()
     }
 
-    fn run(&self, call: forge_llm::ToolCall) -> Result<AgentToolResult> {
+    fn run(&self, call: hearth_llm::ToolCall) -> Result<AgentToolResult> {
         let call = ToolCall::from_tool_call(&call, self.executor.workspace());
         let result = self.executor.run(call);
         Ok(AgentToolResult {
@@ -974,7 +974,7 @@ fn turn_ask_denied(log: &Store, turn: u32) -> bool {
             if let Some(payload) = &event.payload {
                 if payload.get("ok").and_then(Value::as_bool) == Some(false)
                     && payload.get("code").and_then(Value::as_str)
-                        == Some(forge_tool::executor::CODE_NO_APPROVER)
+                        == Some(hearth_tool::executor::CODE_NO_APPROVER)
                 {
                     found = true;
                 }
@@ -999,14 +999,14 @@ fn execute_turn(
     approve: ApproveMode,
     goal_open: bool,
     // The operator's pause switch for this turn. The non-goal path has nobody to
-    // pause it, so it passes `forge_agent::Cancel::default()`; a goal run passes
+    // pause it, so it passes `hearth_agent::Cancel::default()`; a goal run passes
     // the token its Ctrl-C handler flips, so a pause stops the round in flight
     // and the loop can then end the goal before the next one begins.
-    cancel: forge_agent::Cancel,
+    cancel: hearth_agent::Cancel,
     // When this turn is a goal round, the reservation the loop opened it with.
     // A `pre-step` hook re-checks it against the log before every model call, so
     // a superseded or ended goal stops the round instead of spending more calls.
-    fence: Option<forge_goal::Reservation>,
+    fence: Option<hearth_goal::Reservation>,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> std::result::Result<i32, i32> {
@@ -1028,7 +1028,7 @@ fn execute_turn(
     spec.extra_write = grants.write;
     spec.allow_net = grants.allow_net;
     // Hold the enforcer for the turn: its Drop closes the sandbox hook.
-    let _enforcer = forge_sandbox::new(spec, None)
+    let _enforcer = hearth_sandbox::new(spec, None)
         .map_err(|e| runtime_error_str(stderr, &format!("sandbox: {}", e.message())))?;
 
     // An empty `data_dir` means "here", and every consumer below wants an actual
@@ -1052,17 +1052,17 @@ fn execute_turn(
                 &format!("no such session {:?}: there is nothing to fork", opts.fork),
             ));
         }
-        let fork_opts = forge_session::fork::ForkOptions {
+        let fork_opts = hearth_session::fork::ForkOptions {
             parent_path: parent,
             target_path: log_path.clone(),
             target_id: session_id.to_string(),
             at: 0,
         };
-        match forge_session::fork::fork(fork_opts) {
+        match hearth_session::fork::fork(fork_opts) {
             Ok(result) => {
                 let _ = writeln!(
                     stderr,
-                    "forge chat: forked {} at seq {} into session {} ({} events)",
+                    "hearth chat: forked {} at seq {} into session {} ({} events)",
                     opts.fork, result.forked_at_seq, session_id, result.events
                 );
             }
@@ -1084,7 +1084,7 @@ fn execute_turn(
     }
 
     let store = Arc::new(
-        Store::open(&log_path, forge_session::Options::default())
+        Store::open(&log_path, hearth_session::Options::default())
             .map_err(|e| runtime_error_str(stderr, &format!("open session: {}", e.message())))?,
     );
 
@@ -1098,7 +1098,7 @@ fn execute_turn(
             return Err(runtime_error_str(
                 stderr,
                 &format!(
-                    "session {:?} is waiting for approval {:?}: answer it in `forge web`, or continue from a copy with `forge chat --fork {}`",
+                    "session {:?} is waiting for approval {:?}: answer it in `hearth web`, or continue from a copy with `hearth chat --fork {}`",
                     session_id, pending.id, session_id
                 ),
             ));
@@ -1111,7 +1111,7 @@ fn execute_turn(
                     0,
                     EventType::TURN_END,
                     json!({
-                        "reason": forge_agent::TURN_CANCELLED,
+                        "reason": hearth_agent::TURN_CANCELLED,
                         "steps": last.steps,
                         "cancelledBy": "cli:recovery",
                     }),
@@ -1121,7 +1121,7 @@ fn execute_turn(
                 })?;
                 let _ = writeln!(
                     stderr,
-                    "forge chat: recovered session {}: closed turn {}, which a dead process left open",
+                    "hearth chat: recovered session {}: closed turn {}, which a dead process left open",
                     session_id, last.number
                 );
             }
@@ -1133,18 +1133,18 @@ fn execute_turn(
     // reported and the turn continues: the log is already correct either way.
     if !opts.no_compact {
         let summarizer = ProviderSummarizer::new(Some(Arc::clone(&provider)), model);
-        match forge_session::compact_log(&store, &summarizer, 0, COMPACT_MESSAGE_EVENTS) {
+        match hearth_session::compact_log(&store, &summarizer, 0, COMPACT_MESSAGE_EVENTS) {
             Ok(true) => {
-                if let Some((from, to)) = forge_session::last_compacted_span(&store) {
+                if let Some((from, to)) = hearth_session::last_compacted_span(&store) {
                     let _ = writeln!(
                         stderr,
-                        "forge chat: compacted seq {from}..{to} into a summary"
+                        "hearth chat: compacted seq {from}..{to} into a summary"
                     );
                 }
             }
             Ok(false) => {}
             Err(e) => {
-                let _ = writeln!(stderr, "forge chat: compaction skipped: {}", e.message());
+                let _ = writeln!(stderr, "hearth chat: compaction skipped: {}", e.message());
             }
         }
     }
@@ -1171,7 +1171,7 @@ fn execute_turn(
     };
 
     // The registry, the policy and the external bridges (MCP servers, skills,
-    // subagent) are assembled in one place so `forge chat` and `forge web` cannot
+    // subagent) are assembled in one place so `hearth chat` and `hearth web` cannot
     // drift about which tools exist or which of them ask first.
     let wired = crate::wiring::build(crate::wiring::BuildOptions {
         cfg,
@@ -1188,10 +1188,10 @@ fn execute_turn(
         goal: goal_open,
     });
     for note in &wired.notes {
-        let _ = writeln!(stderr, "forge chat: {note}");
+        let _ = writeln!(stderr, "hearth chat: {note}");
     }
     let tool_names = wired.names();
-    let tools: Option<Arc<dyn forge_agent::ToolRunner>> = if opts.no_tools {
+    let tools: Option<Arc<dyn hearth_agent::ToolRunner>> = if opts.no_tools {
         None
     } else {
         Some(Arc::new(ToolRunnerAdapter {
@@ -1201,7 +1201,7 @@ fn execute_turn(
 
     let _ = writeln!(
         stderr,
-        "forge chat: model={model} sandbox={} tools={} approve={}",
+        "hearth chat: model={model} sandbox={} tools={} approve={}",
         sandbox.as_str(),
         tool_names.len(),
         match approve {
@@ -1210,15 +1210,15 @@ fn execute_turn(
             ApproveMode::Prompt => "prompt",
         }
     );
-    let _ = writeln!(stderr, "forge chat: session={session_id}");
-    let _ = writeln!(stderr, "forge chat: log={}", log_path.display());
+    let _ = writeln!(stderr, "hearth chat: session={session_id}");
+    let _ = writeln!(stderr, "hearth chat: log={}", log_path.display());
 
     let delta = Arc::new(Mutex::new(DeltaState {
         buffer: Vec::new(),
         wrote: false,
         last_step: 0,
     }));
-    let on_delta: forge_agent::DeltaHook = {
+    let on_delta: hearth_agent::DeltaHook = {
         let delta = Arc::clone(&delta);
         Arc::new(move |_turn, step, text| {
             let mut state = delta.lock().unwrap_or_else(|e| e.into_inner());
@@ -1283,10 +1283,10 @@ fn execute_turn(
     let appended = store.last_seq().saturating_sub(before_seq);
     let cancelled = run_err
         .as_ref()
-        .map(forge_agent::is_cancelled)
+        .map(hearth_agent::is_cancelled)
         .unwrap_or(false)
-        || result.reason == forge_agent::TURN_CANCELLED
-        || result.reason == forge_agent::STOP_CANCELLED;
+        || result.reason == hearth_agent::TURN_CANCELLED
+        || result.reason == hearth_agent::STOP_CANCELLED;
 
     if opts.json {
         let report = json!({
@@ -1320,7 +1320,7 @@ fn execute_turn(
 
     let _ = writeln!(
         stderr,
-        "forge chat: turn={} steps={} reason={} usage in={} out={} total={}",
+        "hearth chat: turn={} steps={} reason={} usage in={} out={} total={}",
         result.turn,
         result.steps,
         result.reason,
@@ -1337,7 +1337,7 @@ fn execute_turn(
         return Ok(EXIT_INTERRUPTED);
     }
     if let Some(err) = run_err {
-        let _ = writeln!(stderr, "forge chat: {}", err.message());
+        let _ = writeln!(stderr, "hearth chat: {}", err.message());
         return Ok(EXIT_FAILURE);
     }
     Ok(EXIT_OK)
@@ -1354,10 +1354,10 @@ mod tests {
             .unwrap()
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "forge-chat-test-{nanos}-{}.jsonl",
+            "hearth-chat-test-{nanos}-{}.jsonl",
             std::process::id()
         ));
-        let store = Arc::new(Store::open(&path, forge_session::Options::default()).unwrap());
+        let store = Arc::new(Store::open(&path, hearth_session::Options::default()).unwrap());
         (store, path)
     }
 

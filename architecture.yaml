@@ -1,4 +1,4 @@
-# architecture.yaml — the crate-layer map for forge-rs.
+# architecture.yaml — the crate-layer map for hearth.
 #
 # Cargo can see that a dependency exists; it cannot see that the dependency
 # points the wrong way. This file supplies the missing half: a layer per crate,
@@ -10,17 +10,17 @@
 version: 1
 
 layers:
-  L0: [forge-core, forge-config]
-  L1: [forge-exec, forge-sandbox, forge-mcp, forge-skill, forge-net, forge-experts]
-  L2: [forge-session, forge-llm, forge-tool, forge-protocol, forge-agent, forge-store, forge-import, forge-subagent, forge-goal, forge-schedule, forge-market, forge-plugin, forge-team, forge-context]
-  L3: [forge-server, forge-cli]
+  L0: [hearth-core, hearth-config]
+  L1: [hearth-exec, hearth-sandbox, hearth-mcp, hearth-skill, hearth-net, hearth-experts]
+  L2: [hearth-session, hearth-llm, hearth-tool, hearth-protocol, hearth-agent, hearth-store, hearth-import, hearth-subagent, hearth-goal, hearth-schedule, hearth-market, hearth-plugin, hearth-team, hearth-context]
+  L3: [hearth-server, hearth-cli]
 
 # Same-layer edges the layer rule cannot judge but §2 forbids outright.
-# forge-core is the vocabulary every crate shares, so it may import no other
-# forge crate; forge-llm must not know that sessions exist.
+# hearth-core is the vocabulary every crate shares, so it may import no other
+# hearth crate; hearth-llm must not know that sessions exist.
 forbidden_edges:
-  - [forge-core, forge-config]
-  - [forge-llm, forge-session]
+  - [hearth-core, hearth-config]
+  - [hearth-llm, hearth-session]
 
 # Tooling artifacts, never crates.
 ignore_dirs: [.git, target, node_modules]

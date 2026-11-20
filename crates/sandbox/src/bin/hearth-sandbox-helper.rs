@@ -14,10 +14,10 @@ use std::process::Command;
 use std::time::Duration;
 
 fn main() {
-    // Be the sandbox wrapper when forge asks this process to be one: the Windows
+    // Be the sandbox wrapper when hearth asks this process to be one: the Windows
     // enforcer re-execs itself with a spec in the environment, and whatever binary
     // hosts that must answer here before it parses its own arguments.
-    forge_sandbox::maybe_exec_helper();
+    hearth_sandbox::maybe_exec_helper();
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         std::process::exit(2);

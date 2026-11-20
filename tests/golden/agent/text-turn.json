@@ -1,5 +1,5 @@
 [
-  {"payload":{"model":"fake-model","startedBy":"cli","system":"you are a test assistant","workspace":"/work/forge"},"seq":1,"session":"s_m1","type":"session/start","v":1},
+  {"payload":{"model":"fake-model","startedBy":"cli","system":"you are a test assistant","workspace":"/work/hearth"},"seq":1,"session":"s_m1","type":"session/start","v":1},
   {"payload":{"number":1},"seq":2,"session":"s_m1","turn":1,"type":"turn/start","v":1},
   {"payload":{"attachments":[],"text":"why the log?"},"seq":3,"session":"s_m1","turn":1,"type":"user/message","v":1},
   {"payload":{"index":0,"model":"fake-model"},"seq":4,"session":"s_m1","step":1,"turn":1,"type":"step/start","v":1},

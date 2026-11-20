@@ -5,7 +5,7 @@
 //! [`Store::rebuild`]. Keep that property when changing anything in this crate.
 //!
 //! The public surface mirrors `docs/contracts/m4-surface.md` §2 with snake_case
-//! names. Errors are `forge_core::Error`; see `crates/core/README.md` for the
+//! names. Errors are `hearth_core::Error`; see `crates/core/README.md` for the
 //! error vocabulary. Timestamps are i64 milliseconds since the Unix epoch.
 
 mod cursor;
@@ -17,4 +17,4 @@ mod store;
 pub use store::{is_bad_cursor, is_closed, Hit, Options, Query, Session, Stats, Store};
 
 /// The result type used by every fallible operation in this crate.
-pub type Result<T> = std::result::Result<T, forge_core::Error>;
+pub type Result<T> = std::result::Result<T, hearth_core::Error>;

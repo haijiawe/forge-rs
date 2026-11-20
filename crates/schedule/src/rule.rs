@@ -11,7 +11,7 @@
 //! "now" arrives as `after_ms`, which is what makes the occurrence table a
 //! deterministic oracle.
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 
 use crate::civil::{
     civil_from_days, civil_from_month_index, days_from_civil, days_in_month, in_supported_year,

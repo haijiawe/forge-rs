@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use forge_store::{is_bad_cursor, is_closed, Options, Query, Session, Store};
+use hearth_store::{is_bad_cursor, is_closed, Options, Query, Session, Store};
 use serde_json::{json, Value};
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
@@ -26,7 +26,7 @@ impl TempDir {
     fn new(tag: &str) -> Self {
         let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
         let path =
-            std::env::temp_dir().join(format!("forge-store-{tag}-{}-{id}", std::process::id()));
+            std::env::temp_dir().join(format!("hearth-store-{tag}-{}-{id}", std::process::id()));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).expect("create temp dir");
         Self { path }
@@ -314,7 +314,7 @@ fn rebuild_projects_rows_and_indexes_only_boundary_messages() {
     let rows = store.list(Query::default()).expect("list").0;
     assert_eq!(rows.len(), 2);
     for row in &rows {
-        assert_eq!(row.status, forge_protocol::status::ENDED);
+        assert_eq!(row.status, hearth_protocol::status::ENDED);
         assert_eq!(row.model, "test-model");
         assert_eq!(row.turns, 1);
         assert_eq!(row.last_seq, 8);

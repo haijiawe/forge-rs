@@ -26,7 +26,7 @@
 //! table-driven decoder and much harder to get wrong, and a plugin tarball is
 //! a few hundred kilobytes.
 
-use forge_core::{Error, Result};
+use hearth_core::{Error, Result};
 
 use crate::error::{
     invalid_with, ERR_DEFLATE_CODE_LENGTHS, ERR_DEFLATE_DISTANCE, ERR_DEFLATE_ENDOFBLOCK,

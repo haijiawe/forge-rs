@@ -3,7 +3,7 @@
 //! Ported from DSH `packages/subagent/subagent/src/catalog.ts` without the
 //! projection/remote machinery. A row is written on the **parent** log the moment
 //! a child is created, and it is the stable handle everything else uses: the
-//! sibling name is reserved against the set of names already here, `forge
+//! sibling name is reserved against the set of names already here, `hearth
 //! subagent list` prints these rows, and a slash path resolves by walking them.
 //!
 //! Because the parent log has exactly one writer (the agent loop, AGENTS.md rule
@@ -13,7 +13,7 @@
 
 use std::collections::BTreeSet;
 
-use forge_core::event::{Event, EventType};
+use hearth_core::event::{Event, EventType};
 use serde_json::{json, Value};
 
 use crate::descriptor::Mode;

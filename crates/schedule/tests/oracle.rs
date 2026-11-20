@@ -6,7 +6,7 @@
 //! The rules are strings an operator could type, so the table pins the parser
 //! and the walk together: a change to either shows up as a wrong instant here.
 
-use forge_schedule::{parse_rule, Freq, Rule, Weekday};
+use hearth_schedule::{parse_rule, Freq, Rule, Weekday};
 
 // 2026-11-17T09:00:00Z, a Tuesday.
 const TUE_0900: i64 = 1_794_906_000_000;
@@ -441,17 +441,17 @@ fn a_rule_exposes_its_parts_for_the_cli() {
 fn the_calendar_helpers_agree_with_the_table() {
     // The table above is the arbiter; these pin the pieces it rests on.
     assert_eq!(
-        forge_schedule::from_civil(2026, 11, 17, 9, 0, 0),
+        hearth_schedule::from_civil(2026, 11, 17, 9, 0, 0),
         TUE_0900,
         "2026-11-17T09:00:00Z"
     );
     assert_eq!(
-        forge_schedule::from_civil(2024, 2, 29, 0, 0, 0),
+        hearth_schedule::from_civil(2024, 2, 29, 0, 0, 0),
         THU_2024_0229,
         "2024-02-29T00:00:00Z"
     );
     assert_eq!(
-        forge_schedule::from_civil(2024, 1, 1, 8, 15, 0),
+        hearth_schedule::from_civil(2024, 1, 1, 8, 15, 0),
         MON_2024_0815,
         "2024-01-01T08:15:00Z"
     );

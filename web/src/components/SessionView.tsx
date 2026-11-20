@@ -4,7 +4,7 @@
 // useSyncExternalStore and re-renders once per published frame (the store
 // batches to requestAnimationFrame, see state/sessionStore.ts).
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import type { ForgeApi, OutgoingAttachment } from '../api/client';
+import type { HearthApi, OutgoingAttachment } from '../api/client';
 import type { CapabilityReport } from '../api/capabilities';
 import type { Goal } from '../api/goal';
 import type { ApprovalDecision } from '../api/types';
@@ -19,7 +19,7 @@ import { SubagentPanel } from './SubagentPanel';
 import { Transcript } from './Transcript';
 
 export interface SessionViewProps {
-  api: ForgeApi;
+  api: HearthApi;
   sessionId: string;
   token: string;
   baseUrl?: string;

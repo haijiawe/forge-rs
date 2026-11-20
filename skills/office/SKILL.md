@@ -14,12 +14,12 @@ file, and an empty document that opens is worse than an honest refusal.
 
 Run the shell tool with:
 
-    forge doctor
+    hearth doctor
 
-`forge` may not be on `PATH`, because the harness is launched by absolute path.
-If the shell answers `forge: not recognized`, run the same binary by its full
-path, or `cargo run -q -p forge-cli -- doctor` inside a source tree (the package
-is `forge-cli`; the binary it builds is `forge`). Do not skip the probe and do
+`hearth` may not be on `PATH`, because the harness is launched by absolute path.
+If the shell answers `hearth: not recognized`, run the same binary by its full
+path, or `cargo run -q -p hearth-cli -- doctor` inside a source tree (the package
+is `hearth-cli`; the binary it builds is `hearth`). Do not skip the probe and do
 not assume a library is installed: if the probe cannot run at all, say that it
 did not run and stop.
 
@@ -124,7 +124,7 @@ instead when the answer needs layout fidelity rather than values.
 
 ### Convert (PDF, ODT, legacy formats)
 
-Only when `forge doctor` reports `convert` as available:
+Only when `hearth doctor` reports `convert` as available:
 
     soffice --headless --convert-to pdf --outdir . in.docx
 
@@ -180,5 +180,5 @@ reporting it as done. State the path you wrote and the counts you measured.
   automation, and never leave LibreOffice running without `--headless`.
 * Never claim a document was created, converted or verified unless the command
   that did it ran, and never report a count you did not print.
-* The `python` in these snippets is whichever interpreter `forge doctor` named.
+* The `python` in these snippets is whichever interpreter `hearth doctor` named.
   If only `py -3` exists, use `py -3`; if only `python3`, use `python3`.

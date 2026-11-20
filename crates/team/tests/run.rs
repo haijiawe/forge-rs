@@ -10,9 +10,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use forge_core::ErrorKind;
-use forge_team::run::run;
-use forge_team::{
+use hearth_core::ErrorKind;
+use hearth_team::run::run;
+use hearth_team::{
     Board, Call, Mailbox, NewTask, Plan, RecordingRunner, TaskCounts, WorkerResult, WorkerRunner,
     WorkerSpec, DEFAULT_MAX_PARALLEL, WORKERS_DIR,
 };
@@ -27,7 +27,7 @@ fn temp_dir(label: &str) -> std::path::PathBuf {
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
     let dir = std::env::temp_dir().join(format!(
-        "forge-team-run-{}-{}-{}-{}",
+        "hearth-team-run-{}-{}-{}-{}",
         std::process::id(),
         stamp,
         NEXT.fetch_add(1, Ordering::SeqCst),
@@ -124,7 +124,7 @@ fn two_workers_with_disjoint_scopes_both_complete_and_the_board_moves_by_transit
     for id in ["t-board", "t-mail"] {
         assert_eq!(
             board.task(id).expect("task on board").status,
-            forge_team::Status::Completed,
+            hearth_team::Status::Completed,
             "task {id}"
         );
     }
@@ -268,7 +268,7 @@ fn two_workers_bound_to_one_task_produce_exactly_one_worker() {
     assert_eq!(runner.calls(), 1, "the loser must not run at all");
     assert_eq!(
         board.task("t1").expect("task").status,
-        forge_team::Status::Completed
+        hearth_team::Status::Completed
     );
 }
 
@@ -301,7 +301,7 @@ fn a_failed_worker_reopens_its_task_so_the_board_is_not_left_occupied() {
     let report = run(&plan, &board, &RecordingRunner::failing("the build broke"));
 
     let task = board.task("t1").expect("task");
-    assert_eq!(task.status, forge_team::Status::Pending);
+    assert_eq!(task.status, hearth_team::Status::Pending);
     assert_eq!(task.owner, None);
     assert!(task.revision > 1);
     assert!(!report.ok());
@@ -316,7 +316,7 @@ fn a_panicking_runner_becomes_one_failed_worker_and_the_others_still_report() {
     board
         .add_task(NewTask::new("doomed").id("t1"))
         .expect("add task");
-    let runner = RecordingRunner::from_fn(|call: &Call<'_>| -> forge_core::Result<WorkerResult> {
+    let runner = RecordingRunner::from_fn(|call: &Call<'_>| -> hearth_core::Result<WorkerResult> {
         if call.name() == "beta" {
             panic!("the runner exploded");
         }
@@ -345,7 +345,7 @@ fn a_panicking_runner_becomes_one_failed_worker_and_the_others_still_report() {
     // The task is not stranded in_progress by the unwind.
     assert_eq!(
         board.task("t1").expect("task").status,
-        forge_team::Status::Pending
+        hearth_team::Status::Pending
     );
     // The team is still usable afterwards: the board is not poisoned.
     let again = run(
@@ -361,7 +361,7 @@ fn a_runner_that_returns_an_error_fails_only_its_worker() {
     let (dir, board) = board("runner-error");
     let runner = RecordingRunner::from_fn(|call: &Call<'_>| {
         if call.name() == "alpha" {
-            return Err(forge_core::Error::new(
+            return Err(hearth_core::Error::new(
                 ErrorKind::Refused,
                 "no provider configured",
             ));
@@ -578,7 +578,7 @@ fn the_report_serializes_to_the_documented_wire_shape() {
 
     // The report round-trips: a caller can hand the JSON to a model and read it
     // back without a second schema.
-    let parsed: forge_team::Report = serde_json::from_value(value).expect("deserialize report");
+    let parsed: hearth_team::Report = serde_json::from_value(value).expect("deserialize report");
     assert_eq!(parsed, report);
 }
 
@@ -598,8 +598,8 @@ fn a_boxed_runner_can_dispatch() {
 
 #[cfg(windows)]
 #[test]
-fn the_command_runner_shells_out_through_forge_exec() {
-    use forge_team::CommandRunner;
+fn the_command_runner_shells_out_through_hearth_exec() {
+    use hearth_team::CommandRunner;
 
     let comspec =
         std::env::var("COMSPEC").unwrap_or_else(|_| "C:\\Windows\\System32\\cmd.exe".to_string());
@@ -636,7 +636,7 @@ fn the_command_runner_shells_out_through_forge_exec() {
 #[cfg(windows)]
 #[test]
 fn the_command_runner_refuses_an_empty_program() {
-    use forge_team::CommandRunner;
+    use hearth_team::CommandRunner;
 
     let (dir, board) = board("command-empty");
     let report = run(

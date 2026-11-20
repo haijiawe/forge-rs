@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use forge_core::{Error, ErrorKind, Result as CoreResult};
+use hearth_core::{Error, ErrorKind, Result as CoreResult};
 
 use crate::{Mode, Platform, Spec, Support, ERR_CLOSED, ERR_UNAVAILABLE};
 
@@ -72,7 +72,7 @@ fn write_profile(profile: &str) -> CoreResult<PathBuf> {
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
     let path =
-        std::env::temp_dir().join(format!("forge-sandbox-{}-{stamp}.sb", std::process::id()));
+        std::env::temp_dir().join(format!("hearth-sandbox-{}-{stamp}.sb", std::process::id()));
     std::fs::write(&path, profile).map_err(|error| {
         Error::new(
             ErrorKind::Refused,

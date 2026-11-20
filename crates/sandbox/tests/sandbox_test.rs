@@ -21,8 +21,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 #[cfg(windows)]
-use forge_sandbox::available;
-use forge_sandbox::{new, ErrorKind, Mode, Spec};
+use hearth_sandbox::available;
+use hearth_sandbox::{new, ErrorKind, Mode, Spec};
 
 // Only the Windows job-object tests start a child process, so these helpers would
 // be dead code when the test binary is cross-compiled to Linux or macOS.
@@ -32,7 +32,7 @@ fn scratch(name: &str) -> PathBuf {
     // workspace path, so a stable path keeps the grants (and the profile) across
     // runs: a random one would pay the one-time ACL cost of its ancestors every
     // single run, which measured tens of seconds per directory.
-    let path = std::env::temp_dir().join("forge-sandbox-it").join(name);
+    let path = std::env::temp_dir().join("hearth-sandbox-it").join(name);
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).expect("create scratch directory");
     std::fs::canonicalize(path).expect("canonical scratch directory")
@@ -43,14 +43,14 @@ fn spec_in(mode: Mode, workspace: &Path) -> Spec {
     let mut spec = Spec::new(mode);
     spec.workspace = workspace.display().to_string();
     // The wrapper must be a program whose first statement is `maybe_exec_helper`;
-    // in production that is `forge`, and in these tests it is the helper child.
+    // in production that is `hearth`, and in these tests it is the helper child.
     spec.wrapper = Some(helper().to_string());
     spec
 }
 
 #[cfg(windows)]
 fn helper() -> &'static str {
-    env!("CARGO_BIN_EXE_forge-sandbox-helper")
+    env!("CARGO_BIN_EXE_hearth-sandbox-helper")
 }
 
 /// The helper as the *container* sees it: a copy inside the workspace, because a
@@ -119,7 +119,7 @@ fn windows_mode_matrix_on_this_host() {
     let support = available();
     assert_eq!(
         support.filesystem,
-        forge_sandbox::appcontainer_available(),
+        hearth_sandbox::appcontainer_available(),
         "filesystem containment must be claimed exactly when a container can be built"
     );
     assert!(support.process_tree, "job objects always contain the tree");
@@ -395,7 +395,7 @@ fn windows_network_follows_the_spec_switch() {
     // loopback exemption (`NetworkIsolationSetAppContainerConfig` in Firewallapi.dll,
     // administrator, process-wide), which this crate deliberately does not create, so
     // loopback is only usable as the deny direction here.
-    if !forge_sandbox::appcontainer_available() {
+    if !hearth_sandbox::appcontainer_available() {
         eprintln!("SKIPPED: no AppContainer identity on this host, so nothing to grant");
         return;
     }

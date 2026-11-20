@@ -5,10 +5,10 @@
 //! this file carries the smallest fixture it needs: one temp data dir, one
 //! server on an ephemeral port, one authenticated JSON request helper.
 
-use forge_core::Event;
-use forge_goal::StopReason;
-use forge_server::api::Options;
-use forge_server::Server;
+use hearth_core::Event;
+use hearth_goal::StopReason;
+use hearth_server::api::Options;
+use hearth_server::Server;
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{Read, Write};
@@ -31,7 +31,7 @@ static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 fn unique_dir(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "forge-goal-route-{}-{}-{}",
+        "hearth-goal-route-{}-{}-{}",
         label,
         std::process::id(),
         NEXT_DIR.fetch_add(1, Ordering::Relaxed)
@@ -91,7 +91,7 @@ impl Fixture {
         let bearer = format!("Bearer {}", self.token);
         let origin = format!("http://{}", self.addr);
         let mut request = format!(
-            "{method} {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nX-Forge-Protocol: 1\r\nOrigin: {origin}\r\nAuthorization: {bearer}\r\n",
+            "{method} {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nX-Hearth-Protocol: 1\r\nOrigin: {origin}\r\nAuthorization: {bearer}\r\n",
             self.addr
         );
         let bytes = body.map(|value| serde_json::to_vec(value).expect("encode body"));
@@ -228,9 +228,9 @@ fn a_session_with_no_goal_answers_null() {
 fn an_active_goal_is_reported_with_the_round_that_comes_next() {
     let fixture = Fixture::start("active");
     let session = fixture.create_session();
-    let goal = forge_goal::Goal::new("g1", "ship the goal route", 10);
-    fixture.append(&session, forge_goal::goal_created(&session, &goal));
-    fixture.append(&session, forge_goal::goal_continued(&session, &goal, 1));
+    let goal = hearth_goal::Goal::new("g1", "ship the goal route", 10);
+    fixture.append(&session, hearth_goal::goal_created(&session, &goal));
+    fixture.append(&session, hearth_goal::goal_continued(&session, &goal, 1));
 
     let (status, body) = fixture.goal(&session);
     assert_eq!(status, 200);
@@ -256,12 +256,12 @@ fn an_active_goal_is_reported_with_the_round_that_comes_next() {
 fn a_finished_goal_has_no_next_round() {
     let fixture = Fixture::start("blocked");
     let session = fixture.create_session();
-    let goal = forge_goal::Goal::new("g1", "ship the goal route", 10);
-    fixture.append(&session, forge_goal::goal_created(&session, &goal));
-    fixture.append(&session, forge_goal::goal_continued(&session, &goal, 1));
+    let goal = hearth_goal::Goal::new("g1", "ship the goal route", 10);
+    fixture.append(&session, hearth_goal::goal_created(&session, &goal));
+    fixture.append(&session, hearth_goal::goal_continued(&session, &goal, 1));
     fixture.append(
         &session,
-        forge_goal::goal_ended(&session, &goal, StopReason::Blocked, Some("no token")),
+        hearth_goal::goal_ended(&session, &goal, StopReason::Blocked, Some("no token")),
     );
 
     let (status, body) = fixture.goal(&session);

@@ -3,7 +3,7 @@ dir: crates/tool
 layer: L2
 role: registry, executor, policy, approvals and the builtin tools
 public: [Tool, Call, Result, Limits, DefaultLimits, Registry, Executor, Policy, Rule, Rules, Decision, Approver, ApprovalRequest, AllowAll, Dangerous, builtin, Options, names, WebFetchTool, WebSearchTool, SearchConfig, WorktreeTool, PresentTool, ReadImageTool, GoalEndTool, GOAL_META_KEY, MAX_IMAGE_BYTES, ALLOWED_MEDIA_TYPES]
-may_import: [forge-core, forge-exec, forge-llm, forge-net]
+may_import: [hearth-core, hearth-exec, hearth-llm, hearth-net]
 must_not:
   - import a crate from a higher layer
   - write event-log or approval events; session owns the log
@@ -21,13 +21,13 @@ The tool system: a `Tool` trait, a registry, an executor that enforces policy an
 
 ## 依赖与边界
 
-Do not let the executor decide policy. Policy is data (`Rule`s) merged by the caller; an executor that hard-codes `ask` for shell cannot be tested without a shell. Shell and worktree commands use `forge-exec` only. Filesystem paths are resolved under the caller-supplied workspace and are never inferred from the process CWD.
+Do not let the executor decide policy. Policy is data (`Rule`s) merged by the caller; an executor that hard-codes `ask` for shell cannot be tested without a shell. Shell and worktree commands use `hearth-exec` only. Filesystem paths are resolved under the caller-supplied workspace and are never inferred from the process CWD.
 
-Network access is `forge-net`'s job, not this crate's: a tool that reached the web by hand would be a second TLS stack with its own idea of trust roots, deadlines and redirects. A tool that needs the network takes an `Arc<forge_net::Client>` and is not registered when the caller has none, so "no network" is visible in the tool list instead of failing one call at a time.
+Network access is `hearth-net`'s job, not this crate's: a tool that reached the web by hand would be a second TLS stack with its own idea of trust roots, deadlines and redirects. A tool that needs the network takes an `Arc<hearth_net::Client>` and is not registered when the caller has none, so "no network" is visible in the tool list instead of failing one call at a time.
 
 ## 不要做
 
-- Do not import `forge-session`, `forge-agent`, `forge-server`, or any higher layer.
+- Do not import `hearth-session`, `hearth-agent`, `hearth-server`, or any higher layer.
 - Do not add a dependency outside the workspace budget in the workspace `Cargo.toml`.
 - Do not run a tool before policy allowance and, when required, approver consent.
 - Do not emit unbounded output; every tool result passes through `truncate`.

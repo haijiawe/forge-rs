@@ -16,11 +16,11 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use forge_sandbox::{available, new, ErrorKind, Mode, Spec};
+use hearth_sandbox::{available, new, ErrorKind, Mode, Spec};
 
 fn scratch(name: &str) -> PathBuf {
     let path = std::env::temp_dir()
-        .join("forge-sandbox-linux-it")
+        .join("hearth-sandbox-linux-it")
         .join(name);
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).expect("create scratch directory");
@@ -28,14 +28,14 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 fn helper() -> &'static str {
-    env!("CARGO_BIN_EXE_forge-sandbox-helper")
+    env!("CARGO_BIN_EXE_hearth-sandbox-helper")
 }
 
 fn spec_in(mode: Mode, workspace: &Path) -> Spec {
     let mut spec = Spec::new(mode);
     spec.workspace = workspace.display().to_string();
     // The wrapper must be a program whose first statement is `maybe_exec_helper`;
-    // in production that is `forge`, and here it is the helper child. The test
+    // in production that is `hearth`, and here it is the helper child. The test
     // binary itself would answer its own argument parser instead.
     spec.wrapper = Some(helper().to_string());
     spec

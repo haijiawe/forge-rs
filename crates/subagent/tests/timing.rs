@@ -1,17 +1,17 @@
 //! Time projection tests: `subagentTiming` folded out of real child logs.
 //!
-//! Every fixture is a log written through [`forge_session::Store`] with `ts` set
+//! Every fixture is a log written through [`hearth_session::Store`] with `ts` set
 //! explicitly — `Store::append` only stamps a timestamp when the caller left it
 //! zero — so each duration asserted here is exact rather than measured, and the
 //! tests do not depend on how fast this box happens to run.
 
 use std::path::{Path, PathBuf};
 
-use forge_core::{ErrorKind, Event, EventType};
-use forge_session::{Options as StoreOptions, Store};
-use forge_subagent::catalog::CatalogEntry;
-use forge_subagent::descriptor::Mode;
-use forge_subagent::timing::{children, of_child, of_log, Timing};
+use hearth_core::{ErrorKind, Event, EventType};
+use hearth_session::{Options as StoreOptions, Store};
+use hearth_subagent::catalog::CatalogEntry;
+use hearth_subagent::descriptor::Mode;
+use hearth_subagent::timing::{children, of_child, of_log, Timing};
 use serde_json::json;
 
 /// A data dir with a `sessions/` child that is removed when the guard drops.
@@ -22,7 +22,7 @@ struct Scratch {
 impl Scratch {
     fn new(label: &str) -> Scratch {
         let root = std::env::temp_dir().join(format!(
-            "forge-subagent-timing-{label}-{}",
+            "hearth-subagent-timing-{label}-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&root);

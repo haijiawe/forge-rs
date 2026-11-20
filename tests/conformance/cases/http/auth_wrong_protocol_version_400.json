@@ -5,7 +5,7 @@
     "method": "GET",
     "path": "/api/sessions",
     "headers": {
-      "X-Forge-Protocol": "2"
+      "X-Hearth-Protocol": "2"
     }
   },
   "expect": {

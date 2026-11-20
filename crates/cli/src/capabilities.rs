@@ -1,7 +1,7 @@
 //! Fill the browser's capability snapshot from what is actually on disk.
 //!
-//! This lives in the CLI rather than in `forge-server` for the reason stated in
-//! `forge_server::capabilities`: only this crate is allowed to know about
+//! This lives in the CLI rather than in `hearth-server` for the reason stated in
+//! `hearth_server::capabilities`: only this crate is allowed to know about
 //! plugins, rosters, markets and skills. Everything here is a *read*: no child
 //! process is started, no plugin is loaded, and a root that does not exist is
 //! not an error — it just contributes no rows.
@@ -13,8 +13,8 @@
 
 use std::path::{Path, PathBuf};
 
-use forge_config::Config;
-use forge_server::{Entry, Report};
+use hearth_config::Config;
+use hearth_server::{Entry, Report};
 
 /// What the report needs to know about the session being served.
 pub struct Facts<'a> {
@@ -45,7 +45,7 @@ pub fn report(cfg: &Config, facts: &Facts<'_>) -> Report {
         .map(|name| name.trim().to_string())
         .filter(|name| !name.is_empty())
         .collect();
-    let mut host = forge_plugin::Host::start(Path::new(&cfg.plugin_root()));
+    let mut host = hearth_plugin::Host::start(Path::new(&cfg.plugin_root()));
     let bundles = facts.data_dir.join("market").join("bundles");
     if bundles.is_dir() {
         host.add_root(&bundles);
@@ -79,9 +79,9 @@ pub fn report(cfg: &Config, facts: &Facts<'_>) -> Report {
         .map(PathBuf::from)
         .filter(|path| path.is_dir())
         .collect();
-    let mut roster = forge_experts::Set::empty();
+    let mut roster = hearth_experts::Set::empty();
     for root in &roots {
-        match forge_experts::scan(root) {
+        match hearth_experts::scan(root) {
             Ok(found) if !found.is_empty() => {
                 roster = found;
                 break;
@@ -120,7 +120,7 @@ pub fn report(cfg: &Config, facts: &Facts<'_>) -> Report {
 
     // Bundles: a market install is a plugin the host already knows how to find,
     // so these rows say *where* it came from rather than duplicating the plugin.
-    let store = forge_market::Store::new(facts.data_dir.join("market"));
+    let store = hearth_market::Store::new(facts.data_dir.join("market"));
     match store.list() {
         Ok(installed) => {
             for record in installed {
@@ -146,7 +146,7 @@ pub fn report(cfg: &Config, facts: &Facts<'_>) -> Report {
         .map(PathBuf::from)
         .filter(|path| path.is_dir())
         .collect();
-    match forge_skill::scan(&skill_roots) {
+    match hearth_skill::scan(&skill_roots) {
         Ok(set) => {
             for skill in set.skills.iter() {
                 report.skills.push(Entry::new(
@@ -172,11 +172,11 @@ pub fn report(cfg: &Config, facts: &Facts<'_>) -> Report {
         let transport = if !server.transport.trim().is_empty() {
             server.transport.trim().to_string()
         } else if !server.url.trim().is_empty() {
-            forge_config::MCP_TRANSPORT_HTTP.to_string()
+            hearth_config::MCP_TRANSPORT_HTTP.to_string()
         } else {
-            forge_config::MCP_TRANSPORT_STDIO.to_string()
+            hearth_config::MCP_TRANSPORT_STDIO.to_string()
         };
-        let detail = if transport == forge_config::MCP_TRANSPORT_HTTP {
+        let detail = if transport == hearth_config::MCP_TRANSPORT_HTTP {
             server.url.clone()
         } else {
             server.command.join(" ")
@@ -203,7 +203,7 @@ mod tests {
     }
 
     fn scratch(label: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("forge-caps-{label}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-caps-{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch");
         dir

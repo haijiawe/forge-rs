@@ -13,8 +13,8 @@
 //! state a reader could catch.
 
 use crate::block::Block;
-use forge_core::event::{Event, EventType};
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::event::{Event, EventType};
+use hearth_core::{Error, ErrorKind, Result};
 use serde_json::{Map, Value};
 
 /// The event type, spelled once. `EventType::CONTEXT_COMPRESSED` must equal

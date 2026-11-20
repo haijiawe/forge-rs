@@ -10,7 +10,7 @@
 //! property that matters here is that a one-character edit changes the digest,
 //! and 2^-64 is far below the odds of the disk corrupting a line first.
 //!
-//! It lives in `forge-core` because the alternative is a second definition in
+//! It lives in `hearth-core` because the alternative is a second definition in
 //! whichever crate needed it next, and two fingerprints of the same bytes that
 //! do not agree are worse than none.
 

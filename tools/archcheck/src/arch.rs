@@ -215,7 +215,7 @@ fn parse_layer(name: &str) -> Option<usize> {
     digits.parse().ok()
 }
 
-// "L2: [forge-core, forge-config]" -> ("L2", "[forge-core, forge-config]").
+// "L2: [hearth-core, hearth-config]" -> ("L2", "[hearth-core, hearth-config]").
 // The colon must be followed by whitespace or end-of-line so a Windows path in
 // a value (C:\...) is not mistaken for a key.
 fn split_key_value(text: &str) -> Option<(String, String)> {
@@ -335,16 +335,16 @@ mod tests {
         let architecture = parse(
             "version: 1\n\
              layers:\n\
-             \x20 L0: [forge-core, forge-config]\n\
-             \x20 L1: [forge-exec]\n\
+             \x20 L0: [hearth-core, hearth-config]\n\
+             \x20 L1: [hearth-exec]\n\
              forbidden_edges:\n\
-             \x20 - [forge-core, forge-config]\n\
+             \x20 - [hearth-core, hearth-config]\n\
              ignore_dirs: [target]\n",
         )
         .expect("valid architecture");
-        assert_eq!(architecture.rank_of("forge-core"), Some(0));
-        assert_eq!(architecture.rank_of("forge-exec"), Some(1));
-        assert!(architecture.is_forbidden("forge-core", "forge-config"));
+        assert_eq!(architecture.rank_of("hearth-core"), Some(0));
+        assert_eq!(architecture.rank_of("hearth-exec"), Some(1));
+        assert!(architecture.is_forbidden("hearth-core", "hearth-config"));
         assert_eq!(architecture.ignore_dirs, vec!["target".to_string()]);
     }
 
@@ -364,7 +364,7 @@ mod tests {
 
     #[test]
     fn accepts_an_empty_forbidden_edges_list() {
-        let architecture = parse("version: 1\nlayers:\n  L0: [forge-core]\nforbidden_edges: []\n")
+        let architecture = parse("version: 1\nlayers:\n  L0: [hearth-core]\nforbidden_edges: []\n")
             .expect("empty forbidden_edges is valid");
         assert!(architecture.forbidden_edges.is_empty());
     }

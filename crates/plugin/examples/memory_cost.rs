@@ -2,7 +2,7 @@
 //!
 //! `ipc_cost` answers "how long does a call take" and the answer is small enough
 //! to ignore next to a model round trip. That number says nothing about memory,
-//! and memory is the property this whole rewrite was sold on: `forge web` idles at
+//! and memory is the property this whole rewrite was sold on: `hearth web` idles at
 //! a few MB where the Electron original held several GB. An interpreter per
 //! plugin could quietly spend that advantage, so it has to be measured rather
 //! than assumed in either direction.
@@ -10,8 +10,8 @@
 //! Run it with:
 //!
 //! ```text
-//! cargo build --release -p forge-plugin --bins --offline
-//! cargo run --release -p forge-plugin --example memory_cost --offline -- 40
+//! cargo build --release -p hearth-plugin --bins --offline
+//! cargo run --release -p hearth-plugin --example memory_cost --offline -- 40
 //! ```
 //!
 //! The argument is how many seconds to hold the children open (default 30). While
@@ -33,13 +33,13 @@
 //! and the self-report is only a check on it.
 //!
 //! Nothing here is a gate: it needs `node`, `python` and a built
-//! `forge-plugin-native`, it skips whatever is missing rather than pretending,
+//! `hearth-plugin-native`, it skips whatever is missing rather than pretending,
 //! and it neither writes a baseline nor fails a build.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use forge_plugin::Host;
+use hearth_plugin::Host;
 use serde_json::{json, Value};
 
 /// Long enough to sample by hand from another shell, short enough that a forgotten
@@ -132,7 +132,7 @@ fn temp_root() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("forge-memory-cost-{}-{nanos}", std::process::id()))
+    std::env::temp_dir().join(format!("hearth-memory-cost-{}-{nanos}", std::process::id()))
 }
 
 fn write_plugin(root: &Path, name: &str, runtime: &str, entry: &str, body: &str) -> bool {
@@ -157,9 +157,9 @@ fn native_binary() -> Option<PathBuf> {
     let here = std::env::current_exe().ok()?;
     let profile = here.parent()?.parent()?;
     let name = if cfg!(windows) {
-        "forge-plugin-native.exe"
+        "hearth-plugin-native.exe"
     } else {
-        "forge-plugin-native"
+        "hearth-plugin-native"
     };
     let candidate = profile.join(name);
     candidate.is_file().then_some(candidate)
@@ -241,7 +241,7 @@ fn main() {
             }
         }
         None => println!(
-            "native: build it first with `cargo build --release -p forge-plugin --bins`, skipped"
+            "native: build it first with `cargo build --release -p hearth-plugin --bins`, skipped"
         ),
     }
 

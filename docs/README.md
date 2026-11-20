@@ -1,6 +1,6 @@
 # docs — what is here, and what to read first
 
-This tree is `forge`, a Rust harness: twenty-four crates over one append-only
+This tree is `hearth`, a Rust harness: twenty-four crates over one append-only
 event log, with [architecture.yaml](../architecture.yaml) stating which crate may
 import which and [tools/archcheck](../tools/archcheck) failing the build when an
 edge points up. What is frozen is [docs/contracts/](contracts/README.md) — the v1
@@ -49,9 +49,9 @@ the only place the shape of that work is written down.
 
 | Doc | What question it answers, and who reads it | State |
 | --- | --- | --- |
-| [dsh vs forge](dsh-vs-forge.md) | how the two codebases actually differ, layer by layer from rc.5 source — design reader | delivered |
+| [dsh vs hearth](dsh-vs-hearth.md) | how the two codebases actually differ, layer by layer from rc.5 source — design reader | delivered |
 | [dsh comparison](dsh-comparison.md) | how fast the installed rc.1 CLI is here, and how the measurement was taken — perf claims, and the source of the numbers quoted above | delivered (measurement record) |
-| [agent comparison](agent-comparison.md) | how the two agent loops differ — two independently evolved designs (DSH→forge-go→forge-rs) | delivered |
+| [agent comparison](agent-comparison.md) | how the two agent loops differ — two independently evolved designs (DSH→forge-go→hearth) | delivered |
 
 ## Operations — how it is built, shipped and measured
 
@@ -88,13 +88,13 @@ only becomes worth writing if a single-binary install is ever required.
 now describe runs that actually happened, on hosted runners, with the run ids.
 [office](office-run.md) is the same kind of record for the Office skill: what the
 shipped instructions produced, what was missing, and what was never verified.
-[dsh vs forge](dsh-vs-forge.md) states its version boundary up front — it reads
+[dsh vs hearth](dsh-vs-hearth.md) states its version boundary up front — it reads
 rc.5 source but reuses rc.1 performance numbers, and says so before drawing any
 conclusion; [dsh comparison](dsh-comparison.md) is where those numbers and their
 method live, which is why the two are separate files rather than one.
 [agent comparison](agent-comparison.md) narrows the same rc.5 source down to the
 agent execution layer: loop shape, inbox, extension points, stream accounting,
-cancellation, subagent, team/goal and compaction. It reads `forge-rs` as a Rust
+cancellation, subagent, team/goal and compaction. It reads `hearth` as a Rust
 port of `forge-go` (which was written by the DSH team), so where the two differ
 it is a difference between two independently evolved designs, not a porting bug;
 [agent gaps](agent-gaps.md) is the ledger of what DSH has and this tree does not,
@@ -110,7 +110,7 @@ closed the rest of the ledger.
 
 ## Keeping this index from rotting
 
-`forge help` ends by naming this file in its usage text
+`hearth help` ends by naming this file in its usage text
 ([crates/cli/src/lib.rs](../crates/cli/src/lib.rs) `USAGE`), and
 `cargo run -q -p archcheck --offline` now fails `docs.missing` when a
 `docs/<file>.md` named there is not a file on disk. A new document gets a row

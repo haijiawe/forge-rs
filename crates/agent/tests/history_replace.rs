@@ -4,10 +4,10 @@
 
 use std::collections::BTreeSet;
 
-use forge_agent::history::{to_llm_messages_hiding, to_llm_messages_replacing, SurfaceMode};
-use forge_llm::Role;
-use forge_session::projection::{AssistantCall, Message as ProjectedMessage};
-use forge_session::Snapshot;
+use hearth_agent::history::{to_llm_messages_hiding, to_llm_messages_replacing, SurfaceMode};
+use hearth_llm::Role;
+use hearth_session::projection::{AssistantCall, Message as ProjectedMessage};
+use hearth_session::Snapshot;
 
 fn msg(kind: &str, seq: u64, text: &str) -> ProjectedMessage {
     ProjectedMessage {
@@ -33,13 +33,13 @@ fn snapshot(messages: Vec<ProjectedMessage>) -> Snapshot {
     }
 }
 
-fn no_parts(_: &ProjectedMessage) -> Vec<forge_llm::ContentPart> {
+fn no_parts(_: &ProjectedMessage) -> Vec<hearth_llm::ContentPart> {
     Vec::new()
 }
 
 /// Assert the two directions providers enforce: no tool result without a
 /// matching call, and no call without a matching result.
-fn assert_pairs_closed(out: &[forge_llm::Message]) {
+fn assert_pairs_closed(out: &[hearth_llm::Message]) {
     let mut calls: BTreeSet<String> = BTreeSet::new();
     let mut results: BTreeSet<String> = BTreeSet::new();
     for message in out {
@@ -56,7 +56,7 @@ fn assert_pairs_closed(out: &[forge_llm::Message]) {
     );
 }
 
-fn summary_user_count(out: &[forge_llm::Message]) -> usize {
+fn summary_user_count(out: &[hearth_llm::Message]) -> usize {
     out.iter()
         .filter(|m| m.role == Role::User && m.content.contains("SUMMARY"))
         .count()
@@ -180,7 +180,7 @@ fn hide_mode_is_unchanged_and_leaves_no_trace() {
     assert_eq!(summary_user_count(&out), 0, "{out:?}");
 
     // The same selection through the explicit mode enum agrees with the shim.
-    let explicit = forge_agent::history::to_llm_messages_with_mode(
+    let explicit = hearth_agent::history::to_llm_messages_with_mode(
         &snap,
         "",
         &no_parts,

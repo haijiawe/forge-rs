@@ -3,16 +3,16 @@ dir: crates/team
 layer: L2
 role: parallel workers over a shared task board with a per-worker mailbox
 public: [Board, NewTask, Task, TaskPatch, Status, Problem, ProblemKind, ScopeWarning, Message, Drain, Mailbox, Plan, Report, TaskCounts, WorkerReport, WorkerSpec, WorkerResult, WorkerRunner, Call, RecordingRunner, CommandRunner, run, valid_name, MAX_NAME_LEN, BOARD_FILE, BOARD_VERSION, INBOX_DIR, WORKERS_DIR, DEFAULT_MAX_PARALLEL, Journal, Entry, JournalRead, LeadTxn, JOURNAL_DIR, TeamTaskGraphError, TeamTaskGraphViolation, validate_tasks, validate_board, validate_plan]
-may_import: [forge-core, forge-exec]
+may_import: [hearth-core, hearth-exec]
 must_not:
   - write session events or open a session log for writing
   - depend on an LLM, a provider, a network client or an async runtime
   - hold a lock, a permit or a thread across the end of `run`
   - treat a write-scope warning as a lock
-gate: cargo test -p forge-team --offline
+gate: cargo test -p hearth-team --offline
 ---
 
-# forge-team
+# hearth-team
 
 ## 做什么
 
@@ -28,28 +28,28 @@ gate: cargo test -p forge-team --offline
 
 **CAS 防并发写，journal 定顺序，两者不互替。** CAS 决定两个并发写谁赢（旧的 `expected_revision` 被拒），它不关心同一 Lead 的先后；journal 不给任何写排他，只把同一个 Lead 的多次操作按调用顺序编号落盘，它对两个 worker 抢同一任务是沉默的。用 journal 代替 CAS，会让两个 worker 互相覆盖认领；用 CAS 代替 journal，则会让同一 Lead 的后续操作被重排到前面——两次写都"成功"，记录却错了。
 
-**`<root>/workers/<name>.jsonl` 不是会话日志。** 法则 1 是"一个日志只有一个写者"：会话事件只能由 `forge-session` 的 `Store` 追加，本 crate 一个字节都不写。worker 转录是**团队文件**——路径里没有会话 id，`forge-session` 从不打开它，也没有任何事件投影到它上面；它每个 worker 一个文件、由那个 worker 的线程独占写，所以"一个日志一个写者"对它同样成立，只是"日志"指的不是会话日志。把团队转录塞进 `sessions/` 会同时破坏两件事：会话日志的读者会看到不认识的记录，而本 crate 会以为自己被允许写事件。
+**`<root>/workers/<name>.jsonl` 不是会话日志。** 法则 1 是"一个日志只有一个写者"：会话事件只能由 `hearth-session` 的 `Store` 追加，本 crate 一个字节都不写。worker 转录是**团队文件**——路径里没有会话 id，`hearth-session` 从不打开它，也没有任何事件投影到它上面；它每个 worker 一个文件、由那个 worker 的线程独占写，所以"一个日志一个写者"对它同样成立，只是"日志"指的不是会话日志。把团队转录塞进 `sessions/` 会同时破坏两件事：会话日志的读者会看到不认识的记录，而本 crate 会以为自己被允许写事件。
 
 ## 公开面
 
-`view::project(root) -> View` 把 board 与 journal 折成一份只读投影：任务按 id 排序（同一块板两次读必须是同样的字节），每任务带 `waiting_on`（未完成的阻塞者）、`missing`（阻塞者根本不在板上）与 `is_ready()`；`Counts` 给三态计数；`leads` 给每个 Lead 的条目数。`View::render()` 是稳定文本，`forge team view <board>` 直接打印它。
+`view::project(root) -> View` 把 board 与 journal 折成一份只读投影：任务按 id 排序（同一块板两次读必须是同样的字节），每任务带 `waiting_on`（未完成的阻塞者）、`missing`（阻塞者根本不在板上）与 `is_ready()`；`Counts` 给三态计数；`leads` 给每个 Lead 的条目数。`View::render()` 是稳定文本，`hearth team view <board>` 直接打印它。
 
 - 任务板：`Board`（`open`/`add_task`/`task`/`tasks`/`revision`/`claim`/`try_claim`/`complete`/`reopen`/`edit`/`set_dependencies`/`reassign`/`ready`/`in_progress`/`warned_scopes`/`board_problems`），`NewTask`、`TaskPatch`、`Task`、`Status`（`pending`/`in_progress`/`completed`）、`Problem`/`ProblemKind`（`dangling_dependency`/`self_dependency`/`dependency_cycle`）、`ScopeWarning`，常量 `BOARD_FILE`、`BOARD_VERSION`。
 - 邮箱：`Mailbox`（`open`/`send`/`drain`/`drain_from`/`path`），`Message { from, to, text, ts }`，`Drain { messages, cursor, skipped, torn_tail }`，常量 `INBOX_DIR`。
 - 调度：`run`、`Plan`（`worker`/`member`/`max_parallel`/`mailbox`/`parallelism`）、`WorkerSpec`（`new`/`task`/`validate`）、`Report { tasks, workers, scopes, problems }`、`TaskCounts { claimed, completed, failed }`、`WorkerReport { name, ok, exit, note }`，常量 `WORKERS_DIR`、`DEFAULT_MAX_PARALLEL`。
-- runner 接缝：`trait WorkerRunner`、`Call`（`spec`/`task`/`root`/`transcript`/`mail`）、`WorkerResult`（`ok`/`failed`/`exit`/`text`）。随包两个实现：`RecordingRunner`（测试替身，用计数器测量真实并发重叠）与 `CommandRunner`（经 `forge-exec` 起一个进程，提示词走 stdin）。
+- runner 接缝：`trait WorkerRunner`、`Call`（`spec`/`task`/`root`/`transcript`/`mail`）、`WorkerResult`（`ok`/`failed`/`exit`/`text`）。随包两个实现：`RecordingRunner`（测试替身，用计数器测量真实并发重叠）与 `CommandRunner`（经 `hearth-exec` 起一个进程，提示词走 stdin）。
 - 名字校验：`valid_name`、`MAX_NAME_LEN`。名字会变成文件名，所以这是安全边界而不是格式偏好：`..`、分隔符、盘符、Windows 设备名一律拒绝，不静默清洗（清洗会让两个不同的 plan 撞进同一个邮箱）。
 - 依赖校验：`validate_tasks`（`&[Task]`）、`validate_board`（`&Board`）、`validate_plan`（`&Plan`，会打开 plan 根下的 board）。错误枚举 `TeamTaskGraphError`（`Missing`/`Duplicate`/`Cycle`）带 `violation()`/`dependent()`/`dependency()`/`tasks()`/`message()`，分类枚举 `TeamTaskGraphViolation`（`missing`/`duplicate`/`cycle`）。每个错误都带两个任务 id；`validate_plan` 把图缺陷映射成 `ErrorKind::Invalid`。
 - journal：`Journal`（`open`/`record`/`transact`/`entries`/`read`/`last_seq`/`path`），`Entry { lead, seq, op, detail, ts }`，`JournalRead { entries, skipped, torn_tail }`，事务体 `LeadTxn`（`record`/`next_seq`），常量 `JOURNAL_DIR`。`transact` 在同一个 Lead 的锁内缓冲条目，`Ok` 才一次 `write_all` 落盘，`Err` 则整笔丢弃。
 
 ## 依赖与边界
 
-只依赖 `forge-core`（`Error`/`ErrorKind`/`Result`）与 `forge-exec`（`Command`/`Pipe`）。**故意不依赖 `forge-session`，也不依赖 `forge-subagent`**：
+只依赖 `hearth-core`（`Error`/`ErrorKind`/`Result`）与 `hearth-exec`（`Command`/`Pipe`）。**故意不依赖 `hearth-session`，也不依赖 `hearth-subagent`**：
 
-- 不依赖 `forge-session`：任务板和邮箱是普通文件（临时文件 + rename，或一行一次追加），不是事件流。依赖会话存储会把"要有日志权限"当成"能开一个团队"的前提，而一个没有会话的进程（一个测试、一个批处理工具）也应该能开团队。
-- 不依赖 `forge-subagent`：`forge-subagent` 是**串行**的——容量一，一次一个子进程——那是它"委托一件自足任务"的职责决定的。团队要的是"在飞 N 个"，把它接进来只会得到"串行的 N 倍"。真正该复用的是它的思想（有界并发、失败即失败的记录、不写会话日志），不是它的代码。
+- 不依赖 `hearth-session`：任务板和邮箱是普通文件（临时文件 + rename，或一行一次追加），不是事件流。依赖会话存储会把"要有日志权限"当成"能开一个团队"的前提，而一个没有会话的进程（一个测试、一个批处理工具）也应该能开团队。
+- 不依赖 `hearth-subagent`：`hearth-subagent` 是**串行**的——容量一，一次一个子进程——那是它"委托一件自足任务"的职责决定的。团队要的是"在飞 N 个"，把它接进来只会得到"串行的 N 倍"。真正该复用的是它的思想（有界并发、失败即失败的记录、不写会话日志），不是它的代码。
 
-不写事件、不调模型、不读时钟以外的环境、不起自己的线程池。`run` 里起的每个线程都在 `std::thread::scope` 内被 join；任何一条失败路径（认领被拒、runner 返回 `Err`、runner panic、转录写失败）都变成报告里的一个字段，而不是让团队挂住或用 `Err` 丢掉已经跑完的结果。`CommandRunner` 的子进程通过 `forge-exec` 启动：没有 shell，提示词走 stdin 而不是命令行（提示词任意大、任意含引号，argv 上限与 shell 转义是两个不值得有的问题）。
+不写事件、不调模型、不读时钟以外的环境、不起自己的线程池。`run` 里起的每个线程都在 `std::thread::scope` 内被 join；任何一条失败路径（认领被拒、runner 返回 `Err`、runner panic、转录写失败）都变成报告里的一个字段，而不是让团队挂住或用 `Err` 丢掉已经跑完的结果。`CommandRunner` 的子进程通过 `hearth-exec` 启动：没有 shell，提示词走 stdin 而不是命令行（提示词任意大、任意含引号，argv 上限与 shell 转义是两个不值得有的问题）。
 
 ## 不要做
 

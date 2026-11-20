@@ -5,12 +5,12 @@ mod common;
 
 use std::sync::Arc;
 
-use forge_agent::{
+use hearth_agent::{
     clip_summary, strip_thinking, ProviderSummarizer, ERR_NO_SUMMARY_TEXT, ERR_SUMMARY_TOOL_CALL,
     ERR_SUMMARY_TRUNCATED,
 };
-use forge_core::{Event, EventType};
-use forge_llm::{Delta, Message, Role, ToolCallDelta, Usage};
+use hearth_core::{Event, EventType};
+use hearth_llm::{Delta, Message, Role, ToolCallDelta, Usage};
 use serde_json::json;
 
 use common::{Response, ScriptedProvider};

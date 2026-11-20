@@ -1,5 +1,5 @@
 [package]
-name = "forge-core"
+name = "hearth-core"
 description = "The frozen vocabulary: event envelope, ids, canonical JSON"
 version.workspace = true
 edition.workspace = true

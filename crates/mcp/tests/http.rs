@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use forge_mcp::{dial, Client, Error, NoopLogger, Server, Transport};
+use hearth_mcp::{dial, Client, Error, NoopLogger, Server, Transport};
 use serde_json::{json, Value};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -90,7 +90,7 @@ fn server(fake: &FakeHttp, timeout_ms: u64) -> Server {
         name: "http-test".into(),
         transport: Transport::Http,
         url: fake.url(),
-        headers: vec!["X-Forge-Test: yes".into()],
+        headers: vec!["X-Hearth-Test: yes".into()],
         timeout_ms,
         ..Server::default()
     }
@@ -151,7 +151,7 @@ fn handle(mut stream: TcpStream, mode: Mode, state: &Captured) {
                 "content-length" => length = value.parse().unwrap_or(0),
                 "mcp-protocol-version" => protocol = value.to_string(),
                 "mcp-session-id" => session = value.to_string(),
-                "x-forge-test" => x_test = value.to_string(),
+                "x-hearth-test" => x_test = value.to_string(),
                 _ => {}
             }
         }
@@ -283,7 +283,7 @@ fn connect(mode: Mode, timeout_ms: u64) -> (FakeHttp, Box<dyn Client>) {
     (fake, client)
 }
 
-fn text(result: &forge_mcp::CallResult) -> String {
+fn text(result: &hearth_mcp::CallResult) -> String {
     result
         .content
         .first()

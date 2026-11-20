@@ -1,7 +1,7 @@
-# forge web UI (M3)
+# hearth web UI (M3)
 
-The browser UI for a `forge` session: a session list, a virtualized transcript,
-tool cards, the approval dialog and the composer. It talks to `forge serve` over
+The browser UI for a `hearth` session: a session list, a virtualized transcript,
+tool cards, the approval dialog and the composer. It talks to `hearth serve` over
 HTTP and one WebSocket per session. No UI kit, no CSS framework, no
 virtualization library — the virtualizer and the stream reducer are in this
 directory because they are the interesting part.
@@ -13,12 +13,12 @@ the Go server and Vite side by side:
 
 ```powershell
 # terminal 1 — the API on 127.0.0.1:8848
-cd D:\魔改版Agent框架\forge-rs
+cd D:\魔改版Agent框架\hearth
 go run ./cmd/forge serve
 
 # terminal 2 — the UI on 127.0.0.1:5173, proxying /api and /ws to :8848
-$env:npm_config_cache="D:\魔改版Agent框架\forge-rs\.cache\npm"
-$env:npm_config_store_dir="D:\魔改版Agent框架\forge-rs\.cache\pnpm-store"
+$env:npm_config_cache="D:\魔改版Agent框架\hearth\.cache\npm"
+$env:npm_config_store_dir="D:\魔改版Agent框架\hearth\.cache\pnpm-store"
 cd web
 npm run dev
 ```
@@ -36,12 +36,12 @@ Reloads reuse the stored token. Routes are hash routes (`#/s/<id>`) so the Go
 server needs no SPA fallback rule.
 
 Point the dev proxy at a different server with
-`$env:FORGE_DEV_API="http://127.0.0.1:9000"`.
+`$env:HEARTH_DEV_API="http://127.0.0.1:9000"`.
 
 ## Build, test, check
 
 ```powershell
-$env:npm_config_cache="D:\魔改版Agent框架\forge-rs\.cache\npm"
+$env:npm_config_cache="D:\魔改版Agent框架\hearth\.cache\npm"
 cd web
 npm ci            # exact pinned versions, lockfile committed
 npm run typecheck # tsc --noEmit
@@ -53,7 +53,7 @@ The npm cache must live inside the repo: the sandbox blocks the default cache
 under the user profile (`E:\Cache\npm`), so a bare `npm install` fails. The
 variables above are the fix, not a preference.
 
-`npm run build` writes `web/dist`, which `forge serve` embeds/serves. Source
+`npm run build` writes `web/dist`, which `hearth serve` embeds/serves. Source
 maps stay off (they would ship the sources in the binary).
 
 ## What is where
@@ -63,7 +63,7 @@ maps stay off (they would ship the sources in the binary).
 | `src/api/protocol.ts` | **generated** from `internal/protocol` — never hand-edit |
 | `src/api/types.ts` | the single import door for protocol types (keeps tests independent of the generator) |
 | `src/api/events.ts` | the event envelope and payload shapes from `docs/contracts/events-v1.md`, with an unknown-type fallback |
-| `src/api/client.ts` | typed fetch wrapper (Bearer + `X-Forge-Protocol`), token capture, `Idempotency-Key` on POSTs |
+| `src/api/client.ts` | typed fetch wrapper (Bearer + `X-Hearth-Protocol`), token capture, `Idempotency-Key` on POSTs |
 | `src/api/stream.ts` | the stream reducer: snapshot → event → delta, dedup by seq, gap detection |
 | `src/api/transport.ts` | the WebSocket itself: reconnect with backoff, `?after=<lastSeq>`, pings |
 | `src/state/rows.ts` | events → transcript rows (tool call/result and approval request/decision merge) |

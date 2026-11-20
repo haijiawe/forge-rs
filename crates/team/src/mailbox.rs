@@ -14,7 +14,7 @@
 //!   the next drain with the old cursor sees them again. At-least-once, never
 //!   at-most-once: losing a message is silent, repeating one is visible.
 //!
-//! The torn-tail rule is the same one `forge_session::Store` uses, for the same
+//! The torn-tail rule is the same one `hearth_session::Store` uses, for the same
 //! reason: a writer can die between the bytes of a line and its newline. A line
 //! without its terminating newline was never committed, so it is skipped rather
 //! than parsed, and it must not make the rest of the file unreadable. A line
@@ -28,7 +28,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::{lock, now_millis, valid_name};

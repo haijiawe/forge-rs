@@ -8,10 +8,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use forge_core::event::{Event, EventType};
-use forge_core::ErrorKind;
-use forge_session::Store;
-use forge_subagent::authority::{ancestry, check, describe_ancestry, Caller, Verdict};
+use hearth_core::event::{Event, EventType};
+use hearth_core::ErrorKind;
+use hearth_session::Store;
+use hearth_subagent::authority::{ancestry, check, describe_ancestry, Caller, Verdict};
 use serde_json::{json, Value};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -25,11 +25,11 @@ impl Scratch {
     fn new(label: &str) -> Self {
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
         let path = std::env::temp_dir().join(format!(
-            "forge-authority-{}-{}-{}-{}",
+            "hearth-authority-{}-{}-{}-{}",
             label,
             std::process::id(),
             n,
-            forge_core::new_id().unwrap_or_else(|_| "noid".into())
+            hearth_core::new_id().unwrap_or_else(|_| "noid".into())
         ));
         std::fs::create_dir_all(&path).expect("scratch dir");
         Self { path }
@@ -59,7 +59,7 @@ fn write_head(sessions: &Path, id: &str, parent: Option<&str>) {
     std::fs::create_dir_all(sessions).expect("sessions dir");
     let store = Store::open(
         sessions.join(format!("{id}.jsonl")),
-        forge_session::Options {
+        hearth_session::Options {
             no_fsync: true,
             ..Default::default()
         },
@@ -345,7 +345,7 @@ fn a_log_without_session_start_is_refused() {
     std::fs::create_dir_all(&sessions).expect("sessions dir");
     let store = Store::open(
         sessions.join("headless-0001.jsonl"),
-        forge_session::Options {
+        hearth_session::Options {
             no_fsync: true,
             ..Default::default()
         },

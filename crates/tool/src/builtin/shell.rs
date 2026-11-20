@@ -1,10 +1,10 @@
-//! The shell builtin. All process creation goes through `forge-exec`.
+//! The shell builtin. All process creation goes through `hearth-exec`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use forge_exec::{Command, Pipe, Result as ExecResult, Runner, Sandbox, ERR_SANDBOX, ERR_TIMEOUT};
+use hearth_exec::{Command, Pipe, Result as ExecResult, Runner, Sandbox, ERR_SANDBOX, ERR_TIMEOUT};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -80,7 +80,7 @@ impl Default for ShellTool {
 }
 
 impl Tool for ShellTool {
-    fn spec(&self) -> forge_llm::ToolSpec {
+    fn spec(&self) -> hearth_llm::ToolSpec {
         let containment = match &self.sandbox {
             Some(sandbox) => format!(
                 "Sandboxed: every command is submitted to the {} enforcer before the process starts, so the sandbox mode decides which filesystem paths and network endpoints the command can reach. If the enforcer refuses the process, nothing runs and the call reports that refusal instead of output. Do not assume a specific limit beyond what the sandbox mode promises.",
@@ -91,7 +91,7 @@ impl Tool for ShellTool {
         let description = format!(
             "Run a command line in the workspace shell and return its combined output.\n\nWhen to use: builds, test suites, package managers, git, and any other job that only exists as a CLI command. Use the fs.* tools to read and edit files instead: their arguments are structured, they enforce workspace containment, and their effects are easier for the user to audit.\n\nShell: cmd.exe /c on Windows, /bin/sh -c everywhere else. Write sh syntax; it is the lowest common denominator and also runs under bash. The command line reaches the shell exactly as written, so quotes and the metacharacters inside them (&, |, <, >) are delivered verbatim, not re-escaped.\n\nExit status is data, not an error: a non-zero exit returns normally, with the code on the first line and Meta.exitCode set, so a failing test run is something you read and act on. Only a timeout, a cancellation, or a shell that could not start is reported as an error.\n\n{containment}\n\nEnvironment: the child gets a minimal environment (PATH, HOME, TEMP, SystemRoot, ...), not the harness's full environment, so credentials held by the harness are not exposed to the command.\n\nWindows: quotes are not a problem — write them as you would in a terminal, and a quoted path with spaces works. A line break still is: cmd.exe ends the command at the first one and quietly runs only the first line, so chain steps with && (or &), or make separate calls, or put multi-line scripts in a .cmd file and run that file.\n\nExample arguments:\n{{\"command\":\"go test ./...\",\"timeout_ms\":120000,\"description\":\"Run the full test suite\"}}"
         );
-        forge_llm::ToolSpec {
+        hearth_llm::ToolSpec {
             name: "shell".into(),
             description,
             schema: json!({
@@ -354,7 +354,7 @@ fn success_header(
     if result.truncated {
         lines.push(format!(
             "[note] the command wrote more than the {} MiB capture cap on a stream; what follows is a prefix",
-            forge_exec::DEFAULT_MAX_OUTPUT_BYTES >> 20
+            hearth_exec::DEFAULT_MAX_OUTPUT_BYTES >> 20
         ));
     }
     lines.push(format!("[exit code {}]", result.exit_code));
@@ -388,12 +388,12 @@ mod tests {
 
     #[derive(Default)]
     struct FakeRunner {
-        result: Mutex<Option<forge_core::Result<ExecResult>>>,
+        result: Mutex<Option<hearth_core::Result<ExecResult>>>,
         calls: AtomicBool,
     }
 
     impl Runner for FakeRunner {
-        fn run(&self, _command: Command) -> forge_core::Result<ExecResult> {
+        fn run(&self, _command: Command) -> hearth_core::Result<ExecResult> {
             self.calls.store(true, Ordering::SeqCst);
             self.result
                 .lock()

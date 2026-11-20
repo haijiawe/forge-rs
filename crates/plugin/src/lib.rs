@@ -12,7 +12,7 @@
 //! A plugin is *not* an MCP server. It can also contribute prompts, hooks that
 //! run before or after a turn, and decorators that wrap another tool's result —
 //! and it has a lifecycle the host drives (`load`, `unload`) rather than a
-//! session it joins. That is why `forge-mcp` is imported for its log sink only
+//! session it joins. That is why `hearth-mcp` is imported for its log sink only
 //! and the transport here is this crate's own: the shapes differ, and forcing
 //! one through the other would put plugin knowledge into an L1 MCP client.
 //!

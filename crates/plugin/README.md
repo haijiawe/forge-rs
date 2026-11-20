@@ -26,14 +26,14 @@ public:
   - DEFAULT_TIMEOUT_MS
   - HOOK_PHASES
   - CLOSE_GRACE
-may_import: [forge-core, forge-mcp]
+may_import: [hearth-core, hearth-mcp]
 must_not:
   - spawn anything from Host::start or discover — a listing is not consent to execute
   - accept a reply whose id is not the id of the call in flight
   - leave a child running after a timeout, an initialize failure, or a drop
   - read a command line from plugin.json instead of deriving it from runtime plus entry
-  - register plugin tools directly into forge-tool — the CLI wires names and schemas, calls come back here
-gate: cargo test -p forge-plugin --offline
+  - register plugin tools directly into hearth-tool — the CLI wires names and schemas, calls come back here
+gate: cargo test -p hearth-plugin --offline
 ---
 
 ## 做什么
@@ -48,11 +48,11 @@ JSON-RPC 2.0，一行一个对象，UTF-8，`\n` 结尾。协议写在 `PROTOCOL
 不是一个自己要加入的会话。差别在能力，不在线上格式。
 
 `Host::start` 只记下根目录，`discover` 只读 `plugin.json`。两者都不 spawn：列目录不是
-执行授权，和 `forge-skill` 只读 `SKILL.md` 是同一条纪律，而这里的产物是程序。`load`
+执行授权，和 `hearth-skill` 只读 `SKILL.md` 是同一条纪律，而这里的产物是程序。`load`
 才起子进程并做 `initialize`，`unload` 发 `shutdown`、关 stdin、等两秒、再杀。
 
 一个宿主可以读**多个根**（`add_root`）：插件要么被手工放进 `<dataDir>/plugins`，要么被
-`forge market install` 解到 `<dataDir>/market/bundles`，两条路装出来的都是插件，宿主必须
+`hearth market install` 解到 `<dataDir>/market/bundles`，两条路装出来的都是插件，宿主必须
 都看得见，否则 market 那句"install plugin bundles"就止于一个没人加载的目录。CLI 的
 `host_of` 与 chat/web 接线都把 market 的 bundles 目录加成第二个根。**同名出现在两个根里
 会被拒绝而不是按顺序挑一个**：两份目录可能是不同的代码，跑错那份比起不来更糟——discover
@@ -87,7 +87,7 @@ JSON-RPC 2.0，一行一个对象，UTF-8，`\n` 结尾。协议写在 `PROTOCOL
 这句话可以被推翻而不只是被引用：
 
 ```text
-cargo run --release -p forge-plugin --example ipc_cost --offline
+cargo run --release -p hearth-plugin --example ipc_cost --offline
 ```
 
 它起一个临时 Node 插件，每档载荷做 2,000 次 `tools/call`（丢前 100 次预热），
@@ -95,7 +95,7 @@ cargo run --release -p forge-plugin --example ipc_cost --offline
 边界的价钱。它不写基线、不让构建失败：这是给人看的测量，不是 `tools/bench` 那六项
 门禁，动它会连带动冻结的基线格式。
 
-先 `cargo build --release -p forge-plugin --bin forge-plugin-native` 的话，它还会
+先 `cargo build --release -p hearth-plugin --bin hearth-plugin-native` 的话，它还会
 追加一段**原生插件对照**（`runtime: "exec"`，20 次 spawn 采样）。实测原生启动
 p50 约 8.5–9.8 ms、Node 约 43–46 ms，约 5 倍；per-call 地板约减半。两者都不到一次
 模型调用的 4%，所以语言不是按性能选的——见 ADR-0003 §2.6。
@@ -106,8 +106,8 @@ p50 约 8.5–9.8 ms、Node 约 43–46 ms，约 5 倍；per-call 地板约减�
 重写真正的卖点，所以它必须单独量：
 
 ```text
-cargo build --release -p forge-plugin --bins --offline
-cargo run --release -p forge-plugin --example memory_cost --offline -- 120 3
+cargo build --release -p hearth-plugin --bins --offline
+cargo run --release -p hearth-plugin --example memory_cost --offline -- 120 3
 ```
 
 第一个参数是持有秒数，第二个是同时挂几个 Node 插件（用来量**边际成本**）。它打印
@@ -127,7 +127,7 @@ cargo run --release -p forge-plugin --example memory_cost --offline -- 120 3
 ### 三种 runtime 都被真跑过
 
 `node`/`python` 由 `tests/reference-node/` 与十行 Python 冒烟覆盖；`exec` 由
-`src/bin/forge-plugin-native.rs` 覆盖——那是一个能跑的最小原生插件（echo/fail/fill），
+`src/bin/hearth-plugin-native.rs` 覆盖——那是一个能跑的最小原生插件（echo/fail/fill），
 `tests/host_it.rs` 里三个用例走它验证握手、两种失败形状、以及 discover 不 spawn。
 在它存在之前 `exec` 只被测过「字符串能解析」，argv 少一段也不会有测试发现。
 
@@ -136,25 +136,25 @@ cargo run --release -p forge-plugin --example memory_cost --offline -- 120 3
 
 ## 依赖与边界
 
-只依赖 `forge-mcp`（`Logger`/`NoopLogger`，宿主必须接受调用方给的日志汇）和
-`serde_json`（线上格式）。层位置 L2，向下依赖 L1 的 `forge-mcp` 是合法的。
+只依赖 `hearth-mcp`（`Logger`/`NoopLogger`，宿主必须接受调用方给的日志汇）和
+`serde_json`（线上格式）。层位置 L2，向下依赖 L1 的 `hearth-mcp` 是合法的。
 
-`forge-mcp` 的传输（`stdio`/`jsonrpc`/`Conn`）是 `pub(crate)`，公开面只有 MCP 形状的
+`hearth-mcp` 的传输（`stdio`/`jsonrpc`/`Conn`）是 `pub(crate)`，公开面只有 MCP 形状的
 `dial`/`Client`（`initialize`/`tools`/`call`/`close`）和 MCP 的版本串。要复用它，要么把
 它的隐私面撕开，要么把插件协议掰成 MCP 客户端——后者等于让 L1 带上插件知识，两边都
 比在这里重写一份 400 行的 stdio 传输糟。所以：日志汇复用，传输自建，结构照抄它已经
 证明过的那套（读线程 + stderr 泵 + 退出回收，全部可 join）。
 
-不依赖 `forge-core`：它的 `ErrorKind` 是事件日志和 HTTP 信封已经在说的封闭词表，插件
+不依赖 `hearth-core`：它的 `ErrorKind` 是事件日志和 HTTP 信封已经在说的封闭词表，插件
 失败在里面没有位置（没有哪个事件类型承载「插件超时」）。等真需要共享 id 类型再接。
 
-**不要做**：不要把插件工具直接注册进 `forge-tool`——那会让 `forge-tool` 依赖宿主
+**不要做**：不要把插件工具直接注册进 `hearth-tool`——那会让 `hearth-tool` 依赖宿主
 生命周期。CLI 的接线只把 `<plugin>.<tool>` 名字和 schema 交给注册表，调用时回到
 `Host`，见 `crates/cli/src/bridges.rs` 的 `PluginTool`。
 
 ## 不要做
 
-- 不要在 `discover`/`start` 里 spawn：列目录不是执行授权，和 `forge-skill` 只读
+- 不要在 `discover`/`start` 里 spawn：列目录不是执行授权，和 `hearth-skill` 只读
   `SKILL.md` 是同一条纪律，而这里的产物是程序，更甚。
 - 不要接受 id 不匹配的回复。插件若在同一根管道上并发发多个回复，接受「差不多的
   id」等于把一次调用的结果交给另一次调用。
@@ -176,7 +176,7 @@ cargo run --release -p forge-plugin --example memory_cost --offline -- 120 3
   传输方式不是。
 - 不要拿延迟的数字回答内存问题。它们是两根轴：一次调用 37 µs 可以忽略，而一个 Node
   插件进程实测 19.1 MB 私有、**第二个又是 19.1 MB**（§2.7）。宿主自己 1.8 MB，所以
-  「forge 只用 6 MB」这句话只在**没启用插件**时成立，引用它必须带这个限定词。
+  「hearth 只用 6 MB」这句话只在**没启用插件**时成立，引用它必须带这个限定词。
 - 不要为了省内存把几个插件塞进一个进程，除非同时接受崩溃与卡死不再隔离、并给协议加上
   plugin id。实测能省 112 MB 工作集（3 个插件），但今天「崩一个只死一个」是遏制故事的
   一部分，那是设计决定而不是优化。

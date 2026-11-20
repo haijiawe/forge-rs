@@ -1,6 +1,6 @@
-# 用 DSH 反推补齐 forge-rs —— 执行路线图
+# 用 DSH 反推补齐 hearth —— 执行路线图
 
-> **这份文档是什么**：[agent-gaps.md](agent-gaps.md) 是**账本**（DSH 有、forge-rs 缺什么，现状与代价）。
+> **这份文档是什么**：[agent-gaps.md](agent-gaps.md) 是**账本**（DSH 有、hearth 缺什么，现状与代价）。
 > 这份是**路线图**（怎么补、什么顺序、用什么语言、每波的验收线在哪）。两者互补：
 > 前者回答"差多少"，后者回答"下一步干什么"。
 >
@@ -9,7 +9,7 @@
 > 记账。子代理的深移植（S1–S5）另见 [12-subagent-port.md](12-subagent-port.md)。
 >
 > **口径**：缺口清单 `agent-gaps.md` 的事实全部来自源码（DSH `deepseek-harness-master/`
-> 0.2.2-rc.5，forge-rs 以仓库当前状态为准）；路线图里的顺序与验收是**建议**，由用户拍板。
+> 0.2.2-rc.5，hearth 以仓库当前状态为准）；路线图里的顺序与验收是**建议**，由用户拍板。
 
 ---
 
@@ -47,12 +47,12 @@
 
 | 波 | 主题 | 优先级 | 动到的 crate | 新增 crate？ | 是否动冻结契约 | 是否需拍板 |
 |---|---|---|---|---|---|---|
-| W1 | 子代理结构化输出 | P0 | `forge-subagent`、`forge-tool` | 否 | 否（复用 tool/result） | 否 |
+| W1 | 子代理结构化输出 | P0 | `hearth-subagent`、`hearth-tool` | 否 | 否（复用 tool/result） | 否 |
 | W2 | 持久输入队列 | — | 无需改动（核对后由冻结契约满足） | 否 | 否 | 否 |
-| W3 | 目标续跑 revision/CAS + 运行中打断 | P1 | `forge-goal`、`forge-cli`、`forge-agent` | 否 | **是**（`goal/*` payload 新形状） | 否 |
-| W4 | 压缩事务与结果裁剪 | P1 | `forge-context`、`forge-agent`(history) | 否 | **是**（`context/compressed` 增 `surfaceOp`） | 否 |
-| W5 | waterfall 扩展点 | P2 | `forge-agent`、`forge-plugin` | 否 | 是（新 hook 事件） | **是（改定位）** |
-| W6 | 团队依赖图 + journal | P2 | `forge-team` | 否 | 否 | 否 |
+| W3 | 目标续跑 revision/CAS + 运行中打断 | P1 | `hearth-goal`、`hearth-cli`、`hearth-agent` | 否 | **是**（`goal/*` payload 新形状） | 否 |
+| W4 | 压缩事务与结果裁剪 | P1 | `hearth-context`、`hearth-agent`(history) | 否 | **是**（`context/compressed` 增 `surfaceOp`） | 否 |
+| W5 | waterfall 扩展点 | P2 | `hearth-agent`、`hearth-plugin` | 否 | 是（新 hook 事件） | **是（改定位）** |
+| W6 | 团队依赖图 + journal | P2 | `hearth-team` | 否 | 否 | 否 |
 
 **交付状态（2026-11-20）**：W1=`5343e28`、W3=`d6c98b2`、W4=`6150b27`、W5=`69aa3c9`、W6=`fedd8fe` 均已交付并通过门禁；W2 见上（无需改动）。子代理深移植 S1–S5 见 `docs/12-subagent-port.md`（`47118db`/`cec20ec`/`a42df34`/`ea42128`/`cae8d74`）。
 
@@ -73,7 +73,7 @@
 
 **问题（来自 `agent-gaps.md` E 节）**：DSH 的子代理能把最终结果按 schema 交回父侧
 （`subagent/src/structured.ts` 的 `STRUCTURED_OUTPUT_TOOL = 'structured_output'` + 终结工具
-守卫）；forge-rs 的子代理只回自由文本，父侧想拿结构化结果只能解析文本。
+守卫）；hearth 的子代理只回自由文本，父侧想拿结构化结果只能解析文本。
 
 **范围**：
 - `crates/subagent/src/` 新增 `structured.rs`：定义 `structured_output` 终结工具，参数
@@ -97,7 +97,7 @@ validator 依赖更小、更好审。"
 - 单元：校验器接受/拒绝（缺 required、类型不符、`items` 递归）。
 - 集成：脚本 provider 让子代理调 `structured_output` → 父侧 `ChildRun.structured` 拿到对象；
   子代理不调、直接回文本 → 父侧报 `bad_output`（不是成功）。
-- 门禁：`cargo test -p forge-subagent --offline`、clippy `-D warnings`、`archcheck: ok`。
+- 门禁：`cargo test -p hearth-subagent --offline`、clippy `-D warnings`、`archcheck: ok`。
 
 **风险与回退**：校验器与真 JSON Schema 的偏差（只认子集）——在 `subagent/README.md` 的
 「不要做」里写明"不要以为这支持完整 JSON Schema"；回退就是删 `structured.rs` 与 `Options`
@@ -110,7 +110,7 @@ validator 依赖更小、更好审。"
 ### W2 —— 持久输入队列（已核对：冻结契约已经满足，无需新代码）
 
 **结论**：本波原计划（新增 `agent/inbox/*` 事件、改运行中 `POST /messages` 从 409 到 202 入队）
-**基于一个错误前提**——"forge 运行中追加输入会丢"。核对源码后，前提不成立：
+**基于一个错误前提**——"hearth 运行中追加输入会丢"。核对源码后，前提不成立：
 
 - 运行中 `POST /api/sessions/{id}/messages` **本来就是 202 + 为它开一个新的自有 turn**：
   `crates/server/src/server.rs` 的 `accept_message` 只在 `ended`/`aborted`/`awaiting_approval`
@@ -131,7 +131,7 @@ message gets its own turn … a second POST is accepted while the previous turn 
 `keepInbox`"这一**结构**；它能为"断点续接正在跑的那一轮"提供更强保证，但那一轮本身随进程结束，
 收益有限，故不列为待补缺口（见 `docs/agent-gaps.md` B 节已按此改写）。
 
-**测试证据**：`cargo test -p forge-server --offline` 覆盖上述两个 http 语料；`handle_steer` 的
+**测试证据**：`cargo test -p hearth-server --offline` 覆盖上述两个 http 语料；`handle_steer` 的
 `user/message{steering:true}` 由 `crates/server` 现有测试与投影测试覆盖。
 
 **语言**：Rust。
@@ -142,7 +142,7 @@ message gets its own turn … a second POST is accepted while the previous turn 
 
 **问题（F 节）**：DSH 的续跑是**事件驱动 + `RoundIdentity{goalId,revision,round}` + 每
 checkpoint 重校验的 race fence**（`goal-round-driver/src/index.ts` `validReservation()`），
-能在任意时刻 pause/steer 打断；forge-rs 是纯函数 `next_action()` + CLI 循环，单机够用、多入口
+能在任意时刻 pause/steer 打断；hearth 是纯函数 `next_action()` + CLI 循环，单机够用、多入口
 不安全。
 
 **范围**：
@@ -174,7 +174,7 @@ checkpoint 重校验的 race fence**（`goal-round-driver/src/index.ts` `validRe
 
 **问题（H 节）**：DSH 用三事件锁（`compaction/start`→`summary`→`end`）+ `surfaceOp:
 {op:'replace',startSeq,endSeq}` 做**唯一表层改写**，崩溃留可检测孤儿锁，摘要失败有恢复协议，
-另有 image-offload、tool-result-pruner；forge-rs 是一条 `context/compressed` 事件按 seq 区间
+另有 image-offload、tool-result-pruner；hearth 是一条 `context/compressed` 事件按 seq 区间
 **隐藏**（不是 replace），无事务、无失败恢复、无专用裁剪器。
 
 **范围**（这是最"改法"而非"加法"的一波，风险最高）：
@@ -209,12 +209,12 @@ checkpoint 重校验的 race fence**（`goal-round-driver/src/index.ts` `validRe
 ### W5 —— waterfall 扩展点（P2，**需用户拍板是否做**）
 
 **问题（C 节）**：DSH 的 `dispatch.ts` 有 `emit/serial/waterfall` 三态，`agent/pre-step`、
-`agent/request`、`agent/request-error` 可被插件拦截/改写/reject；forge-rs grep `waterfall` =
+`agent/request`、`agent/request-error` 可被插件拦截/改写/reject；hearth grep `waterfall` =
 **0 命中**——没有可改写层。
 
-**为什么单列并要拍板**：这一波与 forge-rs 的核心设计原则**正面冲突**。ADR/README 反复强调
+**为什么单列并要拍板**：这一波与 hearth 的核心设计原则**正面冲突**。ADR/README 反复强调
 "没有隐藏改写者，同样日志必然产生同样请求"。加 waterfall 就是**故意引入可改写层**，代价是
-可解释性下降。这不是"补个缺"，是**要不要把 forge-rs 从'确定性内核'改成'可配置产品'**：
+可解释性下降。这不是"补个缺"，是**要不要把 hearth 从'确定性内核'改成'可配置产品'**：
 
 - 若答案是"要"，W5 是一项**定位变更**，必须先改 ADR、再动代码。
 - 若答案是"不要"，W5 记为**刻意不做**（和常驻 phase 机、attempt 级记账同列），并在
@@ -233,7 +233,7 @@ checkpoint 重校验的 race fence**（`goal-round-driver/src/index.ts` `validRe
 ### W6 —— 团队依赖图 + journal（P2）
 
 **问题（G 节）**：DSH 的 `team/agent-team` 有 `task-graph.ts`（`TeamTaskGraphError`：
-missing/duplicate/cycle 依赖校验）+ `journal.ts`（per-Lead 事务序）；forge-rs 有 board（CAS）+
+missing/duplicate/cycle 依赖校验）+ `journal.ts`（per-Lead 事务序）；hearth 有 board（CAS）+
 mailbox + permits，但缺依赖图校验与 journal。
 
 **范围**：

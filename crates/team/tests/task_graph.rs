@@ -9,8 +9,8 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use forge_core::ErrorKind;
-use forge_team::{
+use hearth_core::ErrorKind;
+use hearth_team::{
     validate_board, validate_plan, Board, NewTask, Plan, TeamTaskGraphError, TeamTaskGraphViolation,
 };
 
@@ -21,7 +21,7 @@ fn temp_dir(label: &str) -> PathBuf {
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
     let dir = std::env::temp_dir().join(format!(
-        "forge-team-graph-{}-{}-{}-{}",
+        "hearth-team-graph-{}-{}-{}-{}",
         std::process::id(),
         stamp,
         NEXT.fetch_add(1, Ordering::SeqCst),

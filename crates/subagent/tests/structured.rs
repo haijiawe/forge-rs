@@ -10,8 +10,8 @@ mod common;
 use std::sync::Arc;
 
 use common::*;
-use forge_subagent::{Options, Runner, CODE_BAD_OUTPUT, STRUCTURED_OUTPUT_TOOL};
-use forge_tool::Call;
+use hearth_subagent::{Options, Runner, CODE_BAD_OUTPUT, STRUCTURED_OUTPUT_TOOL};
+use hearth_tool::Call;
 use serde_json::{json, Value};
 
 const FIXED_NOW_MS: i64 = 1_777_863_721_000;
@@ -45,7 +45,7 @@ fn make_runner(
     Arc::new(Runner::new(opt).expect("runner"))
 }
 
-fn call_tool(runner: &Arc<Runner>, id: &str, args: Value) -> forge_tool::Result {
+fn call_tool(runner: &Arc<Runner>, id: &str, args: Value) -> hearth_tool::Result {
     runner.tool().call(Call::new(id, "subagent", args, ""))
 }
 

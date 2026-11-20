@@ -9,7 +9,7 @@
 //! does **not** carry depth or the output schema — depth is the envelope's job
 //! and a schema belongs to the run that required it, not to the identity.
 
-use forge_core::event::{Event, EventType};
+use hearth_core::event::{Event, EventType};
 use serde_json::{json, Value};
 
 /// The descriptor schema version this build writes. A record at another version

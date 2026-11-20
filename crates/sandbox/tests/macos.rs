@@ -19,11 +19,11 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use forge_sandbox::{available, new, Mode, Spec};
+use hearth_sandbox::{available, new, Mode, Spec};
 
 fn scratch(name: &str) -> PathBuf {
     let path = std::env::temp_dir()
-        .join("forge-sandbox-macos-it")
+        .join("hearth-sandbox-macos-it")
         .join(name);
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).expect("create scratch directory");
@@ -31,7 +31,7 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 fn helper() -> &'static str {
-    env!("CARGO_BIN_EXE_forge-sandbox-helper")
+    env!("CARGO_BIN_EXE_hearth-sandbox-helper")
 }
 
 fn spec_in(mode: Mode, workspace: &Path) -> Spec {

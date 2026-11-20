@@ -1,4 +1,4 @@
-//! `forge plugin`: create, list, start, stop and call plugins in
+//! `hearth plugin`: create, list, start, stop and call plugins in
 //! `<dataDir>/plugins`.
 //!
 //! One `Host` per invocation, created and dropped inside this command: a
@@ -19,7 +19,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use forge_config::Config;
+use hearth_config::Config;
 
 use crate::one_line;
 
@@ -27,7 +27,7 @@ const EXIT_OK: i32 = 0;
 const EXIT_FAILURE: i32 = 1;
 const EXIT_USAGE: i32 = 2;
 
-pub const USAGE: &str = "usage: forge plugin <command> [flags]
+pub const USAGE: &str = "usage: hearth plugin <command> [flags]
 
 Inspect and drive the plugins installed under <dataDir>/plugins. A plugin is a
 directory with a plugin.json holding at least name, version, runtime and entry;
@@ -45,7 +45,7 @@ commands:
 
 flags:
   --json               machine-readable output
-  --data-dir <dir>     data directory to read from (default: the forge home's
+  --data-dir <dir>     data directory to read from (default: the hearth home's
                        configured dataDir)
   --dir <dir>          plugin root (default: <dataDir>/plugins)
   --args <json>        JSON arguments for `call` (default: {})
@@ -58,8 +58,8 @@ flags:
 `new` writes a plugin that answers the handshake and one tool, so this sequence
 works with no edits:
 
-  forge plugin new hello
-  forge plugin call hello hello --args '{\"name\":\"world\"}'
+  hearth plugin new hello
+  hearth plugin call hello hello --args '{\"name\":\"world\"}'
 
 stdout: the listing, the handshake, the tool output, or the doctor report.
 Diagnostics go to stderr.
@@ -111,7 +111,10 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         "call" => call(&opt, &reordered, stdout, stderr),
         "doctor" => doctor(&opt, stdout, stderr),
         other => {
-            let _ = writeln!(stderr, "forge plugin: unknown command {other:?}\n\n{USAGE}");
+            let _ = writeln!(
+                stderr,
+                "hearth plugin: unknown command {other:?}\n\n{USAGE}"
+            );
             EXIT_USAGE
         }
     }
@@ -124,7 +127,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
         let arg = &args[i];
         // Positionals are not this function's business: `parse` only reads flags,
         // and a bare word here is either the command or a plugin/tool name that the
-        // dispatch arm reads again. Treating them as flags made `forge plugin start
+        // dispatch arm reads again. Treating them as flags made `hearth plugin start
         // reference` fail with "unknown flag --reference", which is exactly the
         // shape of command a user types first.
         if !arg.starts_with('-') {
@@ -144,7 +147,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
                     match args.get(*index) {
                         Some(value) => Ok(value.clone()),
                         None => {
-                            let _ = writeln!(stderr, "forge plugin: --{name} needs a value");
+                            let _ = writeln!(stderr, "hearth plugin: --{name} needs a value");
                             Err(EXIT_USAGE)
                         }
                     }
@@ -166,7 +169,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
                     _ => {
                         let _ = writeln!(
                             stderr,
-                            "forge plugin: --timeout wants a positive number of milliseconds, got {raw:?}"
+                            "hearth plugin: --timeout wants a positive number of milliseconds, got {raw:?}"
                         );
                         return Err(EXIT_USAGE);
                     }
@@ -174,7 +177,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
             }
             "" => {}
             other => {
-                let _ = writeln!(stderr, "forge plugin: unknown flag --{other}");
+                let _ = writeln!(stderr, "hearth plugin: unknown flag --{other}");
                 return Err(EXIT_USAGE);
             }
         }
@@ -184,7 +187,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
 }
 
 /// The data directory these commands read from.
-fn data_dir_of(opt: &Options) -> forge_core::Result<PathBuf> {
+fn data_dir_of(opt: &Options) -> hearth_core::Result<PathBuf> {
     if opt.data_dir.trim().is_empty() {
         crate::default_data_dir()
     } else {
@@ -193,24 +196,24 @@ fn data_dir_of(opt: &Options) -> forge_core::Result<PathBuf> {
 }
 
 /// The plugin root, plus the data directory it was derived from.
-fn root_of(opt: &Options) -> forge_core::Result<PathBuf> {
+fn root_of(opt: &Options) -> hearth_core::Result<PathBuf> {
     if !opt.dir.trim().is_empty() {
         return Ok(PathBuf::from(opt.dir.trim()));
     }
     Ok(data_dir_of(opt)?.join("plugins"))
 }
 
-/// Where `forge market install` unpacks bundles. A plugin reaches the machine
+/// Where `hearth market install` unpacks bundles. A plugin reaches the machine
 /// either by hand into `plugins/` or through the market into `market/bundles/`;
 /// the host must read both or the market's install promise ends at a directory
 /// nothing loads.
-fn market_bundles_root(opt: &Options) -> forge_core::Result<PathBuf> {
+fn market_bundles_root(opt: &Options) -> hearth_core::Result<PathBuf> {
     Ok(data_dir_of(opt)?.join("market").join("bundles"))
 }
 
-fn host_of(opt: &Options) -> forge_core::Result<Arc<forge_plugin::Host>> {
+fn host_of(opt: &Options) -> hearth_core::Result<Arc<hearth_plugin::Host>> {
     let root = root_of(opt)?;
-    let mut host = forge_plugin::Host::start(&root);
+    let mut host = hearth_plugin::Host::start(&root);
     // A missing market directory is the normal case (nothing installed yet), so
     // a failure to derive it must not sink the whole command.
     if let Ok(bundles) = market_bundles_root(opt) {
@@ -223,7 +226,7 @@ fn host_of(opt: &Options) -> forge_core::Result<Arc<forge_plugin::Host>> {
 }
 
 /// Positional arguments of the subcommand, skipping flag values so that
-/// `forge plugin start --dir X foo` yields `foo` and not `X`.
+/// `hearth plugin start --dir X foo` yields `foo` and not `X`.
 fn positional<'a>(args: &'a [String], command: &str) -> Vec<&'a str> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -283,12 +286,12 @@ fn new_plugin(
         Ok(kind) => kind,
         Err(crate::pluginscaffold::Reject::Usage(message)) => return usage_error(stderr, &message),
         Err(crate::pluginscaffold::Reject::Failed(message)) => {
-            return fail(stderr, &format!("forge plugin: {message}"))
+            return fail(stderr, &format!("hearth plugin: {message}"))
         }
     };
     let root = match root_of(opt) {
         Ok(root) => root,
-        Err(err) => return fail(stderr, &format!("forge plugin: {}", err.message())),
+        Err(err) => return fail(stderr, &format!("hearth plugin: {}", err.message())),
     };
     let outcome =
         match crate::pluginscaffold::generate(&root, &name, &kind, &opt.description, opt.force) {
@@ -297,7 +300,7 @@ fn new_plugin(
                 return usage_error(stderr, &message)
             }
             Err(crate::pluginscaffold::Reject::Failed(message)) => {
-                return fail(stderr, &format!("forge plugin: {message}"))
+                return fail(stderr, &format!("hearth plugin: {message}"))
             }
         };
     if opt.json {
@@ -326,7 +329,7 @@ fn new_plugin(
     let _ = writeln!(stdout);
     let _ = writeln!(
         stdout,
-        "next: forge plugin call {name} hello --args '{{\"name\":\"world\"}}'"
+        "next: hearth plugin call {name} hello --args '{{\"name\":\"world\"}}'"
     );
     let _ = writeln!(
         stdout,
@@ -338,7 +341,7 @@ fn new_plugin(
 fn list(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     let host = match host_of(opt) {
         Ok(host) => host,
-        Err(err) => return fail(stderr, &format!("forge plugin: {}", err.message())),
+        Err(err) => return fail(stderr, &format!("hearth plugin: {}", err.message())),
     };
     let root = host.root().to_path_buf();
     let (found, broken) = host.discover();
@@ -403,7 +406,7 @@ fn list(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
         // its tools are missing, and that has to be visible.
         let _ = writeln!(
             stderr,
-            "forge plugin: {}: {} ({})",
+            "hearth plugin: {}: {} ({})",
             path.display(),
             error.message(),
             error.code()
@@ -412,7 +415,7 @@ fn list(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     if found.is_empty() {
         let _ = writeln!(
             stderr,
-            "forge plugin: no readable plugin under {}",
+            "hearth plugin: no readable plugin under {}",
             root.display()
         );
         return EXIT_FAILURE;
@@ -429,7 +432,7 @@ fn start(opt: &Options, args: &[String], stdout: &mut dyn Write, stderr: &mut dy
     };
     let host = match host_of(opt) {
         Ok(host) => host,
-        Err(err) => return fail(stderr, &format!("forge plugin: {}", err.message())),
+        Err(err) => return fail(stderr, &format!("hearth plugin: {}", err.message())),
     };
     match host.load(&name) {
         Ok(loaded) => {
@@ -489,7 +492,7 @@ fn start(opt: &Options, args: &[String], stdout: &mut dyn Write, stderr: &mut dy
         Err(err) => {
             let _ = writeln!(
                 stderr,
-                "forge plugin: start {name:?}: {} ({})",
+                "hearth plugin: start {name:?}: {} ({})",
                 err.message(),
                 err.code()
             );
@@ -507,7 +510,7 @@ fn stop(opt: &Options, args: &[String], stdout: &mut dyn Write, stderr: &mut dyn
     };
     let host = match host_of(opt) {
         Ok(host) => host,
-        Err(err) => return fail(stderr, &format!("forge plugin: {}", err.message())),
+        Err(err) => return fail(stderr, &format!("hearth plugin: {}", err.message())),
     };
     // `stop` runs in a fresh process, so in practice nothing is loaded: it says
     // that plainly rather than pretending the plugin had been running.
@@ -534,7 +537,7 @@ fn stop(opt: &Options, args: &[String], stdout: &mut dyn Write, stderr: &mut dyn
         Err(err) => {
             let _ = writeln!(
                 stderr,
-                "forge plugin: stop {name:?}: {} ({})",
+                "hearth plugin: stop {name:?}: {} ({})",
                 err.message(),
                 err.code()
             );
@@ -557,14 +560,14 @@ fn call(opt: &Options, args: &[String], stdout: &mut dyn Write, stderr: &mut dyn
         match serde_json::from_str(opt.args.trim()) {
             Ok(value) => value,
             Err(err) => {
-                let _ = writeln!(stderr, "forge plugin: --args is not JSON: {err}");
+                let _ = writeln!(stderr, "hearth plugin: --args is not JSON: {err}");
                 return EXIT_USAGE;
             }
         }
     };
     let host = match host_of(opt) {
         Ok(host) => host,
-        Err(err) => return fail(stderr, &format!("forge plugin: {}", err.message())),
+        Err(err) => return fail(stderr, &format!("hearth plugin: {}", err.message())),
     };
     // Every CLI invocation is a fresh process, so nothing is loaded yet: the call
     // has to load its own plugin. Without this, `call` always failed with
@@ -573,7 +576,7 @@ fn call(opt: &Options, args: &[String], stdout: &mut dyn Write, stderr: &mut dyn
     if let Err(err) = host.load(&plugin) {
         let _ = writeln!(
             stderr,
-            "forge plugin: load {plugin:?}: {} ({})",
+            "hearth plugin: load {plugin:?}: {} ({})",
             err.message(),
             err.code()
         );
@@ -584,7 +587,7 @@ fn call(opt: &Options, args: &[String], stdout: &mut dyn Write, stderr: &mut dyn
         Err(err) => {
             let _ = writeln!(
                 stderr,
-                "forge plugin: call {plugin}.{tool}: {} ({})",
+                "hearth plugin: call {plugin}.{tool}: {} ({})",
                 err.message(),
                 err.code()
             );
@@ -608,7 +611,7 @@ fn call(opt: &Options, args: &[String], stdout: &mut dyn Write, stderr: &mut dyn
     if outcome.is_error {
         // The host answered; the tool said no. stdout still carries the tool's
         // own text, because that text is usually the only explanation.
-        let _ = writeln!(stderr, "forge plugin: the tool itself reported a failure");
+        let _ = writeln!(stderr, "hearth plugin: the tool itself reported a failure");
         return EXIT_FAILURE;
     }
     EXIT_OK
@@ -617,7 +620,7 @@ fn call(opt: &Options, args: &[String], stdout: &mut dyn Write, stderr: &mut dyn
 fn doctor(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     let host = match host_of(opt) {
         Ok(host) => host,
-        Err(err) => return fail(stderr, &format!("forge plugin: {}", err.message())),
+        Err(err) => return fail(stderr, &format!("hearth plugin: {}", err.message())),
     };
     let root = host.root().to_path_buf();
     let (found, broken) = host.discover();
@@ -697,7 +700,7 @@ fn doctor(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 
     }
     let _ = writeln!(
         stdout,
-        "note:      this command starts nothing; `forge plugin start <name>` does."
+        "note:      this command starts nothing; `hearth plugin start <name>` does."
     );
     // Exit 1 when something installed cannot start. A report that counted three
     // problems and exited 0 would be read as "all good" by every script that
@@ -726,7 +729,7 @@ struct RuntimeProbe {
 /// without them it reported two failures while saying nothing about the binaries
 /// the install really depends on. `exec` is absent here on purpose — it has no
 /// interpreter, and its risk is a missing entry, which `exec_entries` checks.
-fn runtime_probes(found: &[forge_plugin::Manifest]) -> Vec<RuntimeProbe> {
+fn runtime_probes(found: &[hearth_plugin::Manifest]) -> Vec<RuntimeProbe> {
     let mut probes: Vec<RuntimeProbe> = Vec::new();
     for manifest in found {
         let program = manifest.runtime.command();
@@ -766,10 +769,10 @@ struct ExecEntry {
 /// from stdin and would treat that argument as nothing at all, so probing it
 /// would either hang or measure something unrelated. The failure this can
 /// actually catch is an entry that was never copied in, or was deleted.
-fn exec_entries(found: &[forge_plugin::Manifest]) -> Vec<ExecEntry> {
+fn exec_entries(found: &[hearth_plugin::Manifest]) -> Vec<ExecEntry> {
     let mut entries: Vec<ExecEntry> = found
         .iter()
-        .filter(|manifest| manifest.runtime == forge_plugin::Runtime::Exec)
+        .filter(|manifest| manifest.runtime == hearth_plugin::Runtime::Exec)
         .map(|manifest| ExecEntry {
             plugin: manifest.name.clone(),
             entry: manifest.entry.clone(),
@@ -797,7 +800,7 @@ fn interpreter_available(program: &str) -> bool {
 }
 
 fn usage_error(stderr: &mut dyn Write, message: &str) -> i32 {
-    let _ = writeln!(stderr, "forge plugin: {message}\n\n{USAGE}");
+    let _ = writeln!(stderr, "hearth plugin: {message}\n\n{USAGE}");
     EXIT_USAGE
 }
 
@@ -839,7 +842,7 @@ mod tests {
 
     #[test]
     fn a_plugin_name_is_not_a_flag() {
-        // The real invocation is `forge plugin start reference`: the plugin name is
+        // The real invocation is `hearth plugin start reference`: the plugin name is
         // a bare word. Reading it as a flag made every concrete command a usage
         // error, so this asserts the parser only looks at things that start with
         // `-`.
@@ -885,7 +888,7 @@ mod tests {
     /// A scratch plugin root that no other test shares.
     fn scratch(label: &str) -> std::path::PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("forge-plugin-new-{}-{label}", std::process::id()));
+            std::env::temp_dir().join(format!("hearth-plugin-new-{}-{label}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }
@@ -1019,9 +1022,9 @@ mod tests {
     #[test]
     fn listing_an_empty_root_is_success_and_says_so() {
         let dir = std::env::temp_dir().join(format!(
-            "forge-plugin-cmd-{}-{}",
+            "hearth-plugin-cmd-{}-{}",
             std::process::id(),
-            forge_core::new_id().unwrap_or_default()
+            hearth_core::new_id().unwrap_or_default()
         ));
         let mut out = Vec::new();
         let mut err = Vec::new();

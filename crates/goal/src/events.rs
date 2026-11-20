@@ -6,7 +6,7 @@
 //! a caller that has not folded the goal does not know its revision, and a
 //! continuation written with a guessed revision is a broken fence.
 
-use forge_core::{Event, EventType};
+use hearth_core::{Event, EventType};
 use serde_json::{Map, Value};
 
 use crate::domain::{Goal, StopReason};

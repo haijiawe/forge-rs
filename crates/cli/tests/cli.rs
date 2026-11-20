@@ -1,6 +1,6 @@
 //! CLI surface tests: no process spawning, because `run` takes its streams.
 //! Env-mutating tests share one lock; the config path is the only global state
-//! doctor reads, and leaking a test's `FORGE_HOME` into another would make the
+//! doctor reads, and leaking a test's `HEARTH_HOME` into another would make the
 //! suite lie about what it exercised.
 
 use std::ffi::OsString;
@@ -9,9 +9,9 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use forge_cli::{reorder_flags, run, USAGE};
+use hearth_cli::{reorder_flags, run, USAGE};
 
-const EXPECTED_USAGE: &str = "forge — an agent harness\n\nusage:\n  forge --version              print version (fast path, no config)\n  forge chat [flags] [prompt]  run one turn and stream the answer to stdout\n  forge \"<prompt>\"             shorthand for forge chat\n  forge web [flags]            serve the browser UI on loopback\n  forge session <command>      operate on a session log without running a turn\n  forge import <old-dir>       import a session tree from the old harness\n  forge index [flags]          rebuild or query the search index\n  forge goal <command>         record, inspect or close a goal\n  forge schedule <command>     record recurring prompts and run the ones due\n  forge plugin <command>       inspect the installed plugin set\n  forge expert <command>       list or show the expert roster\n  forge skill <command>        list or show the skills the model was offered\n  forge subagent <command>     list, walk, resume, stop, or run a child\n  forge team <command>         list teams, or run one over a shared board\n  forge market <command>       install or remove plugin bundles\n  forge doctor [flags]         check the environment\n  forge help                   this message\n\ndocs: docs/README.md\n";
+const EXPECTED_USAGE: &str = "hearth — an agent harness\n\nusage:\n  hearth --version              print version (fast path, no config)\n  hearth chat [flags] [prompt]  run one turn and stream the answer to stdout\n  hearth \"<prompt>\"             shorthand for hearth chat\n  hearth web [flags]            serve the browser UI on loopback\n  hearth session <command>      operate on a session log without running a turn\n  hearth import <old-dir>       import a session tree from the old harness\n  hearth index [flags]          rebuild or query the search index\n  hearth goal <command>         record, inspect or close a goal\n  hearth schedule <command>     record recurring prompts and run the ones due\n  hearth plugin <command>       inspect the installed plugin set\n  hearth expert <command>       list or show the expert roster\n  hearth skill <command>        list or show the skills the model was offered\n  hearth subagent <command>     list, walk, resume, stop, or run a child\n  hearth team <command>         list teams, or run one over a shared board\n  hearth market <command>       install or remove plugin bundles\n  hearth doctor [flags]         check the environment\n  hearth help                   this message\n\ndocs: docs/README.md\n";
 
 fn env_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -29,7 +29,7 @@ impl TempDir {
             .expect("clock before epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "forge-cli-test-{}-{tag}-{unique}",
+            "hearth-cli-test-{}-{tag}-{unique}",
             std::process::id()
         ));
         fs::create_dir_all(&path).expect("create temp dir");
@@ -47,27 +47,27 @@ impl Drop for TempDir {
     }
 }
 
-struct ForgeHome {
+struct HearthHome {
     old: Option<OsString>,
     _lock: std::sync::MutexGuard<'static, ()>,
 }
 
-impl ForgeHome {
+impl HearthHome {
     fn set(dir: &TempDir) -> Self {
         let lock = env_lock()
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        let old = std::env::var_os("FORGE_HOME");
-        std::env::set_var("FORGE_HOME", &dir.path);
-        ForgeHome { old, _lock: lock }
+        let old = std::env::var_os("HEARTH_HOME");
+        std::env::set_var("HEARTH_HOME", &dir.path);
+        HearthHome { old, _lock: lock }
     }
 }
 
-impl Drop for ForgeHome {
+impl Drop for HearthHome {
     fn drop(&mut self) {
         match &self.old {
-            Some(value) => std::env::set_var("FORGE_HOME", value),
-            None => std::env::remove_var("FORGE_HOME"),
+            Some(value) => std::env::set_var("HEARTH_HOME", value),
+            None => std::env::remove_var("HEARTH_HOME"),
         }
     }
 }
@@ -93,13 +93,13 @@ fn usage_is_byte_equal_to_the_frozen_contract() {
 fn version_is_a_fast_path_that_does_not_read_a_broken_config() {
     let dir = TempDir::new("version-fast");
     dir.write("config.json", "{ this is not json at all");
-    let _home = ForgeHome::set(&dir);
+    let _home = HearthHome::set(&dir);
     for flag in ["--version", "-v", "version"] {
         let (code, stdout, stderr) = run_cli(&[flag]);
         assert_eq!(code, 0, "{flag}");
         assert!(stderr.is_empty(), "{flag} wrote stderr: {stderr}");
         assert!(
-            stdout.starts_with("forge 0.0.0-dev (unknown) "),
+            stdout.starts_with("hearth 0.0.0-dev (unknown) "),
             "{flag}: {stdout}"
         );
         assert!(stdout.ends_with('\n'));
@@ -110,7 +110,7 @@ fn version_is_a_fast_path_that_does_not_read_a_broken_config() {
 #[test]
 fn help_prints_the_usage_text_without_a_config() {
     let dir = TempDir::new("help");
-    let _home = ForgeHome::set(&dir);
+    let _home = HearthHome::set(&dir);
     for args in [vec![], vec!["help"], vec!["-h"], vec!["--help"]] {
         let (code, stdout, stderr) = run_cli(&args);
         assert_eq!(code, 0);
@@ -124,7 +124,7 @@ fn unknown_command_is_exit_two_with_usage_on_stderr() {
     let (code, stdout, stderr) = run_cli(&["nope"]);
     assert_eq!(code, 2);
     assert!(stdout.is_empty());
-    assert!(stderr.starts_with("forge: unknown command \"nope\"\n\n"));
+    assert!(stderr.starts_with("hearth: unknown command \"nope\"\n\n"));
     assert!(stderr.ends_with(EXPECTED_USAGE));
 }
 
@@ -135,7 +135,7 @@ fn doctor_json_has_the_stable_key_set_and_eleven_checks_in_order() {
         "config.json",
         r#"{"model": "", "sandbox": "workspace-write", "dataDir": ""}"#,
     );
-    let _home = ForgeHome::set(&dir);
+    let _home = HearthHome::set(&dir);
     let (code, stdout, stderr) = run_cli(&["doctor", "--json"]);
     assert_eq!(code, 0, "unexpected failure: {stdout}\n{stderr}");
     let value: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
@@ -194,12 +194,12 @@ fn doctor_text_table_names_the_same_checks_in_the_same_order() {
         "config.json",
         r#"{"model": "", "sandbox": "workspace-write", "dataDir": ""}"#,
     );
-    let _home = ForgeHome::set(&dir);
+    let _home = HearthHome::set(&dir);
     let (code, stdout, stderr) = run_cli(&["doctor"]);
     assert_eq!(code, 0, "unexpected failure: {stdout}\n{stderr}");
     // The table is the human form of the same report, so a check that only
     // exists in `--json` would be invisible to the operator who runs
-    // `forge doctor`. A row starts with the status label; the name column is
+    // `hearth doctor`. A row starts with the status label; the name column is
     // padded, so the name is the first run between two spaces.
     let mut names: Vec<&str> = Vec::new();
     for line in stdout.lines() {
@@ -253,7 +253,7 @@ fn doctor_text_table_names_the_same_checks_in_the_same_order() {
 fn doctor_invalid_sandbox_config_is_exit_one_and_shows_fail() {
     let dir = TempDir::new("doctor-bad-sandbox");
     dir.write("config.json", r#"{"sandbox": "yolo"}"#);
-    let _home = ForgeHome::set(&dir);
+    let _home = HearthHome::set(&dir);
     let (code, stdout, _stderr) = run_cli(&["doctor"]);
     assert_eq!(code, 1);
     assert!(
@@ -267,7 +267,7 @@ fn doctor_invalid_sandbox_config_is_exit_one_and_shows_fail() {
 fn doctor_skips_unconfigured_model_mcp_and_pty_checks() {
     let dir = TempDir::new("doctor-skips");
     dir.write("config.json", r#"{"model": "", "sandbox": "full-access"}"#);
-    let _home = ForgeHome::set(&dir);
+    let _home = HearthHome::set(&dir);
     let (code, stdout, _stderr) = run_cli(&["doctor", "--json"]);
     assert_eq!(code, 0);
     let value: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
@@ -299,7 +299,7 @@ fn doctor_unknown_flag_is_exit_two_with_the_flag_package_message() {
 fn doctor_ignores_positional_arguments() {
     let dir = TempDir::new("doctor-positional");
     dir.write("config.json", r#"{"sandbox": "full-access"}"#);
-    let _home = ForgeHome::set(&dir);
+    let _home = HearthHome::set(&dir);
     let (code, stdout, _stderr) = run_cli(&["doctor", "ignored", "--json"]);
     assert_eq!(code, 0, "{stdout}");
     assert!(serde_json::from_str::<serde_json::Value>(&stdout).is_ok());

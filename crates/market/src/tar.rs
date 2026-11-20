@@ -15,7 +15,7 @@
 //! canonicalisation check in [`crate::unpack`] is the second line of defence,
 //! because two checks that are not the same check catch different mistakes.
 
-use forge_core::Result;
+use hearth_core::Result;
 
 use crate::error::{
     invalid_with, refuse_with, ERR_DUPLICATE_ENTRY, ERR_ENTRY_LIMIT, ERR_TAR_CHECKSUM,

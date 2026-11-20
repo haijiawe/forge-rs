@@ -1,5 +1,5 @@
 [package]
-name = "forge-bench"
+name = "hearth-bench"
 description = "cross-platform performance harness and per-platform baseline gate"
 version.workspace = true
 edition.workspace = true
@@ -7,11 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "forge-bench"
+name = "hearth-bench"
 path = "src/main.rs"
 
 [dependencies]
-forge-core = { path = "../../crates/core" }
-forge-session = { path = "../../crates/session" }
+hearth-core = { path = "../../crates/core" }
+hearth-session = { path = "../../crates/session" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

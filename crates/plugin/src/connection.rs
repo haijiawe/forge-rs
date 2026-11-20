@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use forge_mcp::Logger;
+use hearth_mcp::Logger;
 
 use crate::error::{Error, Kind, Result};
 use crate::manifest::Manifest;

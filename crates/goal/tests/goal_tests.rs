@@ -2,8 +2,8 @@
 //! every rule in `fold` and `next_action` is pinned here, including the ones
 //! that only matter when a log is written by a version that is not this build.
 
-use forge_core::{Event, EventType};
-use forge_goal::{
+use hearth_core::{Event, EventType};
+use hearth_goal::{
     continuation_prompt, fold, goal_continued, goal_created, goal_ended, validate, Action, Goal,
     Status, StopReason, CONTINUATION_PROMPT, DEFAULT_MAX_ROUNDS,
 };

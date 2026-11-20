@@ -1,4 +1,4 @@
-//! The `forge` binary: argument parsing, help text, and the doctor command.
+//! The `hearth` binary: argument parsing, help text, and the doctor command.
 //!
 //! Layer L3. [`run`] takes the argument list without the program name and
 //! writes through caller-supplied streams, so the whole surface is testable
@@ -69,7 +69,7 @@ pub fn write_json<T: serde::Serialize>(
         Err(err) => {
             let _ = writeln!(
                 stderr,
-                "forge {command}: write json: {}",
+                "hearth {command}: write json: {}",
                 one_line(&err.to_string())
             );
             1
@@ -108,12 +108,12 @@ pub fn wants_help(args: &[String]) -> bool {
 /// The configured data directory, without requiring a valid sandbox mode:
 /// `import` and `index` need a place to write and nothing else from the config,
 /// so a sandbox typo must not stop them.
-pub fn default_data_dir() -> forge_core::Result<PathBuf> {
-    let path = forge_config::default_path()?;
-    let cfg = forge_config::Config::load(&path)?;
+pub fn default_data_dir() -> hearth_core::Result<PathBuf> {
+    let path = hearth_config::default_path()?;
+    let cfg = hearth_config::Config::load(&path)?;
     if cfg.data_dir.trim().is_empty() {
-        return Err(forge_core::Error::new(
-            forge_core::ErrorKind::Invalid,
+        return Err(hearth_core::Error::new(
+            hearth_core::ErrorKind::Invalid,
             "no data directory resolved; pass --data-dir",
         ));
     }
@@ -143,8 +143,8 @@ pub fn epoch_stamp(secs: i64) -> String {
 ///
 /// Lives here rather than in one command because `chat`, `session fork` and
 /// `import` all mint ids, and two generators would eventually disagree about the
-/// format `forge_core::SessionId::parse` accepts.
-pub fn new_session_id() -> forge_core::Result<String> {
+/// format `hearth_core::SessionId::parse` accepts.
+pub fn new_session_id() -> hearth_core::Result<String> {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -152,7 +152,7 @@ pub fn new_session_id() -> forge_core::Result<String> {
     let stamp = epoch_stamp(secs);
     let mut bytes = [0u8; 3];
     getrandom::fill(&mut bytes).map_err(|err| {
-        forge_core::Error::new(forge_core::ErrorKind::Io, format!("random: {err}"))
+        hearth_core::Error::new(hearth_core::ErrorKind::Io, format!("random: {err}"))
     })?;
     Ok(format!(
         "{stamp}-{:02x}{:02x}{:02x}",
@@ -181,34 +181,34 @@ pub const VERSION: &str = "0.0.0-dev";
 /// Commit hash; `unknown` for a working-tree build.
 pub const COMMIT: &str = "unknown";
 
-/// The frozen `forge help` text from `docs/contracts/cli.md` §2.2.
-pub const USAGE: &str = "forge — an agent harness
+/// The frozen `hearth help` text from `docs/contracts/cli.md` §2.2.
+pub const USAGE: &str = "hearth — an agent harness
 
 usage:
-  forge --version              print version (fast path, no config)
-  forge chat [flags] [prompt]  run one turn and stream the answer to stdout
-  forge \"<prompt>\"             shorthand for forge chat
-  forge web [flags]            serve the browser UI on loopback
-  forge session <command>      operate on a session log without running a turn
-  forge import <old-dir>       import a session tree from the old harness
-  forge index [flags]          rebuild or query the search index
-  forge goal <command>         record, inspect or close a goal
-  forge schedule <command>     record recurring prompts and run the ones due
-  forge plugin <command>       inspect the installed plugin set
-  forge expert <command>       list or show the expert roster
-  forge skill <command>        list or show the skills the model was offered
-  forge subagent <command>     list, walk, resume, stop, or run a child
-  forge team <command>         list teams, or run one over a shared board
-  forge market <command>       install or remove plugin bundles
-  forge doctor [flags]         check the environment
-  forge help                   this message
+  hearth --version              print version (fast path, no config)
+  hearth chat [flags] [prompt]  run one turn and stream the answer to stdout
+  hearth \"<prompt>\"             shorthand for hearth chat
+  hearth web [flags]            serve the browser UI on loopback
+  hearth session <command>      operate on a session log without running a turn
+  hearth import <old-dir>       import a session tree from the old harness
+  hearth index [flags]          rebuild or query the search index
+  hearth goal <command>         record, inspect or close a goal
+  hearth schedule <command>     record recurring prompts and run the ones due
+  hearth plugin <command>       inspect the installed plugin set
+  hearth expert <command>       list or show the expert roster
+  hearth skill <command>        list or show the skills the model was offered
+  hearth subagent <command>     list, walk, resume, stop, or run a child
+  hearth team <command>         list teams, or run one over a shared board
+  hearth market <command>       install or remove plugin bundles
+  hearth doctor [flags]         check the environment
+  hearth help                   this message
 
 docs: docs/README.md
 ";
 
 /// The compiler that built this binary, captured by `build.rs`.
 pub fn rust_version() -> &'static str {
-    option_env!("FORGE_RUSTC_VERSION").unwrap_or("unknown")
+    option_env!("HEARTH_RUSTC_VERSION").unwrap_or("unknown")
 }
 
 /// The platform name used on the wire: Go spelled macOS `darwin`, and the
@@ -232,7 +232,7 @@ pub fn arch_name() -> &'static str {
 /// The one-line version string printed by `--version`, `-v`, and `version`.
 pub fn version_line() -> String {
     format!(
-        "forge {} ({}) {}/{} {}",
+        "hearth {} ({}) {}/{} {}",
         VERSION,
         COMMIT,
         os_name(),
@@ -258,7 +258,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
 
     match first {
         // Fast path: must not read the config file, because a broken config
-        // must not make `forge --version` fail.
+        // must not make `hearth --version` fail.
         "--version" | "-v" | "version" => {
             let _ = writeln!(stdout, "{}", version_line());
             0
@@ -282,14 +282,14 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         "import" => importcmd::run(&args[1..], stdout, stderr),
         "session" => sessioncmd::run(&args[1..], stdout, stderr),
         other => {
-            // Bare `forge "问题"` is shorthand for `forge chat`. A lone ASCII
+            // Bare `hearth "问题"` is shorthand for `hearth chat`. A lone ASCII
             // word stays an unknown command so a typo fails fast instead of
             // spending a model call (contract §2.5, main.go isPromptInvocation).
             if chat::is_prompt_invocation(args) {
                 return chat::run(args, stdout, stderr);
             }
             // `%q` in the Go build: a quoted, escaped command name.
-            let _ = writeln!(stderr, "forge: unknown command {other:?}\n");
+            let _ = writeln!(stderr, "hearth: unknown command {other:?}\n");
             let _ = stderr.write_all(USAGE.as_bytes());
             2
         }
@@ -300,7 +300,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
 /// seen by the command's parser.
 ///
 /// This exists once, here, because the Go build had a separate parser in each
-/// command and `forge chat "hi" --model x` silently ignored `--model`. Value
+/// command and `hearth chat "hi" --model x` silently ignored `--model`. Value
 /// flags consume the following token (unless written `--name=value`), and a
 /// bare `--` keeps everything after it positional.
 pub fn reorder_flags(args: &[String], value_flags: &[&str]) -> Vec<String> {
@@ -345,7 +345,7 @@ pub fn reorder_flags(args: &[String], value_flags: &[&str]) -> Vec<String> {
 /// `reorder_flags` moves flags to the front, so the first token without a dash
 /// in the reordered list is usually the value of `--root`/`--dir`, not the
 /// subcommand. Reading the subcommand with a bare `!arg.starts_with('-')` test
-/// turns `forge plugin list --dir /plugins` into a call whose subcommand is
+/// turns `hearth plugin list --dir /plugins` into a call whose subcommand is
 /// `/plugins`, which then fails as an unknown command — a usage exit for a
 /// correct invocation.
 pub fn command_after_flags(args: &[String], value_flags: &[&str]) -> Option<String> {

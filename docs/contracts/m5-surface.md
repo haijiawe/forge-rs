@@ -205,16 +205,16 @@ func (r *Runner) Tool() tool.Tool
 ```json
 {
   "mcp": { "servers": [ { "name": "fs", "transport": "stdio", "command": ["npx","-y","@modelcontextprotocol/server-filesystem","."] } ] },
-  "skills": { "roots": ["~/.forge/skills", "./.forge/skills"] },
+  "skills": { "roots": ["~/.hearth/skills", "./.hearth/skills"] },
   "subagent": { "maxDepth": 1 }
 }
 ```
 
-未知字段忽略；`mcp.servers` 里的坏条目**不阻止启动**，进 `forge doctor` 的 warning，该 server 不加载。
+未知字段忽略；`mcp.servers` 里的坏条目**不阻止启动**，进 `hearth doctor` 的 warning，该 server 不加载。
 
 ## 7. 集成者负责的改动（单元不要碰）
 
 - `architecture.yaml`：新增 `internal/mcp`、`internal/skill`、`internal/subagent` 的层。
 - 各目录 `README.md` 的 `may_import`/`public`。
-- `cmd/forge/**`：注册 MCP/技能/子代理工具，`forge mcp list|call`（可选）。
+- `cmd/forge/**`：注册 MCP/技能/子代理工具，`hearth mcp list|call`（可选）。
 - `docs/deps.md`、`docs/contracts/cli.md`、`docs/05-roadmap.md`。

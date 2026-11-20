@@ -29,8 +29,8 @@ Measured with `Stopwatch` on this host:
 | --- | ---: | ---: | --- |
 | `dsh --version` | 1,470 ms | 160 ms | `0.2.2-rc.1` |
 | `dsh web --version` | — | 350 ms | `0.2.2-rc.1` |
-| `forge-rs.exe --version` | ~5 ms in the bench harness | ~5 ms | `forge 0.0.0-dev (unknown) windows/amd64 rustc 1.96.0` |
-| Go `forge.exe --version` | ~7 ms in the Go bench harness | ~7 ms | `forge 0.7.0-m7 …` |
+| `hearth.exe --version` | ~5 ms in the bench harness | ~5 ms | `hearth 0.0.0-dev (unknown) windows/amd64 rustc 1.96.0` |
+| Go `hearth.exe --version` | ~7 ms in the Go bench harness | ~7 ms | `hearth 0.7.0-m7 …` |
 
 Cold DSH includes booting the Node CLI/profile launcher. Rust and Go CLI startup
 is a native fast path that does not load config before answering `--version`.

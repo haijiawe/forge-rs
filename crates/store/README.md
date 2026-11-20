@@ -13,15 +13,15 @@ public:
   - is_closed
   - is_bad_cursor
 may_import:
-  - forge-core
-  - forge-session
-  - forge-protocol
+  - hearth-core
+  - hearth-session
+  - hearth-protocol
 must_not:
   - write to a session log (the log is the only truth)
   - migrate an unknown schema version (drop and rebuild instead)
   - index tool output or any non-boundary event
   - import anything from L3
-gate: cargo test -p forge-store --offline
+gate: cargo test -p hearth-store --offline
 ---
 
 ## 做什么
@@ -36,15 +36,15 @@ FTS5 triggers keep search in step with ordinary writes.
 
 `Store::open(Options)`, `close`, `path`, `put`, `delete`, `list`, `search`,
 `stats`, `rebuild`; types `Options` (path + optional clock), `Session`, `Hit`,
-`Stats`, `Query`; `Result<T> = std::result::Result<T, forge_core::Error>`.
+`Stats`, `Query`; `Result<T> = std::result::Result<T, hearth_core::Error>`.
 `is_closed` and `is_bad_cursor` identify the two sentinel errors because
-`forge_core::Error` has no downcast. Cursors are opaque base64url tokens with
+`hearth_core::Error` has no downcast. Cursors are opaque base64url tokens with
 the Go wire shape `{"u":i64,"i":string}`.
 
 ## 依赖与边界
 
-Depends on `forge-core` (envelope, `parse_log`, errors), `forge-session`
-(projection), `forge-protocol` (status constants), and `rusqlite` with the
+Depends on `hearth-core` (envelope, `parse_log`, errors), `hearth-session`
+(projection), `hearth-protocol` (status constants), and `rusqlite` with the
 bundled SQLite; `serde`/`serde_json` encode cursors and read payload members.
 All are already in the workspace budget. `Options` has no logger field because
 there is no slog equivalent in this tree — skipped logs are reported on stderr.

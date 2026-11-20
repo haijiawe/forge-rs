@@ -1,8 +1,8 @@
-//! `forge goal` — record, inspect and close the goal of a session.
+//! `hearth goal` — record, inspect and close the goal of a session.
 //!
 //! A goal is three events in the session log (`goal/created`, `goal/continued`,
 //! `goal/ended`), folded into a status. It lives in the log rather than in a
-//! side file so that `forge chat --resume`, `forge session fork` and the web UI
+//! side file so that `hearth chat --resume`, `hearth session fork` and the web UI
 //! all see the same thing, and so that a goal outlives the process that started
 //! it: the acceptance criterion for P2 is literally "a goal survives a restart
 //! because it is in the log".
@@ -14,13 +14,13 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use forge_core::Result as CoreResult;
-use forge_goal::{Action, CasOutcome, Goal, Status, StopReason};
-use forge_session::{Options as StoreOptions, Store};
+use hearth_core::Result as CoreResult;
+use hearth_goal::{Action, CasOutcome, Goal, Status, StopReason};
+use hearth_session::{Options as StoreOptions, Store};
 
 use crate::{one_line, write_json, EXIT_FAILURE, EXIT_OK, EXIT_USAGE};
 
-pub const USAGE: &str = "usage: forge goal <command> [flags]
+pub const USAGE: &str = "usage: hearth goal <command> [flags]
 
 Commands:
   start    record a new goal in a session log
@@ -37,12 +37,12 @@ Flags:
 ";
 
 const USAGE_START: &str =
-    "usage: forge goal start --text <text> [--session <id>] [--max-rounds <n>] [--json]
+    "usage: hearth goal start --text <text> [--session <id>] [--max-rounds <n>] [--json]
 ";
-const USAGE_STATUS: &str = "usage: forge goal status --session <id> [--json]
+const USAGE_STATUS: &str = "usage: hearth goal status --session <id> [--json]
 ";
 const USAGE_END: &str =
-    "usage: forge goal end --session <id> --reason complete|blocked [--note <text>] [--json]
+    "usage: hearth goal end --session <id> --reason complete|blocked [--note <text>] [--json]
 ";
 
 #[derive(Debug, Default)]
@@ -65,7 +65,7 @@ fn parse(args: &[String], usage: &str, stderr: &mut dyn Write) -> std::result::R
             None => (arg.trim_start_matches('-'), None),
         };
         if !arg.starts_with('-') {
-            let _ = writeln!(stderr, "forge goal: unexpected argument {arg:?}");
+            let _ = writeln!(stderr, "hearth goal: unexpected argument {arg:?}");
             let _ = stderr.write_all(usage.as_bytes());
             return Err(EXIT_USAGE);
         }
@@ -84,7 +84,7 @@ fn parse(args: &[String], usage: &str, stderr: &mut dyn Write) -> std::result::R
                 let value = match value {
                     Some(value) => value,
                     None => {
-                        let _ = writeln!(stderr, "forge goal: flag needs an argument: -{name}");
+                        let _ = writeln!(stderr, "hearth goal: flag needs an argument: -{name}");
                         let _ = stderr.write_all(usage.as_bytes());
                         return Err(EXIT_USAGE);
                     }
@@ -99,7 +99,7 @@ fn parse(args: &[String], usage: &str, stderr: &mut dyn Write) -> std::result::R
                 }
             }
             other => {
-                let _ = writeln!(stderr, "forge goal: unknown flag -{other}");
+                let _ = writeln!(stderr, "hearth goal: unknown flag -{other}");
                 let _ = stderr.write_all(usage.as_bytes());
                 return Err(EXIT_USAGE);
             }
@@ -122,7 +122,7 @@ fn data_dir(stderr: &mut dyn Write, command: &str) -> std::result::Result<PathBu
         Err(err) => {
             let _ = writeln!(
                 stderr,
-                "forge goal {command}: read config: {}",
+                "hearth goal {command}: read config: {}",
                 one_line(err.message())
             );
             Err(EXIT_FAILURE)
@@ -134,8 +134,8 @@ fn data_dir(stderr: &mut dyn Write, command: &str) -> std::result::Result<PathBu
 fn open_for_write(path: &Path) -> CoreResult<Store> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|err| {
-            forge_core::Error::new(
-                forge_core::ErrorKind::Io,
+            hearth_core::Error::new(
+                hearth_core::ErrorKind::Io,
                 format!("goal: cannot create {}: {err}", parent.display()),
             )
         })?;
@@ -144,7 +144,7 @@ fn open_for_write(path: &Path) -> CoreResult<Store> {
 }
 
 /// Append one goal event, then drop the handle: see the module comment.
-fn append(path: &Path, event: &forge_core::Event) -> CoreResult<()> {
+fn append(path: &Path, event: &hearth_core::Event) -> CoreResult<()> {
     let store = open_for_write(path)?;
     store.append(event)?;
     Ok(())
@@ -153,9 +153,9 @@ fn append(path: &Path, event: &forge_core::Event) -> CoreResult<()> {
 /// Every event in the log, or an empty list when the log does not exist.
 ///
 /// A missing log is not an error here: "no goal" and "no session" are the same
-/// answer to `forge goal status`, and the caller says which session it looked
+/// answer to `hearth goal status`, and the caller says which session it looked
 /// at so the operator can spot a typo.
-pub fn read_events(path: &Path) -> CoreResult<Vec<forge_core::Event>> {
+pub fn read_events(path: &Path) -> CoreResult<Vec<hearth_core::Event>> {
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -171,7 +171,7 @@ pub fn read_events(path: &Path) -> CoreResult<Vec<forge_core::Event>> {
 /// The goal a session is pursuing, if the log holds one.
 pub fn open_goal(path: &Path) -> CoreResult<Option<Goal>> {
     let events = read_events(path)?;
-    Ok(forge_goal::fold(&events))
+    Ok(hearth_goal::fold(&events))
 }
 
 /// What this turn's tools said about the goal, if anything.
@@ -182,10 +182,10 @@ pub fn open_goal(path: &Path) -> CoreResult<Option<Goal>> {
 ///
 /// The last verdict wins: a model that changes its mind in the same turn meant
 /// the later one, and the earlier one is still in the log for anyone reading.
-pub fn round_verdict(events: &[forge_core::Event]) -> Option<(StopReason, Option<String>)> {
+pub fn round_verdict(events: &[hearth_core::Event]) -> Option<(StopReason, Option<String>)> {
     let mut verdict = None;
     for event in events {
-        if event.typ != forge_core::EventType::TOOL_RESULT.as_str() {
+        if event.typ != hearth_core::EventType::TOOL_RESULT.as_str() {
             continue;
         }
         let Some(payload) = event.payload.as_ref() else {
@@ -194,7 +194,10 @@ pub fn round_verdict(events: &[forge_core::Event]) -> Option<(StopReason, Option
         let Some(meta) = payload.get("meta") else {
             continue;
         };
-        let Some(raw) = meta.get(forge_tool::GOAL_META_KEY).and_then(|v| v.as_str()) else {
+        let Some(raw) = meta
+            .get(hearth_tool::GOAL_META_KEY)
+            .and_then(|v| v.as_str())
+        else {
             continue;
         };
         let Some(reason) = StopReason::parse(raw) else {
@@ -212,15 +215,15 @@ pub fn round_verdict(events: &[forge_core::Event]) -> Option<(StopReason, Option
 
 /// Record a new goal. Returns the goal as written.
 pub fn start_goal(path: &Path, session_id: &str, text: &str, max_rounds: u32) -> CoreResult<Goal> {
-    let goal = Goal::new(forge_core::new_id()?, text.trim(), max_rounds);
-    forge_goal::validate(&goal)?;
-    append(path, &forge_goal::goal_created(session_id, &goal))?;
+    let goal = Goal::new(hearth_core::new_id()?, text.trim(), max_rounds);
+    hearth_goal::validate(&goal)?;
+    append(path, &hearth_goal::goal_created(session_id, &goal))?;
     Ok(goal)
 }
 
 /// Record that a round is being opened.
 pub fn continue_goal(path: &Path, session_id: &str, goal: &Goal, round: u32) -> CoreResult<()> {
-    append(path, &forge_goal::goal_continued(session_id, goal, round))
+    append(path, &hearth_goal::goal_continued(session_id, goal, round))
 }
 
 /// Record that a goal is over.
@@ -233,7 +236,7 @@ pub fn end_goal(
 ) -> CoreResult<()> {
     append(
         path,
-        &forge_goal::goal_ended(session_id, goal, reason, note),
+        &hearth_goal::goal_ended(session_id, goal, reason, note),
     )
 }
 
@@ -245,7 +248,7 @@ pub fn end_goal(
 /// `Stale` instead of opening a second continuation for a single turn of work.
 ///
 /// `expected` is `goal.revision`; on success the new revision is `expected + 1`,
-/// matching the `+1` [`forge_goal::goal_continued`] puts in the payload.
+/// matching the `+1` [`hearth_goal::goal_continued`] puts in the payload.
 pub fn append_continued_if_current(
     store: &Store,
     session_id: &str,
@@ -259,7 +262,7 @@ pub fn append_continued_if_current(
         events.push(event.clone());
         Ok(())
     })?;
-    let found = forge_goal::fold(&events)
+    let found = hearth_goal::fold(&events)
         .map(|current| current.revision)
         .unwrap_or(0);
     if found != goal.revision {
@@ -268,7 +271,7 @@ pub fn append_continued_if_current(
             found,
         });
     }
-    store.append(&forge_goal::goal_continued(session_id, goal, round))?;
+    store.append(&hearth_goal::goal_continued(session_id, goal, round))?;
     Ok(CasOutcome::Written(goal.revision + 1))
 }
 
@@ -317,7 +320,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         "status" => status(rest, stdout, stderr),
         "end" => end(rest, stdout, stderr),
         other => {
-            let _ = writeln!(stderr, "forge goal: unknown command {other:?}");
+            let _ = writeln!(stderr, "hearth goal: unknown command {other:?}");
             let _ = stderr.write_all(USAGE.as_bytes());
             EXIT_USAGE
         }
@@ -336,7 +339,7 @@ fn start(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32
     if flags.text.trim().is_empty() {
         let _ = writeln!(
             stderr,
-            "forge goal start: --text is required: a goal nobody wrote down cannot be finished"
+            "hearth goal start: --text is required: a goal nobody wrote down cannot be finished"
         );
         let _ = stderr.write_all(USAGE_START.as_bytes());
         return EXIT_USAGE;
@@ -344,7 +347,7 @@ fn start(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32
     let max_rounds = match parse_rounds(&flags.max_rounds) {
         Ok(rounds) => rounds,
         Err(message) => {
-            let _ = writeln!(stderr, "forge goal start: {message}");
+            let _ = writeln!(stderr, "hearth goal start: {message}");
             return EXIT_USAGE;
         }
     };
@@ -356,7 +359,7 @@ fn start(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32
         match crate::new_session_id() {
             Ok(id) => id,
             Err(err) => {
-                let _ = writeln!(stderr, "forge goal start: {}", one_line(err.message()));
+                let _ = writeln!(stderr, "hearth goal start: {}", one_line(err.message()));
                 return EXIT_FAILURE;
             }
         }
@@ -367,7 +370,7 @@ fn start(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32
     let goal = match start_goal(&path, &session_id, &flags.text, max_rounds) {
         Ok(goal) => goal,
         Err(err) => {
-            let _ = writeln!(stderr, "forge goal start: {}", one_line(err.message()));
+            let _ = writeln!(stderr, "hearth goal start: {}", one_line(err.message()));
             return EXIT_FAILURE;
         }
     };
@@ -389,7 +392,7 @@ fn start(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32
     let _ = writeln!(stdout, "{}", session_id);
     let _ = writeln!(
         stderr,
-        "forge goal: recorded {}/{} in session {} (max {} rounds)",
+        "hearth goal: recorded {}/{} in session {} (max {} rounds)",
         goal.id, goal.text, session_id, goal.max_rounds
     );
     EXIT_OK
@@ -405,7 +408,7 @@ fn status(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i3
         Err(code) => return code,
     };
     if flags.session.trim().is_empty() {
-        let _ = writeln!(stderr, "forge goal status: --session is required");
+        let _ = writeln!(stderr, "hearth goal status: --session is required");
         let _ = stderr.write_all(USAGE_STATUS.as_bytes());
         return EXIT_USAGE;
     }
@@ -418,7 +421,7 @@ fn status(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i3
     let goal = match open_goal(&path) {
         Ok(goal) => goal,
         Err(err) => {
-            let _ = writeln!(stderr, "forge goal status: {}", one_line(err.message()));
+            let _ = writeln!(stderr, "hearth goal status: {}", one_line(err.message()));
             return EXIT_FAILURE;
         }
     };
@@ -491,7 +494,7 @@ fn end(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
         Err(code) => return code,
     };
     if flags.session.trim().is_empty() {
-        let _ = writeln!(stderr, "forge goal end: --session is required");
+        let _ = writeln!(stderr, "hearth goal end: --session is required");
         let _ = stderr.write_all(USAGE_END.as_bytes());
         return EXIT_USAGE;
     }
@@ -501,7 +504,7 @@ fn end(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
         "" => {
             let _ = writeln!(
                 stderr,
-                "forge goal end: --reason is required: complete or blocked"
+                "hearth goal end: --reason is required: complete or blocked"
             );
             let _ = stderr.write_all(USAGE_END.as_bytes());
             return EXIT_USAGE;
@@ -509,7 +512,7 @@ fn end(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
         other => {
             let _ = writeln!(
                 stderr,
-                "forge goal end: unknown --reason {other:?}: use complete or blocked"
+                "hearth goal end: unknown --reason {other:?}: use complete or blocked"
             );
             return EXIT_USAGE;
         }
@@ -525,12 +528,12 @@ fn end(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
         Ok(None) => {
             let _ = writeln!(
                 stderr,
-                "forge goal end: no goal recorded in session {session_id}"
+                "hearth goal end: no goal recorded in session {session_id}"
             );
             return EXIT_FAILURE;
         }
         Err(err) => {
-            let _ = writeln!(stderr, "forge goal end: {}", one_line(err.message()));
+            let _ = writeln!(stderr, "hearth goal end: {}", one_line(err.message()));
             return EXIT_FAILURE;
         }
     };
@@ -539,7 +542,7 @@ fn end(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
         // fold would silently prefer the later one. Refuse instead.
         let _ = writeln!(
             stderr,
-            "forge goal end: the goal in session {session_id} is already {} ({})",
+            "hearth goal end: the goal in session {session_id} is already {} ({})",
             goal.status.as_str(),
             goal.id
         );
@@ -548,7 +551,7 @@ fn end(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     let note = flags.note.trim();
     let note = if note.is_empty() { None } else { Some(note) };
     if let Err(err) = end_goal(&path, &session_id, &goal, reason, note) {
-        let _ = writeln!(stderr, "forge goal end: {}", one_line(err.message()));
+        let _ = writeln!(stderr, "hearth goal end: {}", one_line(err.message()));
         return EXIT_FAILURE;
     }
     if flags.json {
@@ -570,7 +573,7 @@ fn end(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
 
 fn parse_rounds(raw: &str) -> std::result::Result<u32, String> {
     if raw.trim().is_empty() {
-        return Ok(forge_goal::DEFAULT_MAX_ROUNDS);
+        return Ok(hearth_goal::DEFAULT_MAX_ROUNDS);
     }
     match raw.trim().parse::<u32>() {
         Ok(0) => Err("--max-rounds must be at least 1: a goal with no rounds can never run".into()),
@@ -587,7 +590,7 @@ mod tests {
 
     fn temp_dir(label: &str) -> PathBuf {
         let path = std::env::temp_dir()
-            .join("forge-goal-cmd-test")
+            .join("hearth-goal-cmd-test")
             .join(format!("{}-{}", label, std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).expect("create dir");
@@ -662,7 +665,7 @@ mod tests {
     fn the_round_cap_is_a_positive_integer() {
         assert_eq!(
             parse_rounds("").expect("default"),
-            forge_goal::DEFAULT_MAX_ROUNDS
+            hearth_goal::DEFAULT_MAX_ROUNDS
         );
         assert_eq!(parse_rounds(" 4 ").expect("parses"), 4);
         assert!(parse_rounds("0").is_err());
@@ -675,21 +678,21 @@ mod tests {
         assert_eq!(code, EXIT_USAGE);
         assert!(stdout.is_empty());
         assert!(stderr.contains("unknown command"), "{stderr}");
-        assert!(stderr.contains("usage: forge goal"), "{stderr}");
+        assert!(stderr.contains("usage: hearth goal"), "{stderr}");
     }
 
     #[test]
     fn help_goes_to_stdout_and_exits_zero() {
         let (code, stdout, _stderr) = run_with(&["--help"]);
         assert_eq!(code, EXIT_OK);
-        assert!(stdout.contains("usage: forge goal"));
+        assert!(stdout.contains("usage: hearth goal"));
     }
 
     /// A tool result carrying a goal verdict, the way the agent writes one.
-    fn tool_result(seq: u64, meta: serde_json::Value) -> forge_core::Event {
-        let mut event = forge_core::Event::new(
+    fn tool_result(seq: u64, meta: serde_json::Value) -> hearth_core::Event {
+        let mut event = hearth_core::Event::new(
             "s",
-            forge_core::EventType::TOOL_RESULT,
+            hearth_core::EventType::TOOL_RESULT,
             Some(
                 serde_json::json!({"callId": "c1", "tool": "goal_end", "ok": true, "output": "x", "meta": meta}),
             ),
@@ -735,9 +738,9 @@ mod tests {
 
     #[test]
     fn unrelated_results_and_unknown_reasons_are_not_verdicts() {
-        let mut other = forge_core::Event::new(
+        let mut other = hearth_core::Event::new(
             "s",
-            forge_core::EventType::TOOL_RESULT,
+            hearth_core::EventType::TOOL_RESULT,
             Some(serde_json::json!({"callId": "c2", "tool": "fs_read", "ok": true, "output": "x"})),
         );
         other.seq = 1;
@@ -784,7 +787,7 @@ mod tests {
         let events = read_events(&path).expect("events");
         let continued = events
             .iter()
-            .filter(|e| e.typ == forge_core::EventType::GOAL_CONTINUED.as_str())
+            .filter(|e| e.typ == hearth_core::EventType::GOAL_CONTINUED.as_str())
             .count();
         assert_eq!(continued, 1, "a stale entrant must not append");
         let folded = open_goal(&path).expect("read").expect("present");
@@ -812,7 +815,7 @@ mod tests {
         let events = read_events(&path).expect("events");
         let ended: Vec<_> = events
             .iter()
-            .filter(|e| e.typ == forge_core::EventType::GOAL_ENDED.as_str())
+            .filter(|e| e.typ == hearth_core::EventType::GOAL_ENDED.as_str())
             .collect();
         assert_eq!(ended.len(), 1, "pause writes exactly one goal/ended");
         assert_eq!(

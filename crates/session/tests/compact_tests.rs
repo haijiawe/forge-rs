@@ -10,16 +10,16 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use forge_core::event::{Event, EventType};
+use hearth_core::event::{Event, EventType};
 use serde_json::{json, Value};
 
-use forge_session::compact::{
+use hearth_session::compact::{
     compact, compact_log, is_already_compacted, is_empty_summary, is_invalid_log, is_invalid_plan,
     last_compacted_span, open_compaction, plan_compaction, Summarizer, TruncatingSummarizer,
     DEFAULT_KEEP_TURNS, DEFAULT_SUMMARY_BYTES,
 };
-use forge_session::projection::{Projection, MESSAGE_SUMMARY};
-use forge_session::store::{Options, Store};
+use hearth_session::projection::{Projection, MESSAGE_SUMMARY};
+use hearth_session::store::{Options, Store};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -29,7 +29,7 @@ impl TempDir {
     fn new(name: &str) -> TempDir {
         let id = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "forge-compact-{}-{}-{}",
+            "hearth-compact-{}-{}-{}",
             name,
             std::process::id(),
             id
@@ -350,7 +350,7 @@ fn compact_validates_the_plan_before_writing() {
     let plan = plan_compaction(&events, 0).expect("plan");
     let before = read_all(&store);
 
-    let zero_from = forge_session::CompactPlan {
+    let zero_from = hearth_session::CompactPlan {
         from: 0,
         to: plan.to,
         reason: String::new(),
@@ -359,7 +359,7 @@ fn compact_validates_the_plan_before_writing() {
         &compact(&store, &zero_from, "text", None).expect_err("from=0")
     ));
 
-    let inverted = forge_session::CompactPlan {
+    let inverted = hearth_session::CompactPlan {
         from: plan.to,
         to: plan.from,
         reason: String::new(),
@@ -368,7 +368,7 @@ fn compact_validates_the_plan_before_writing() {
         &compact(&store, &inverted, "text", None).expect_err("to<from")
     ));
 
-    let past_end = forge_session::CompactPlan {
+    let past_end = hearth_session::CompactPlan {
         from: 1,
         to: 99_999,
         reason: String::new(),
@@ -377,7 +377,7 @@ fn compact_validates_the_plan_before_writing() {
         &compact(&store, &past_end, "text", None).expect_err("past last seq")
     ));
 
-    let empty_text = forge_session::CompactPlan {
+    let empty_text = hearth_session::CompactPlan {
         from: 1,
         to: plan.to,
         reason: String::new(),
@@ -535,7 +535,7 @@ struct RecordingSummarizer {
 }
 
 impl Summarizer for RecordingSummarizer {
-    fn summarize(&self, events: &[Event]) -> forge_core::Result<String> {
+    fn summarize(&self, events: &[Event]) -> hearth_core::Result<String> {
         let from = events.first().map(|e| e.seq).unwrap_or(0);
         let to = events.last().map(|e| e.seq).unwrap_or(0);
         self.seen.lock().expect("lock").push((from, to));
@@ -568,11 +568,11 @@ fn compact_log_folds_exactly_the_planned_range() {
 /// [`compact_log`] has to read as "someone else already did it".
 struct RacingSummarizer<'a> {
     store: &'a Store,
-    plan: forge_session::CompactPlan,
+    plan: hearth_session::CompactPlan,
 }
 
 impl Summarizer for RacingSummarizer<'_> {
-    fn summarize(&self, _events: &[Event]) -> forge_session::Result<String> {
+    fn summarize(&self, _events: &[Event]) -> hearth_session::Result<String> {
         compact(
             self.store,
             &self.plan,
@@ -677,9 +677,9 @@ fn planning_ten_thousand_events_stays_within_the_budget() {
 struct FailingSummarizer;
 
 impl Summarizer for FailingSummarizer {
-    fn summarize(&self, _events: &[Event]) -> forge_core::Result<String> {
-        Err(forge_core::Error::new(
-            forge_core::ErrorKind::Refused,
+    fn summarize(&self, _events: &[Event]) -> hearth_core::Result<String> {
+        Err(hearth_core::Error::new(
+            hearth_core::ErrorKind::Refused,
             "summary provider is down",
         ))
     }

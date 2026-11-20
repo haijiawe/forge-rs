@@ -191,7 +191,7 @@ jobs:
           key: ${{ runner.os }}-cargo-1.89-${{ hashFiles('**/Cargo.lock') }}
 
       - name: cargo test (sandbox-exec evidence)
-        run: cargo test -p forge-sandbox --test macos --lib
+        run: cargo test -p hearth-sandbox --test macos --lib
 
   lint:
     name: lint (stable)

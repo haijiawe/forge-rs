@@ -417,7 +417,7 @@ mod tests {
 
     #[test]
     fn a_manifest_on_disk_that_is_not_json_is_refused_by_path() {
-        let dir = std::env::temp_dir().join("forge-plugin-manifest-test");
+        let dir = std::env::temp_dir().join("hearth-plugin-manifest-test");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("mkdir");
         std::fs::write(dir.join("plugin.json"), b"{ not json").expect("write");

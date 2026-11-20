@@ -28,7 +28,7 @@ impl Default for Options {
 }
 
 pub fn usage() -> String {
-    "usage: forge-bench [flags]\n\
+    "usage: hearth-bench [flags]\n\
        \n\
        Runs six metrics and prints p50/p95, the fastest-phase value and its tolerance.\n\
        \n\

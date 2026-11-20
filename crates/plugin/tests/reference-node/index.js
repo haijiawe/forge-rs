@@ -158,7 +158,7 @@ function handlePromptsGet(id, params) {
     return failRequest(id, INVALID_PARAMS, 'prompts/get needs a prompt name');
   }
   if (params.name === 'greeting') {
-    return reply(id, { text: 'You are talking to the forge reference plugin. Answer in one line.' });
+    return reply(id, { text: 'You are talking to the hearth reference plugin. Answer in one line.' });
   }
   return failRequest(id, INVALID_PARAMS, 'no prompt named ' + JSON.stringify(params.name));
 }

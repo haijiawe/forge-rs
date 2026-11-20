@@ -18,8 +18,8 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use forge_core::Result as CoreResult;
-pub use forge_core::{Error, ErrorKind};
+use hearth_core::Result as CoreResult;
+pub use hearth_core::{Error, ErrorKind};
 
 mod buffer;
 mod cmdline;

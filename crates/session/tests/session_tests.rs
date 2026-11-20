@@ -1,4 +1,4 @@
-//! Integration tests for `forge-session`.
+//! Integration tests for `hearth-session`.
 //!
 //! These tests use the shared oracle under `tests/`: the five event fixtures
 //! and the golden projection. Fixtures are copied to a temporary directory
@@ -11,15 +11,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 
-use forge_core::event::{parse_log, Event, EventType};
-use forge_core::json::canonical;
-use forge_core::ErrorKind;
+use hearth_core::event::{parse_log, Event, EventType};
+use hearth_core::json::canonical;
+use hearth_core::ErrorKind;
 use serde_json::{json, Value};
 
-use forge_session::decision::DecisionWatcher;
-use forge_session::fork::{fork, ForkOptions, ERR_FORK_POINT_MID_TURN};
-use forge_session::projection::{Projection, TURN_ABORTED};
-use forge_session::store::{Options, Store};
+use hearth_session::decision::DecisionWatcher;
+use hearth_session::fork::{fork, ForkOptions, ERR_FORK_POINT_MID_TURN};
+use hearth_session::projection::{Projection, TURN_ABORTED};
+use hearth_session::store::{Options, Store};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -29,7 +29,7 @@ impl TempDir {
     fn new(name: &str) -> TempDir {
         let id = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "forge-session-{}-{}-{}",
+            "hearth-session-{}-{}-{}",
             name,
             std::process::id(),
             id

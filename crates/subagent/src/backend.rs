@@ -1,14 +1,14 @@
 //! A second place a child can run.
 //!
 //! Until now every child ran inside this process: `Runner` opened a child log,
-//! built a set of tools and drove a fresh `forge_agent::Agent`. That is the
+//! built a set of tools and drove a fresh `hearth_agent::Agent`. That is the
 //! simple case and it stays the default. This module names the *seam* that lets
 //! a child run somewhere else — another process on this machine, started by us,
 //! speaking one JSON object per line over stdio.
 //!
 //! The rule that keeps this honest: a backend is only worth the abstraction once
 //! there is a second real implementation. The one here spawns *our own binary*
-//! in worker mode (`forge subagent worker`), which is a genuine second process
+//! in worker mode (`hearth subagent worker`), which is a genuine second process
 //! with its own memory, its own crash domain and its own environment. It is not
 //! a DSH or DS server; nothing here talks to one.
 //!
@@ -18,7 +18,7 @@
 
 use crate::child::ChildRun;
 use crate::descriptor::Mode;
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
@@ -397,7 +397,7 @@ mod tests {
         // Write the body to a temp file and `type` it: ignores stdin, prints one
         // line, exits — a minimal stand-in for a worker's response.
         let mut path = std::env::temp_dir();
-        path.push(format!("forge-backend-test-{}.json", std::process::id()));
+        path.push(format!("hearth-backend-test-{}.json", std::process::id()));
         std::fs::write(&path, body).unwrap();
         program.args(["/c", "type"]).arg(&path);
     }
@@ -406,7 +406,7 @@ mod tests {
     fn canned(program: &mut Command, body: &str) {
         use std::io::Write as _;
         let mut path = std::env::temp_dir();
-        path.push(format!("forge-backend-test-{}.json", std::process::id()));
+        path.push(format!("hearth-backend-test-{}.json", std::process::id()));
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(body.as_bytes()).unwrap();
         drop(f);

@@ -11,7 +11,7 @@
 // log to marked row is exactly what it has to prove.
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
-import type { ForgeApi } from '../api/client';
+import type { HearthApi } from '../api/client';
 import type { EventsPage, SessionDetail } from '../api/types';
 import type { EventEnvelope } from '../api/events';
 import { SessionStore } from './sessionStore';
@@ -36,8 +36,8 @@ const emptyPage: EventsPage = {
   nextAfter: 0,
 };
 
-function fakeApi(overrides: Partial<ForgeApi> = {}): ForgeApi {
-  const base: ForgeApi = {
+function fakeApi(overrides: Partial<HearthApi> = {}): HearthApi {
+  const base: HearthApi = {
     listSessions: vi.fn(async () => ({ sessions: [] })),
     getSession: vi.fn(async () => sessionDetail),
     events: vi.fn(async () => emptyPage),
@@ -64,7 +64,7 @@ function fakeApi(overrides: Partial<ForgeApi> = {}): ForgeApi {
   return { ...base, ...overrides };
 }
 
-function storeFor(api: ForgeApi): SessionStore {
+function storeFor(api: HearthApi): SessionStore {
   return new SessionStore({
     api,
     sessionId: 'sess-1',
@@ -204,7 +204,7 @@ describe('SessionStore flush with compressed blocks', () => {
     return { sessionId: 'sess-1', from: 1, to: lastSeq, lastSeq, events, nextAfter: lastSeq };
   }
 
-  function storeThatFlushes(api: ForgeApi): SessionStore {
+  function storeThatFlushes(api: HearthApi): SessionStore {
     return new SessionStore({
       api,
       sessionId: 'sess-1',

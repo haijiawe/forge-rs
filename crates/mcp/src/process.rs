@@ -1,4 +1,4 @@
-//! The process door for stdio servers. No forge-internal process helper: the
+//! The process door for stdio servers. No hearth-internal process helper: the
 //! MCP contract forbids importing them, and the shape here is streaming rather
 //! than one-command-in/one-result-out.
 

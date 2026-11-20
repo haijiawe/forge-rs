@@ -12,8 +12,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::thread;
 
-use forge_core::{Error, ErrorKind, Event, Result};
-use forge_session::Projection;
+use hearth_core::{Error, ErrorKind, Event, Result};
+use hearth_session::Projection;
 use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Transaction};
 use serde_json::Value as JsonValue;
@@ -124,7 +124,7 @@ fn good_prefix(text: &str) -> Result<Vec<Event>> {
     } else {
         text
     };
-    match forge_core::event::parse_log(content) {
+    match hearth_core::event::parse_log(content) {
         Ok(events) => Ok(events),
         Err(error) if error.kind() == ErrorKind::UnsupportedVersion => Err(error),
         Err(error) => {
@@ -133,7 +133,7 @@ fn good_prefix(text: &str) -> Result<Vec<Event>> {
             };
             let lines: Vec<&str> = content.lines().collect();
             let keep = line.saturating_sub(1).min(lines.len());
-            forge_core::event::parse_log(&lines[..keep].join("\n"))
+            hearth_core::event::parse_log(&lines[..keep].join("\n"))
         }
     }
 }
@@ -193,9 +193,9 @@ impl FoldState {
             "session/end" => {
                 let reason = field_string(payload, &["reason"]);
                 self.status = if is_abort_like(&reason) {
-                    forge_protocol::status::ABORTED
+                    hearth_protocol::status::ABORTED
                 } else {
-                    forge_protocol::status::ENDED
+                    hearth_protocol::status::ENDED
                 }
                 .to_owned();
             }
@@ -249,23 +249,23 @@ impl FoldState {
         });
     }
 
-    fn final_status(&self, snapshot: &forge_session::Snapshot) -> String {
+    fn final_status(&self, snapshot: &hearth_session::Snapshot) -> String {
         if snapshot.ended && is_abort_like(&snapshot.end_reason) {
-            return forge_protocol::status::ABORTED.to_owned();
+            return hearth_protocol::status::ABORTED.to_owned();
         }
-        if snapshot.ended || self.status == forge_protocol::status::ENDED {
-            return forge_protocol::status::ENDED.to_owned();
+        if snapshot.ended || self.status == hearth_protocol::status::ENDED {
+            return hearth_protocol::status::ENDED.to_owned();
         }
-        if self.status == forge_protocol::status::ABORTED {
-            return forge_protocol::status::ABORTED.to_owned();
+        if self.status == hearth_protocol::status::ABORTED {
+            return hearth_protocol::status::ABORTED.to_owned();
         }
         if !self.pending.is_empty() {
-            return forge_protocol::status::AWAITING_APPROVAL.to_owned();
+            return hearth_protocol::status::AWAITING_APPROVAL.to_owned();
         }
         if self.turn_open {
-            return forge_protocol::status::RUNNING.to_owned();
+            return hearth_protocol::status::RUNNING.to_owned();
         }
-        forge_protocol::status::IDLE.to_owned()
+        hearth_protocol::status::IDLE.to_owned()
     }
 }
 
@@ -342,7 +342,7 @@ fn scan_session_log(id: &str, path: &Path) -> std::result::Result<Option<Scanned
     // Put's normalization rules also apply to Rebuild, so rows are identical
     // whichever path produced them.
     if session.status.is_empty() {
-        session.status = forge_protocol::status::IDLE.to_owned();
+        session.status = hearth_protocol::status::IDLE.to_owned();
     }
     for message in &mut state.messages {
         message.session_id = id.to_owned();

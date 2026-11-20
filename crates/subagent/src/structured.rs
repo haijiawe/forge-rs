@@ -20,8 +20,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use forge_llm::ToolSpec;
-use forge_tool::{Call, Result as ToolResult, Tool, ERR_BAD_ARGS};
+use hearth_llm::ToolSpec;
+use hearth_tool::{Call, Result as ToolResult, Tool, ERR_BAD_ARGS};
 use serde_json::{json, Value};
 
 /// Wire name of the terminal tool.
@@ -323,8 +323,8 @@ mod tests {
 
     // --- terminal tool + guard -------------------------------------------
 
-    use forge_llm::ToolSpec;
-    use forge_tool::{Call, Result as ToolResult, Tool};
+    use hearth_llm::ToolSpec;
+    use hearth_tool::{Call, Result as ToolResult, Tool};
 
     struct EchoTool;
 

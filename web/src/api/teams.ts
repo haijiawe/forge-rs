@@ -14,7 +14,7 @@
 //     transcript had no `worker/end` line — the worker was still running, or was
 //     killed, when the server read the board. That is not failure, and it is not
 //     success. `workerState()` is the one place that three-way split is decided.
-//   * `parallel` is `null` because `forge team run` resolves it and persists it
+//   * `parallel` is `null` because `hearth team run` resolves it and persists it
 //     nowhere. A number would be an invention, so the UI shows "unknown".
 
 /** The three states a worker can be in, as the transcript can prove them. */

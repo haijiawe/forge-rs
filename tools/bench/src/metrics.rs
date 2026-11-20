@@ -1,5 +1,5 @@
-//! The six measurements. All session work goes through forge-core and
-//! forge-session; everything else is std plus the workspace's JSON door.
+//! The six measurements. All session work goes through hearth-core and
+//! hearth-session; everything else is std plus the workspace's JSON door.
 //!
 //! A "phase" is one timing sample. `value` is the fastest phase, and
 //! `p50`/`p95` are computed over all phases (see `stats`).
@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use forge_core::{Error, ErrorKind, Event, EventType};
-use forge_session::{Options, Projection, Store};
+use hearth_core::{Error, ErrorKind, Event, EventType};
+use hearth_session::{Options, Projection, Store};
 use serde_json::json;
 
 use crate::baseline::MetricRow;
@@ -48,43 +48,43 @@ fn temp_dir(tag: &str) -> Result<PathBuf, String> {
         .unwrap_or_default()
         .as_nanos();
     let dir =
-        std::env::temp_dir().join(format!("forge-bench-{tag}-{}-{nanos}", std::process::id()));
+        std::env::temp_dir().join(format!("hearth-bench-{tag}-{}-{nanos}", std::process::id()));
     fs::create_dir_all(&dir)
         .map_err(|e| format!("bench: cannot create temp dir {}: {e}", dir.display()))?;
     Ok(dir)
 }
 
-/// Build `forge-cli` and return the exact executable path cargo reports.
-/// Guessing `target/release/forge` would break under a custom CARGO_TARGET_DIR
+/// Build `hearth-cli` and return the exact executable path cargo reports.
+/// Guessing `target/release/hearth` would break under a custom CARGO_TARGET_DIR
 /// (this repository uses an ASCII target dir outside the source tree).
-pub fn find_forge_binary(root: &Path) -> Result<PathBuf, String> {
+pub fn find_hearth_binary(root: &Path) -> Result<PathBuf, String> {
     let mut command = Command::new("cargo");
     command
         .args([
             "build",
             "--release",
             "-p",
-            "forge-cli",
+            "hearth-cli",
             "--message-format=json",
         ])
         .current_dir(root);
     // Network policy belongs to the caller, not to the harness: a hosted
     // runner starts with an empty registry and must be allowed to download,
-    // while the offline development box sets `FORGE_BENCH_OFFLINE=1`. Passing
+    // while the offline development box sets `HEARTH_BENCH_OFFLINE=1`. Passing
     // `--offline` unconditionally is how the first bench workflow died with
     // "failed to download aho-corasick ... --offline was specified".
     if matches!(
-        std::env::var("FORGE_BENCH_OFFLINE").as_deref(),
+        std::env::var("HEARTH_BENCH_OFFLINE").as_deref(),
         Ok("1") | Ok("true")
     ) {
         command.arg("--offline");
     }
     let output = command
         .output()
-        .map_err(|e| format!("bench: cannot run cargo build forge-cli: {e}"))?;
+        .map_err(|e| format!("bench: cannot run cargo build hearth-cli: {e}"))?;
     if !output.status.success() {
         return Err(format!(
-            "bench: cargo build forge-cli failed: {}",
+            "bench: cargo build hearth-cli failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
@@ -101,10 +101,10 @@ pub fn find_forge_binary(root: &Path) -> Result<PathBuf, String> {
             }
         }
     }
-    Err("bench: cargo build did not report a forge executable".to_string())
+    Err("bench: cargo build did not report a hearth executable".to_string())
 }
 
-/// 20 cold `forge --version` launches, one per phase. Unit: ms (lower better).
+/// 20 cold `hearth --version` launches, one per phase. Unit: ms (lower better).
 pub fn version_startup(binary: &Path) -> Result<Stat, String> {
     let mut samples = Vec::with_capacity(VERSION_RUNS);
     for _ in 0..VERSION_RUNS {
@@ -114,9 +114,9 @@ pub fn version_startup(binary: &Path) -> Result<Stat, String> {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .output()
-                .map_err(|e| format!("bench: launch forge --version: {e}"))?;
+                .map_err(|e| format!("bench: launch hearth --version: {e}"))?;
             if !output.status.success() {
-                return Err(format!("bench: forge --version exited {}", output.status));
+                return Err(format!("bench: hearth --version exited {}", output.status));
             }
             Ok(())
         })?;
@@ -220,7 +220,7 @@ fn read_all(path: &Path) -> Result<Vec<Event>, String> {
     Ok(events)
 }
 
-/// 10,000 events read back through forge-session in phase. Unit: events/sec.
+/// 10,000 events read back through hearth-session in phase. Unit: events/sec.
 pub fn session_replay_10k() -> Result<Stat, String> {
     let dir = temp_dir("replay")?;
     let path = dir.join("log.jsonl");
@@ -353,9 +353,9 @@ pub fn run_all(root: &Path) -> Result<Vec<MetricRow>, String> {
     // The first `version_startup` sample used to pay for `cargo build`, and on
     // a hosted runner the build costs far more than the 60 s budget below: the
     // first recorded baseline held a single metric, and the second run spent a
-    // further ~60 s calling `find_forge_binary` again *inside* the clock. Build
+    // further ~60 s calling `find_hearth_binary` again *inside* the clock. Build
     // once here, reuse the path, then start the clock.
-    let binary = find_forge_binary(root)?;
+    let binary = find_hearth_binary(root)?;
     let started = Instant::now();
     let mut rows = Vec::with_capacity(6);
 

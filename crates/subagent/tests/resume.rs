@@ -8,9 +8,9 @@ mod common;
 use std::sync::Arc;
 
 use common::*;
-use forge_agent::Cancel;
-use forge_subagent::{CallContext, Delivery, Mode, Options, Runner};
-use forge_tool::Call;
+use hearth_agent::Cancel;
+use hearth_subagent::{CallContext, Delivery, Mode, Options, Runner};
+use hearth_tool::Call;
 
 const FIXED_NOW_MS: i64 = 1_777_863_721_000;
 
@@ -34,7 +34,7 @@ fn ctx(dir: &TempDir) -> CallContext {
     }
 }
 
-fn child_events(dir: &TempDir, id: &str) -> Vec<forge_core::Event> {
+fn child_events(dir: &TempDir, id: &str) -> Vec<hearth_core::Event> {
     read_events_at(&dir.sessions().join(format!("{id}.jsonl")))
 }
 
@@ -176,7 +176,7 @@ fn resuming_an_unknown_child_is_a_reported_failure_not_a_panic() {
     // admitted and then failed while running.
     assert_eq!(
         res.code,
-        forge_subagent::error_code::Code::NotResumable.as_str()
+        hearth_subagent::error_code::Code::NotResumable.as_str()
     );
     assert!(
         res.output.contains("no such child session"),
@@ -217,7 +217,7 @@ fn a_child_remembers_its_depth_across_a_cold_resume() {
     let events = child_events(&dir, &first.id);
     let head = events
         .iter()
-        .find(|e| e.typ == forge_core::EventType::SESSION_START.as_str())
+        .find(|e| e.typ == hearth_core::EventType::SESSION_START.as_str())
         .and_then(|e| e.payload.clone())
         .expect("session/start payload");
     assert_eq!(head["delegationDepth"], serde_json::json!(1));
@@ -280,7 +280,7 @@ fn a_spawned_child_leaves_its_settlement_in_the_parent_queue() {
         };
 
         let provider = std::sync::Arc::new(ScriptedProvider::new(vec![Response::Deltas(vec![
-            forge_llm::Delta {
+            hearth_llm::Delta {
                 text: "the child is done".into(),
                 stop_reason: Some("stop".into()),
                 ..Default::default()
@@ -305,8 +305,9 @@ fn a_spawned_child_leaves_its_settlement_in_the_parent_queue() {
         // a test that hangs forever is worse than one that fails.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
-            let store = forge_session::Store::open(&parent_log, forge_session::Options::default())
-                .expect("parent store");
+            let store =
+                hearth_session::Store::open(&parent_log, hearth_session::Options::default())
+                    .expect("parent store");
             let mut events = Vec::new();
             store
                 .read_from(0, |ev| {
@@ -314,7 +315,7 @@ fn a_spawned_child_leaves_its_settlement_in_the_parent_queue() {
                     Ok(())
                 })
                 .expect("read parent log");
-            let inbox = forge_agent::inbox::fold(&events);
+            let inbox = hearth_agent::inbox::fold(&events);
             if let Some(msg) = inbox.next_turn.first() {
                 assert!(
                     msg.text.contains("the child is done"),
@@ -371,19 +372,19 @@ fn a_background_delegation_answers_later_through_the_queue() {
     std::fs::create_dir_all(dir.sessions()).expect("sessions dir");
     let parent_log = dir.sessions().join("parent.jsonl");
     {
-        let store = forge_session::Store::open(&parent_log, forge_session::Options::default())
+        let store = hearth_session::Store::open(&parent_log, hearth_session::Options::default())
             .expect("parent store");
         store
-            .append(&forge_core::Event::new(
+            .append(&hearth_core::Event::new(
                 "parent",
-                forge_core::EventType::SESSION_START,
+                hearth_core::EventType::SESSION_START,
                 Some(serde_json::json!({"workspace": "w", "model": "test-model", "startedBy": "cli"})),
             ))
             .expect("append");
     }
 
     let provider = Arc::new(ScriptedProvider::new(vec![Response::Deltas(vec![
-        forge_llm::Delta {
+        hearth_llm::Delta {
             text: "background answer".into(),
             stop_reason: Some("stop".into()),
             ..Default::default()
@@ -437,7 +438,7 @@ fn a_background_delegation_answers_later_through_the_queue() {
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
-        let store = forge_session::Store::open(&parent_log, forge_session::Options::default())
+        let store = hearth_session::Store::open(&parent_log, hearth_session::Options::default())
             .expect("parent store");
         let mut events = Vec::new();
         store
@@ -446,7 +447,7 @@ fn a_background_delegation_answers_later_through_the_queue() {
                 Ok(())
             })
             .expect("read");
-        let inbox = forge_agent::inbox::fold(&events);
+        let inbox = hearth_agent::inbox::fold(&events);
         if let Some(msg) = inbox.next_turn.first() {
             assert!(
                 msg.text.contains("background answer"),

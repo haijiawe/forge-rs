@@ -10,19 +10,19 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use forge_core::event::parse_log;
-use forge_core::json::canonical;
-use forge_core::{Event, EventType};
-use forge_import::error::{
+use hearth_core::event::parse_log;
+use hearth_core::json::canonical;
+use hearth_core::{Event, EventType};
+use hearth_import::error::{
     is_bad_header, is_bad_log, is_compressed, is_exists, is_no_dir, is_no_session, is_plan_stale,
     is_unsupported_version, ErrCompressed, ErrExists, ErrNoDir, ERR_COMPRESSED, ERR_EXISTS,
     ERR_NO_DIR,
 };
-use forge_import::{detect, make_plan, write, Source};
-use forge_session::projection::{
+use hearth_import::{detect, make_plan, write, Source};
+use hearth_session::projection::{
     CALL_ERROR, CALL_OK, MESSAGE_ASSISTANT, MESSAGE_USER, TURN_COMPLETE,
 };
-use forge_session::Projection;
+use hearth_session::Projection;
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -38,7 +38,7 @@ impl Scratch {
             .unwrap_or_default()
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "forge-import-{tag}-{}-{nanos}-{n}",
+            "hearth-import-{tag}-{}-{nanos}-{n}",
             std::process::id()
         ));
         fs::create_dir_all(&path).expect("create scratch dir");
@@ -209,12 +209,12 @@ fn tree_fingerprint(dir: &Path) -> BTreeMap<PathBuf, (u64, u128, bool, Vec<u8>)>
 #[test]
 fn detect_reports_the_selected_generation() {
     let cases = [
-        ("v0-text", "forge-session-v0"),
-        ("v0-tool", "forge-session-v0"),
-        ("v4-tool", "forge-session-v4"),
-        ("v4-approval", "forge-session-v4"),
-        ("v4-compaction", "forge-session-v4"),
-        ("multi-gen", "forge-session-v4"),
+        ("v0-text", "hearth-session-v0"),
+        ("v0-tool", "hearth-session-v0"),
+        ("v4-tool", "hearth-session-v4"),
+        ("v4-approval", "hearth-session-v4"),
+        ("v4-compaction", "hearth-session-v4"),
+        ("multi-gen", "hearth-session-v4"),
     ];
     for (name, format) in cases {
         let dir = fixture(name);
@@ -255,7 +255,7 @@ fn detect_finds_session_under_the_production_layout() {
         &dir.join("session.v4.jsonl"),
     );
     let src = detect(root.path()).expect("detect nested session");
-    assert_eq!(src.format, "forge-session-v4");
+    assert_eq!(src.format, "hearth-session-v4");
     assert_eq!(src.sessions, 1);
     assert!(src.events > 0);
 }
@@ -263,7 +263,7 @@ fn detect_finds_session_under_the_production_layout() {
 #[test]
 fn detect_prefers_the_newest_generation_and_says_so() {
     let src = detect(&fixture("multi-gen")).expect("detect multi-gen");
-    assert_eq!(src.format, "forge-session-v4");
+    assert_eq!(src.format, "hearth-session-v4");
     assert!(
         has_warning(&src.warnings, "committed generations"),
         "{:?}",
@@ -317,7 +317,7 @@ fn detect_errors() {
     let message = err.message();
     assert_eq!(message, format!("{}: {}", ERR_NO_DIR, missing.display()));
     assert!(
-        !message.contains("forge_v2") && !message.contains("internal::import"),
+        !message.contains("hearth_v2") && !message.contains("internal::import"),
         "error leaked internal package names: {message}"
     );
     // sentinel aliases required by the contract

@@ -130,7 +130,7 @@ fn parse_manifest(text: &str) -> Result<(String, Vec<Dependency>), String> {
                 if dependency_key.is_empty() {
                     continue;
                 }
-                // `core = { package = "forge-core", path = "../core" }`
+                // `core = { package = "hearth-core", path = "../core" }`
                 // renames an internal crate; the architecture cares about the
                 // real crate name, not the local alias.
                 let real_name = inline_package_name(value).unwrap_or(dependency_key);
@@ -240,22 +240,22 @@ mod tests {
     fn reads_package_name_and_dependencies() {
         let (name, deps) = parse_manifest(
             "[package]\n\
-             name = \"forge-server\"\n\
+             name = \"hearth-server\"\n\
              \n\
              [dependencies]\n\
-             forge-core = { path = \"../core\" }\n\
+             hearth-core = { path = \"../core\" }\n\
              serde.workspace = true\n\
              \n\
              [dev-dependencies]\n\
-             forge-core = { path = \"../core\" }\n",
+             hearth-core = { path = \"../core\" }\n",
         )
         .expect("valid manifest");
-        assert_eq!(name, "forge-server");
+        assert_eq!(name, "hearth-server");
         assert_eq!(
             deps,
             vec![
                 Dependency {
-                    name: "forge-core".to_string(),
+                    name: "hearth-core".to_string(),
                     line: 5
                 },
                 Dependency {
@@ -269,9 +269,9 @@ mod tests {
     #[test]
     fn follows_a_renamed_package() {
         let (_, deps) = parse_manifest(
-            "[package]\nname = \"forge-cli\"\n\n[dependencies]\ncore = { package = \"forge-core\", path = \"../core\" }\n",
+            "[package]\nname = \"hearth-cli\"\n\n[dependencies]\ncore = { package = \"hearth-core\", path = \"../core\" }\n",
         )
         .expect("valid manifest");
-        assert_eq!(deps[0].name, "forge-core");
+        assert_eq!(deps[0].name, "hearth-core");
     }
 }

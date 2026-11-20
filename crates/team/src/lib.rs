@@ -1,6 +1,6 @@
 //! Teams: several workers at once, one board they share, one mailbox each.
 //!
-//! This crate is what a single `subagent` call cannot be. `forge-subagent` is
+//! This crate is what a single `subagent` call cannot be. `hearth-subagent` is
 //! serial by design — capacity one, one child at a time — because its job is
 //! "delegate one self-contained task". A team is a different shape of work:
 //! several workers run at the same time, they must not fight over the same
@@ -174,7 +174,7 @@ pub(crate) fn temp_sibling(path: &std::path::Path) -> std::path::PathBuf {
 /// targets, so a reader sees either the old bytes or the new ones. Truncating
 /// in place would let a crash leave a half-written file, which for a board
 /// means a half-written claim.
-pub(crate) fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> forge_core::Result<()> {
+pub(crate) fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> hearth_core::Result<()> {
     use std::io::Write;
 
     let temp = temp_sibling(path);

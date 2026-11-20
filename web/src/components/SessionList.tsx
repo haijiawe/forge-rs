@@ -1,14 +1,14 @@
 // Session list screen: every session the server knows about, with the four
 // fields that tell you whether it is worth opening.
 import { useCallback, useEffect, useState } from 'react';
-import type { ForgeApi } from '../api/client';
+import type { HearthApi } from '../api/client';
 import { ApiError } from '../api/client';
 import type { SessionSummary } from '../api/types';
 import { Presents } from './Presents';
 import { TeamBoards } from './TeamBoards';
 
 export interface SessionListProps {
-  api: ForgeApi;
+  api: HearthApi;
   onOpen: (id: string) => void;
 }
 
@@ -123,7 +123,7 @@ export function SessionList({ api, onOpen }: SessionListProps) {
       )}
 
       {/* Team boards live here rather than on a session screen because a board
-          is not part of any one conversation: `forge team run` writes it under
+          is not part of any one conversation: `hearth team run` writes it under
           the data dir, and it outlives every session that spawned a worker. */}
       <TeamBoards load={() => api.teams()} />
 

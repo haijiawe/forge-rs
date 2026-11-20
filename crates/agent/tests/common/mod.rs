@@ -11,12 +11,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use forge_core::{Error, ErrorKind, Event, Result};
-use forge_llm::{Delta, Provider, Request, Stream, ToolCall, ToolSpec};
-use forge_session::{Options as StoreOptions, Store};
+use hearth_core::{Error, ErrorKind, Event, Result};
+use hearth_llm::{Delta, Provider, Request, Stream, ToolCall, ToolSpec};
+use hearth_session::{Options as StoreOptions, Store};
 use serde_json::json;
 
-use forge_agent::{cancelled_error, provider_error, Cancel, ToolResult, ToolRunner};
+use hearth_agent::{cancelled_error, provider_error, Cancel, ToolResult, ToolRunner};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -25,7 +25,7 @@ pub fn temp_log(name: &str) -> PathBuf {
     let n = COUNTER.fetch_add(1, Ordering::SeqCst);
     let mut p = std::env::temp_dir();
     p.push(format!(
-        "forge-agent-{}-{}-{}.jsonl",
+        "hearth-agent-{}-{}-{}.jsonl",
         name,
         std::process::id(),
         n
@@ -205,7 +205,7 @@ pub fn canonical_stable(ev: &Event) -> String {
         obj.remove("ts");
         obj.remove("id");
     }
-    forge_core::canonical(&v).expect("canonical event")
+    hearth_core::canonical(&v).expect("canonical event")
 }
 
 /// Read all events from a store.

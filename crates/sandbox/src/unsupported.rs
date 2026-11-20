@@ -5,7 +5,7 @@
 //! meant to prevent. `new` therefore always fails, and `workspace-write` cannot
 //! be selected just because the process-count cap on another platform exists.
 
-use forge_core::{Error, ErrorKind, Result as CoreResult};
+use hearth_core::{Error, ErrorKind, Result as CoreResult};
 
 use crate::{Platform, Spec, Support, ERR_UNAVAILABLE};
 

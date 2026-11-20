@@ -1,4 +1,4 @@
-//! `forge index`: build, inspect and query the SQLite session index.
+//! `hearth index`: build, inspect and query the SQLite session index.
 //!
 //! The index (`index.db`, sitting beside `sessions/`) is derived data: every row
 //! is a projection of `<dataDir>/sessions/*.jsonl`, so deleting it costs one
@@ -11,9 +11,9 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use forge_config::Config;
-use forge_core::{Error, ErrorKind};
-use forge_store::{Hit, Query, Session, Stats, Store};
+use hearth_config::Config;
+use hearth_core::{Error, ErrorKind};
+use hearth_store::{Hit, Query, Session, Stats, Store};
 
 use crate::{one_line, reorder_flags, write_json};
 
@@ -33,7 +33,7 @@ const SESSION_PAGE: i32 = 20;
 /// `--search` result bound (the store defaults to 50 and caps at 200).
 const SEARCH_LIMIT: i32 = 50;
 
-pub const USAGE: &str = "usage: forge index [flags]
+pub const USAGE: &str = "usage: hearth index [flags]
 
 Read or rebuild the SQLite session index (index.db) that sits next to the session
 logs. The index is derived data: deleting it loses nothing, and --rebuild
@@ -58,7 +58,7 @@ exit codes: 0 ok, 1 failure, 2 usage
 ";
 
 /// The flags that consume the next argument, so a flag written after a value is
-/// never mistaken for one. `forge index` takes no positionals, but a caller can
+/// never mistaken for one. `hearth index` takes no positionals, but a caller can
 /// still write `--db DIR --search x`, and the same reordering applies.
 const VALUE_FLAGS: &[&str] = &["search", "db"];
 
@@ -88,7 +88,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     let (db_path, data_dir) = match resolve_paths(&opt.db) {
         Ok(pair) => pair,
         Err(err) => {
-            let _ = writeln!(stderr, "forge index: {}", one_line(&err.to_string()));
+            let _ = writeln!(stderr, "hearth index: {}", one_line(&err.to_string()));
             return EXIT_FAILURE;
         }
     };
@@ -99,19 +99,19 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     if !opt.rebuild && !db_path.exists() {
         let _ = writeln!(
             stderr,
-            "forge index: no index at {}; run 'forge index --rebuild' to build it",
+            "hearth index: no index at {}; run 'hearth index --rebuild' to build it",
             db_path.display()
         );
         return EXIT_FAILURE;
     }
 
-    let store = match Store::open(forge_store::Options {
+    let store = match Store::open(hearth_store::Options {
         path: db_path.clone(),
         now: None,
     }) {
         Ok(store) => store,
         Err(err) => {
-            let _ = writeln!(stderr, "forge index: {}", one_line(&err.to_string()));
+            let _ = writeln!(stderr, "hearth index: {}", one_line(&err.to_string()));
             return EXIT_FAILURE;
         }
     };
@@ -120,7 +120,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         if let Err(err) = store.rebuild(&data_dir) {
             let _ = writeln!(
                 stderr,
-                "forge index: rebuild {}: {}",
+                "hearth index: rebuild {}: {}",
                 db_path.display(),
                 one_line(&err.to_string())
             );
@@ -136,7 +136,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         Err(err) => {
             let _ = writeln!(
                 stderr,
-                "forge index: stats {}: {}",
+                "hearth index: stats {}: {}",
                 db_path.display(),
                 one_line(&err.to_string())
             );
@@ -157,7 +157,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
             Err(err) => {
                 let _ = writeln!(
                     stderr,
-                    "forge index: search {}: {}",
+                    "hearth index: search {}: {}",
                     db_path.display(),
                     one_line(&err.to_string())
                 );
@@ -197,7 +197,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         Err(err) => {
             let _ = writeln!(
                 stderr,
-                "forge index: list {}: {}",
+                "hearth index: list {}: {}",
                 db_path.display(),
                 one_line(&err.to_string())
             );
@@ -262,7 +262,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> Result<Options, i32> {
                         }
                         None => {
                             let _ =
-                                writeln!(stderr, "forge index: {name} needs a value\n\n{USAGE}");
+                                writeln!(stderr, "hearth index: {name} needs a value\n\n{USAGE}");
                             return Err(EXIT_USAGE);
                         }
                     },
@@ -275,7 +275,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> Result<Options, i32> {
                 }
             }
             other => {
-                let _ = writeln!(stderr, "forge index: unknown flag {other:?}\n\n{USAGE}");
+                let _ = writeln!(stderr, "hearth index: unknown flag {other:?}\n\n{USAGE}");
                 return Err(EXIT_USAGE);
             }
         }
@@ -284,14 +284,14 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> Result<Options, i32> {
     if let Some(first) = rest.first() {
         let _ = writeln!(
             stderr,
-            "forge index: unexpected positional argument {first:?}\n\n{USAGE}"
+            "hearth index: unexpected positional argument {first:?}\n\n{USAGE}"
         );
         return Err(EXIT_USAGE);
     }
     if opt.stats && opt.search_set {
         let _ = writeln!(
             stderr,
-            "forge index: --stats and --search are mutually exclusive\n\n{USAGE}"
+            "hearth index: --stats and --search are mutually exclusive\n\n{USAGE}"
         );
         return Err(EXIT_USAGE);
     }
@@ -450,7 +450,7 @@ fn format_time(ms: i64) -> String {
     format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}")
 }
 
-/// `forge index` never needs a config value other than the data directory, and
+/// `hearth index` never needs a config value other than the data directory, and
 /// it must not be stopped by a sandbox typo.
 pub fn data_dir(cfg: &Config) -> Result<PathBuf, Error> {
     if cfg.data_dir.trim().is_empty() {
@@ -519,7 +519,7 @@ mod tests {
 
     #[test]
     fn missing_index_is_a_failure_and_writes_nothing() {
-        let dir = std::env::temp_dir().join(format!("forge-index-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-index-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         let db = dir.join("index.db");
@@ -534,7 +534,7 @@ mod tests {
         assert_eq!(code, EXIT_FAILURE);
         assert!(out.is_empty(), "stdout must stay empty");
         let text = String::from_utf8_lossy(&err).to_string();
-        assert!(text.contains("run 'forge index --rebuild'"), "{text}");
+        assert!(text.contains("run 'hearth index --rebuild'"), "{text}");
         assert!(!db.exists(), "a missing index must not be created");
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -542,7 +542,7 @@ mod tests {
 
     #[test]
     fn rebuild_then_report_and_search() {
-        let dir = std::env::temp_dir().join(format!("forge-index-rb-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-index-rb-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sessions")).expect("temp dir");
         // One tiny log so rebuild has something to index.

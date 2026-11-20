@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use forge_llm::{ContentPart, ToolCall, ToolSpec};
+use hearth_llm::{ContentPart, ToolCall, ToolSpec};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};

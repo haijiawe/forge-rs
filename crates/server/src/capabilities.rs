@@ -1,8 +1,8 @@
 //! What this process can do, as a read-only snapshot for the browser.
 //!
 //! Layer L3. The server is deliberately the wrong place to *discover* these
-//! things: a plugin root needs `forge-plugin`, a roster needs `forge-experts`, a
-//! bundle list needs `forge-market`, and pulling those in would turn the HTTP
+//! things: a plugin root needs `hearth-plugin`, a roster needs `hearth-experts`, a
+//! bundle list needs `hearth-market`, and pulling those in would turn the HTTP
 //! layer into the assembly layer (and would put process-spawning code on the
 //! request path). So the CLI computes the report once at startup, and this crate
 //! only carries and serialises it.

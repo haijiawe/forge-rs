@@ -1,5 +1,5 @@
 [package]
-name = "forge-skill"
+name = "hearth-skill"
 description = "skill discovery and on-demand loading of SKILL.md instructions"
 version.workspace = true
 edition.workspace = true

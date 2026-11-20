@@ -1,6 +1,6 @@
 //! Addressable compression: blocks the model can name, restore and search.
 //!
-//! Compaction already exists in [`forge_session`], and it is one-way: the oldest
+//! Compaction already exists in [`hearth_session`], and it is one-way: the oldest
 //! complete history is replaced by a summary and never comes back. That is the
 //! right shape for "the window is full", and the wrong shape for "I need to stop
 //! paying for these forty messages, but I may need one of them again".

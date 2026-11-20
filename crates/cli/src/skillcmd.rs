@@ -1,6 +1,6 @@
-//! `forge skill`: the roster the scanner already reads, made visible.
+//! `hearth skill`: the roster the scanner already reads, made visible.
 //!
-//! Skills are offered to the model, not to the operator: `forge_skill::scan`
+//! Skills are offered to the model, not to the operator: `hearth_skill::scan`
 //! feeds the `skill` tool, and until now nothing on the command line showed what
 //! that scan found. The result was that a `SKILL.md` with broken frontmatter was
 //! silently absent — the model was offered less than the operator believed — and
@@ -10,17 +10,17 @@
 //! roster on stdout, and the scanner's own diagnostics on stderr, verbatim. The
 //! diagnostics are not paraphrased because they are the only record of *why* a
 //! skill is missing; the strings are the scanner's contract, and this module adds
-//! a `forge skill:` prefix and nothing else.
+//! a `hearth skill:` prefix and nothing else.
 //!
 //! Nothing here writes to disk. An empty or absent root is a successful listing
 //! of nothing, which is why `run` never creates the directory it looked in: a
-//! `forge skill list` that mkdir'd would turn a typo into a permanent home for
+//! `hearth skill list` that mkdir'd would turn a typo into a permanent home for
 //! future confusion.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use forge_skill::{Set as SkillSet, Skill};
+use hearth_skill::{Set as SkillSet, Skill};
 
 use crate::one_line;
 
@@ -33,7 +33,7 @@ const EXIT_USAGE: i32 = 2;
 /// off the line, because the root is the column an operator is looking for.
 const MAX_DESCRIPTION: usize = 64;
 
-pub const USAGE: &str = "usage: forge skill <command> [flags]
+pub const USAGE: &str = "usage: hearth skill <command> [flags]
 
 Show the skills the model was actually offered. The same scanner the `skill` tool
 uses runs here, so a SKILL.md with broken frontmatter is named on stderr instead
@@ -45,7 +45,7 @@ commands:
 
 flags:
   --json               machine-readable output
-  --data-dir <dir>     data directory (default: the forge home's configured dataDir)
+  --data-dir <dir>     data directory (default: the hearth home's configured dataDir)
   --root <dir>         skill root; may be repeated (default: the configured skill
                        roots, then <dataDir>/skills)
   -h, --help           this message
@@ -85,12 +85,12 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     // several roots as a single set, and that is what makes a duplicate name
     // across roots resolvable (the first root wins, the second is reported). Per
     // root scans would each accept the duplicate and print the same skill twice.
-    let set = match forge_skill::scan(&roots) {
+    let set = match hearth_skill::scan(&roots) {
         Ok(set) => set,
         // `scan` only fails on a broken internal invariant, but a CLI that
         // pretended otherwise would report an empty roster as an empty machine.
         Err(err) => {
-            let _ = writeln!(stderr, "forge skill: scan: {err}");
+            let _ = writeln!(stderr, "hearth skill: scan: {err}");
             return EXIT_FAILURE;
         }
     };
@@ -100,7 +100,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         "list" => list(&set, &roots, opt.json, stdout, stderr),
         "show" => show(&set, &reordered, opt.json, stdout, stderr),
         other => {
-            let _ = writeln!(stderr, "forge skill: unknown command {other:?}\n\n{USAGE}");
+            let _ = writeln!(stderr, "hearth skill: unknown command {other:?}\n\n{USAGE}");
             EXIT_USAGE
         }
     }
@@ -113,7 +113,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
 /// any other way.
 fn diagnostics(set: &SkillSet, stderr: &mut dyn Write) {
     for line in set.skipped.iter().chain(set.warnings.iter()) {
-        let _ = writeln!(stderr, "forge skill: {line}");
+        let _ = writeln!(stderr, "hearth skill: {line}");
     }
 }
 
@@ -122,7 +122,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
-        // Positionals belong to the dispatch arm: `forge skill show <name>` passes
+        // Positionals belong to the dispatch arm: `hearth skill show <name>` passes
         // a bare word, and reading it as a flag produced "unknown flag --<name>"
         // for the most ordinary invocation.
         if !arg.starts_with('-') {
@@ -142,7 +142,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
                     match args.get(*index) {
                         Some(value) => Ok(value.clone()),
                         None => {
-                            let _ = writeln!(stderr, "forge skill: --{name} needs a value");
+                            let _ = writeln!(stderr, "hearth skill: --{name} needs a value");
                             Err(EXIT_USAGE)
                         }
                     }
@@ -155,7 +155,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
             "root" => opt.roots.push(take(&mut i)?),
             "" => {}
             other => {
-                let _ = writeln!(stderr, "forge skill: unknown flag --{other}");
+                let _ = writeln!(stderr, "hearth skill: unknown flag --{other}");
                 return Err(EXIT_USAGE);
             }
         }
@@ -165,7 +165,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
 }
 
 /// Explicit `--root`s win; otherwise the config's skill roots, then
-/// `<dataDir>/skills` — the same default the turn uses, so `forge skill list`
+/// `<dataDir>/skills` — the same default the turn uses, so `hearth skill list`
 /// without flags lists exactly what the model was offered.
 fn resolve_roots(opt: &Options) -> Vec<PathBuf> {
     if !opt.roots.is_empty() {
@@ -176,9 +176,9 @@ fn resolve_roots(opt: &Options) -> Vec<PathBuf> {
     } else {
         PathBuf::from(opt.data_dir.trim())
     };
-    let cfg = forge_config::default_path()
+    let cfg = hearth_config::default_path()
         .ok()
-        .and_then(|path| forge_config::Config::load(&path).ok())
+        .and_then(|path| hearth_config::Config::load(&path).ok())
         .unwrap_or_default();
     let configured: Vec<PathBuf> = cfg
         .skill_roots()
@@ -271,7 +271,10 @@ fn list(
         } else {
             format!("{count} entries were skipped")
         };
-        let _ = writeln!(stderr, "forge skill: nothing parsed; {entries} (see above)");
+        let _ = writeln!(
+            stderr,
+            "hearth skill: nothing parsed; {entries} (see above)"
+        );
         return EXIT_FAILURE;
     }
     EXIT_OK
@@ -291,7 +294,7 @@ fn show(
     let Some(skill) = set.skills.iter().find(|skill| skill.name == name) else {
         let _ = writeln!(
             stderr,
-            "forge skill: no skill named {name:?}; known: {}",
+            "hearth skill: no skill named {name:?}; known: {}",
             known(set)
         );
         return EXIT_FAILURE;
@@ -301,7 +304,7 @@ fn show(
         Ok(loaded) => loaded,
         // The message already carries the path, so it is printed as it comes.
         Err(err) => {
-            let _ = writeln!(stderr, "forge skill: {err}");
+            let _ = writeln!(stderr, "hearth skill: {err}");
             return EXIT_FAILURE;
         }
     };
@@ -419,7 +422,7 @@ fn known(set: &SkillSet) -> String {
 }
 
 fn usage(stderr: &mut dyn Write, message: &str) -> i32 {
-    let _ = writeln!(stderr, "forge skill: {message}\n\n{USAGE}");
+    let _ = writeln!(stderr, "hearth skill: {message}\n\n{USAGE}");
     EXIT_USAGE
 }
 
@@ -453,7 +456,7 @@ mod tests {
         fn new(tag: &str) -> Self {
             static NEXT: AtomicUsize = AtomicUsize::new(0);
             let path = std::env::temp_dir().join(format!(
-                "forge-skill-cmd-{tag}-{}-{}",
+                "hearth-skill-cmd-{tag}-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
@@ -504,7 +507,7 @@ mod tests {
     #[test]
     fn an_explicit_root_that_does_not_exist_lists_nothing_and_creates_nothing() {
         let absent = std::env::temp_dir().join(format!(
-            "forge-skill-cmd-absent-{}-{}",
+            "hearth-skill-cmd-absent-{}-{}",
             std::process::id(),
             "root"
         ));
@@ -539,7 +542,7 @@ mod tests {
             root_text(&root.path.join("bad"))
         );
         assert!(err.contains(&expected), "stderr: {err}");
-        assert!(err.starts_with("forge skill: "), "stderr: {err}");
+        assert!(err.starts_with("hearth skill: "), "stderr: {err}");
         assert!(err.contains("nothing parsed"), "stderr: {err}");
     }
 

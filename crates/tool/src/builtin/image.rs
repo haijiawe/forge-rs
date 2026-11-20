@@ -50,8 +50,8 @@ struct ReadImageArgs {
 }
 
 impl Tool for ReadImageTool {
-    fn spec(&self) -> forge_llm::ToolSpec {
-        forge_llm::ToolSpec {
+    fn spec(&self) -> hearth_llm::ToolSpec {
+        hearth_llm::ToolSpec {
             name: "read_image".into(),
             description: format!(
                 "Read an image file from the workspace so you can see it. \
@@ -155,7 +155,7 @@ impl Tool for ReadImageTool {
         .with_meta("imagePath", json!(relative))
         .with_meta("mediaType", json!(media_type))
         .with_meta("bytes", json!(data.len() as u64))
-        .with_parts(vec![forge_llm::ContentPart::image(media_type, data)])
+        .with_parts(vec![hearth_llm::ContentPart::image(media_type, data)])
     }
 }
 
@@ -201,7 +201,7 @@ mod tests {
 
     fn scratch(label: &str) -> std::path::PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("forge-read-image-{}-{label}", std::process::id()));
+            std::env::temp_dir().join(format!("hearth-read-image-{}-{label}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create the scratch directory");
         dir
@@ -225,7 +225,7 @@ mod tests {
         assert_eq!(result.output, "read_image: shot.png (image/png, 8 bytes)");
         assert_eq!(result.parts.len(), 1);
         match &result.parts[0] {
-            forge_llm::ContentPart::Image { media_type, data } => {
+            hearth_llm::ContentPart::Image { media_type, data } => {
                 assert_eq!(media_type, "image/png");
                 assert_eq!(data.as_slice(), PNG);
             }

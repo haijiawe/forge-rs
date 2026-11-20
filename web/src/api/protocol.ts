@@ -3,7 +3,7 @@
 // regenerate with: go run ./scripts/gen-protocol
 
 /**
- * Version is the protocol version carried in X-Forge-Protocol and in every
+ * Version is the protocol version carried in X-Hearth-Protocol and in every
  * server-sent WebSocket frame. A client that does not know this number must
  * refuse the connection rather than guess.
  */
@@ -13,7 +13,7 @@ export const Version = 1 as const;
  * HeaderVersion is the request/response header a client uses to state the
  * version it speaks. The server echoes it on every response.
  */
-export const HeaderVersion = "X-Forge-Protocol" as const;
+export const HeaderVersion = "X-Hearth-Protocol" as const;
 
 /**
  * IdempotencyKeyHeader makes POST /messages retry-safe. A retried request with

@@ -10,7 +10,7 @@
 //!
 //! Three decisions are worth knowing before reading further.
 //!
-//! **Refuse, do not warn.** `forge-skill` reads its own Markdown with a parser
+//! **Refuse, do not warn.** `hearth-skill` reads its own Markdown with a parser
 //! that warns and keeps going, which is right for a skill: a skill that lost an
 //! optional key still helps. A roster is different in kind. Losing a `tools:`
 //! line turns a read-only reviewer into a persona that may run commands; losing a
@@ -29,7 +29,7 @@
 //! appear in the order its file lists them, not in sorted order, because the file
 //! is what was reviewed.
 //!
-//! Why this crate does not reuse `forge-skill`'s reader: that parser is
+//! Why this crate does not reuse `hearth-skill`'s reader: that parser is
 //! `pub(crate)`, so it is not a surface at all; it scans exactly `root/*/SKILL.md`
 //! and never recurses; and its policies are the opposite of the two above (it
 //! drops keys it cannot read and normalises the body). Reuse would have meant

@@ -30,7 +30,7 @@ done from the outside.
 
 ### 1.1 Tool-level gaps (a `Tool` impl, nothing structural)
 
-| Capability | Original DSH | forge-rs today | Evidence |
+| Capability | Original DSH | hearth today | Evidence |
 | --- | --- | --- | --- |
 | `web_search` | yes | **missing** | no tool named it; `crates/tool/src/builtin/` has 5 files |
 | `web_fetch` | yes | **missing** | same |
@@ -41,7 +41,7 @@ done from the outside.
 
 ### 1.2 Runtime gaps (a subsystem, new crate)
 
-| Capability | Original DSH | forge-rs today | Evidence |
+| Capability | Original DSH | hearth today | Evidence |
 | --- | --- | --- | --- |
 | scheduled tasks (rrule) | yes, 4 tools | **missing** | no timer, no rrule parser |
 | goal (cross-round auto-continuation) | yes, 3 tools | **missing** | no persisted goal, no continuation loop |
@@ -52,7 +52,7 @@ done from the outside.
 
 ### 1.3 Config/content gaps (files, not code)
 
-| Capability | Original DSH | forge-rs today | Evidence |
+| Capability | Original DSH | hearth today | Evidence |
 | --- | --- | --- | --- |
 | expert roster | yes, 22 divisions | **missing** | `crates/config` has no expert key |
 | expert teams | yes, with a coordinator prompt | **missing** | same |
@@ -84,20 +84,20 @@ none of them put a compiler into our build:
 
 | Gap | Decision | Reasoning (and the alternative that lost) |
 | --- | --- | --- |
-| `web_fetch`, `web_search`, market fetches | **Rust**, new L1 crate `forge-net` | TLS is already in the budget (`rustls`+`ring`+`webpki-roots`). Extract the generic part of `crates/llm/src/openai.rs`'s blocking HTTP client. *Lost:* a separate Go helper — no throughput argument, and it would double the toolchain |
+| `web_fetch`, `web_search`, market fetches | **Rust**, new L1 crate `hearth-net` | TLS is already in the budget (`rustls`+`ring`+`webpki-roots`). Extract the generic part of `crates/llm/src/openai.rs`'s blocking HTTP client. *Lost:* a separate Go helper — no throughput argument, and it would double the toolchain |
 | `web_search` backend | **configurable endpoint**, no built-in scraping | Search needs a service; a keyless HTML scrape breaks silently. Config key `search.endpoint`/`search.key`, absent ⇒ tool refuses with a clear message (fail closed) |
 | `read_image` | **Rust**, done in P4 | `Message` gained `parts: Vec<ContentPart>` (`serde(skip)`, so the frozen contract JSON is byte-identical), the OpenAI builder emits `{"type":"image_url"}` with a `data:` URI, and `read_image` returns the bytes through `Result.parts` — never through the log, which keeps `meta.imagePath`/`mediaType`/`bytes` and re-reads the file on later turns. Measured end to end: the second request body contains `data:image/png;base64,…`, the 21-line log contains no `iVBOR`, and deleting the file makes the next turn report no image |
-| `worktree` | **Rust**, shell out to `git` | `crates/tool/src/builtin/shell.rs` already spawns through `forge-exec`, so tree-kill and the sandbox apply for free |
+| `worktree` | **Rust**, shell out to `git` | `crates/tool/src/builtin/shell.rs` already spawns through `hearth-exec`, so tree-kill and the sandbox apply for free |
 | `present` | **Rust**, small | Writes a manifest the web UI reads; no new dependency |
-| attachments (file/image) | **Rust**, done in P1 | Bodies live in `<dataDir>/blobs/` (`crates/session/src/blobs.rs`), the event keeps a reference, and `GET /api/sessions/{id}/attachments/{id}` serves the bytes. Pixels reached the model in P4: the same `Attachment` list is read back through `crates/cli/src/attachments.rs` and handed to `forge_llm` as `ContentPart::Image` | 
-| `schedule` | **Rust**, new L2 crate `forge-schedule` | rrule is parsing, not compute. Write a **subset** (FREQ/INTERVAL/BYDAY/BYHOUR/BYMINUTE/COUNT/UNTIL) — no dependency. *Lost:* pulling a full rrule crate (new dep, new edge) |
-| `goal` | **Rust**, new L2 crate `forge-goal` | A state machine plus a continuation loop; persisted as events, so restart keeps it |
+| attachments (file/image) | **Rust**, done in P1 | Bodies live in `<dataDir>/blobs/` (`crates/session/src/blobs.rs`), the event keeps a reference, and `GET /api/sessions/{id}/attachments/{id}` serves the bytes. Pixels reached the model in P4: the same `Attachment` list is read back through `crates/cli/src/attachments.rs` and handed to `hearth_llm` as `ContentPart::Image` | 
+| `schedule` | **Rust**, new L2 crate `hearth-schedule` | rrule is parsing, not compute. Write a **subset** (FREQ/INTERVAL/BYDAY/BYHOUR/BYMINUTE/COUNT/UNTIL) — no dependency. *Lost:* pulling a full rrule crate (new dep, new edge) |
+| `goal` | **Rust**, new L2 crate `hearth-goal` | A state machine plus a continuation loop; persisted as events, so restart keeps it |
 | plugin runtime | **Rust host + out-of-process plugins over stdio JSON-RPC** | The MCP client (`crates/mcp`, L1) already does exactly this, and §2.3 measured the round trip on this stack at 37 µs empty / 56 µs for 4 KiB against a 1,203 ms model call. A plugin = MCP-shaped server plus lifecycle hooks. Language-agnostic *by construction*, zero new deps, and the sandbox already contains children. *Lost:* see §2.4 — the embedded-engine options were re-priced with a real build, and the size argument against them turned out to be wrong |
-| plugin market | **Rust**, L2 `forge-market` | HTTP index + tarball + checksums; `ring` is already there for hashing |
-| experts, expert teams | **Rust loader** (`forge-experts`, L1) over **Markdown + YAML frontmatter** | Same shape as skills (`crates/skill` reads frontmatter today), so the format is already proven. Prompts are content, not code |
-| agent teams | **Rust**, extend `forge-subagent` into `forge-team` | Serial delegation already exists; teams add parallel workers, a shared task board and an inbox |
+| plugin market | **Rust**, L2 `hearth-market` | HTTP index + tarball + checksums; `ring` is already there for hashing |
+| experts, expert teams | **Rust loader** (`hearth-experts`, L1) over **Markdown + YAML frontmatter** | Same shape as skills (`crates/skill` reads frontmatter today), so the format is already proven. Prompts are content, not code |
+| agent teams | **Rust**, extend `hearth-subagent` into `hearth-team` | Serial delegation already exists; teams add parallel workers, a shared task board and an inbox |
 | Office | **skill + external program**, detected at runtime | Ships no parser. If the program is absent the skill says so (fail closed) instead of half-writing a file. *Lost for now:* pure-Rust `docx-rs`/`umya-spreadsheet` — revisit only if a single-file install becomes a hard requirement |
-| ACP-style compression | **Rust**, new L2 `forge-context` | The interesting part is the addressing model (block ids, restore, search) and the cache ledger, not throughput |
+| ACP-style compression | **Rust**, new L2 `hearth-context` | The interesting part is the addressing model (block ids, restore, search) and the cache ledger, not throughput |
 | image generation | **MCP**, nothing in-tree | Already possible today |
 
 ### 2.3 What the round trip costs (measured on this stack)
@@ -119,7 +119,7 @@ in-process rows are the control — the same `serde_json` encode/decode with no
 boundary — so the pipe rows read as *floor + boundary*.
 
 ```text
-cargo run --release -p forge-plugin --example ipc_cost --offline
+cargo run --release -p hearth-plugin --example ipc_cost --offline
 ```
 
 Windows, node v24.21.0, two consecutive runs (p50 / p95, µs):
@@ -160,7 +160,7 @@ It also makes "write it in Rust if you want it fast" a measurable claim — and 
 measurement corrected it. The first version of this section said a native plugin
 would be faster by "roughly an order of magnitude". That was an inference from
 `node --version` costing 17.8 ms, and it was **too strong by about 2×**. With
-`crates/plugin/src/bin/forge-plugin-native.rs` built and loaded through
+`crates/plugin/src/bin/hearth-plugin-native.rs` built and loaded through
 `runtime: "exec"`, three runs give:
 
 | | Node plugin | Native plugin |
@@ -405,7 +405,7 @@ kept in agreement with the first by hand, and the round-trip test feeds
 `pack_dir` output straight into `install_bytes` so a drift breaks a test instead
 of a publisher.
 
-`forge market pack <dir>` is the command: it reads `plugin.json`, writes
+`hearth market pack <dir>` is the command: it reads `plugin.json`, writes
 `<name>-<version>[-os-arch].tar.gz`, and with `--base-url` merges an entry into
 `index.json` under the same name+version+os+arch key the index enforces (so
 re-packing replaces rather than duplicates). The public example is
@@ -427,8 +427,8 @@ annotations and `as Error` in it — completed the whole path through the **rele
 binary**:
 
 ```
-forge plugin start tspeak   -> tspeak 0.1.0 speaks protocol 1
-forge plugin call tspeak greet --args {"name":"no build step"}
+hearth plugin start tspeak   -> tspeak 0.1.0 speaks protocol 1
+hearth plugin call tspeak greet --args {"name":"no build step"}
                             -> hello from typescript, no build step
 ```
 
@@ -461,7 +461,7 @@ subsection below):
 | Untrusted in-process scripting, someday | embedded engine | see §2.4: 1.02 MB, but no `fetch`/`console`/`require` — a different product | not measured |
 | One artifact, no interpreter, any language | **WASM** | the strongest unexplored option; **not measured**, `wasmtime` is not in the offline cache | not measured |
 
-The Rust row is real and tested: `crates/plugin/src/bin/forge-plugin-native.rs`
+The Rust row is real and tested: `crates/plugin/src/bin/hearth-plugin-native.rs`
 is a working native plugin, and three integration cases in
 `crates/plugin/tests/host_it.rs` load it through `exec`. Before it existed,
 `Runtime::Exec` had only ever been tested as a string that parses — every other
@@ -491,7 +491,7 @@ they live in different layers, and the process boundary is what keeps them apart
 | 性能稳定 (stable performance) | the **host/kernel** | **Rust** (keep) | measured: 8.5 MB binary, ~5 ms start, ~6 MB idle, 37 µs plugin call. A plugin's language cannot move these (§2.3) |
 | agent 好写 (easy for an agent to write) | the **plugin language** | **interpreted: JS / TS / Python** | no compile step, immediate runtime feedback, the languages agents are most fluent in |
 | the very easiest thing an agent can write | **skills** | **Markdown** | no code at all; the skill system already loads it |
-| tap the largest existing pool | **interop** | **MCP** | language-agnostic; 10 official SDKs, and the host already speaks it (`forge-mcp`) |
+| tap the largest existing pool | **interop** | **MCP** | language-agnostic; 10 official SDKs, and the host already speaks it (`hearth-mcp`) |
 
 So the choice is **Rust host + interpreted plugins + Markdown skills, over MCP**.
 Rust is *not* the default plugin language, and that is the point: "编译难" falls on
@@ -528,15 +528,15 @@ this choice.
 ### 2.7 What a plugin costs in RAM (measured)
 
 Every number in §2.3 is a *time*. Memory is a different axis, and it is the one
-this rewrite was sold on — `forge web` idles around 6 MB where the Electron
+this rewrite was sold on — `hearth web` idles around 6 MB where the Electron
 original held several GB. An interpreter per plugin could spend that advantage
 quietly, so it was measured instead of assumed in either direction.
 
 Reproduce it with:
 
 ```text
-cargo build --release -p forge-plugin --bins --offline
-cargo run --release -p forge-plugin --example memory_cost --offline -- 120 3
+cargo build --release -p hearth-plugin --bins --offline
+cargo run --release -p hearth-plugin --example memory_cost --offline -- 120 3
 ```
 
 It holds the children open and prints its pid; sample that pid and its children
@@ -553,7 +553,7 @@ An empty plugin of each runtime, plus the host holding them:
 | `node.exe` (one plugin) | 55.9 MB | **19.1 MB** |
 | `python.exe` (one plugin) | 12.6 MB | **7.5 MB** |
 | native `exec` plugin | 4.4 MB | **0.7 MB** |
-| the forge host itself | 6.1 MB | 1.8 MB |
+| the hearth host itself | 6.1 MB | 1.8 MB |
 
 Node's own accounting agrees and explains where it goes: `rss 55.9 MB`,
 `heapTotal 6.0 MB`, `heapUsed 4.7 MB`, `external 1.9 MB`. **The plugin's code is
@@ -611,16 +611,16 @@ equal layer), with the `README.md` frontmatter `archcheck` requires:
 
 | Crate | Layer | May import | Purpose |
 | --- | --- | --- | --- |
-| `forge-net` | L1 | `forge-core` | generic blocking HTTP GET/POST: redirects, size cap, timeouts. `forge-llm` keeps only the SSE/chat shaping |
-| `forge-experts` | L1 | — | parse expert/team definitions (Markdown + frontmatter) |
-| `forge-schedule` | L2 | `forge-core` | rrule subset, next-occurrence, persistence |
-| `forge-goal` | L2 | `forge-core`, `forge-session` | goal state machine, continuation rounds |
-| `forge-market` | L2 | `forge-core`, `forge-net`, `ring` | index fetch, install, verify |
-| `forge-plugin` | L2 | `forge-core`, `forge-mcp` | plugin host over stdio JSON-RPC; MCP transport reuse |
-| `forge-context` | L2 | `forge-core`, `forge-session` | addressable compression blocks, restore, search |
-| `forge-team` | L2 | `forge-core`, `forge-session`, `forge-subagent` | parallel workers + shared task board |
+| `hearth-net` | L1 | `hearth-core` | generic blocking HTTP GET/POST: redirects, size cap, timeouts. `hearth-llm` keeps only the SSE/chat shaping |
+| `hearth-experts` | L1 | — | parse expert/team definitions (Markdown + frontmatter) |
+| `hearth-schedule` | L2 | `hearth-core` | rrule subset, next-occurrence, persistence |
+| `hearth-goal` | L2 | `hearth-core`, `hearth-session` | goal state machine, continuation rounds |
+| `hearth-market` | L2 | `hearth-core`, `hearth-net`, `ring` | index fetch, install, verify |
+| `hearth-plugin` | L2 | `hearth-core`, `hearth-mcp` | plugin host over stdio JSON-RPC; MCP transport reuse |
+| `hearth-context` | L2 | `hearth-core`, `hearth-session` | addressable compression blocks, restore, search |
+| `hearth-team` | L2 | `hearth-core`, `hearth-session`, `hearth-subagent` | parallel workers + shared task board |
 
-`forge-mcp` stays L1 and gains no plugin knowledge: the plugin crate depends on
+`hearth-mcp` stays L1 and gains no plugin knowledge: the plugin crate depends on
 it, not the other way round. `tools/archcheck` and `architecture.yaml` change in
 the same commit that adds each crate — that is the rule, not a suggestion.
 
@@ -657,20 +657,20 @@ Each wave is independently shippable and independently verifiable. No wave start
 before the previous one's gates are green.
 
 **P1 — tools (smallest useful step, ~1 week).**
-`forge-net`; `web_fetch`; `web_search` behind a configured endpoint; `worktree`;
+`hearth-net`; `web_fetch`; `web_search` behind a configured endpoint; `worktree`;
 `present`; attachments finished the way §1.1 describes (bodies out of the log).
 *Acceptance:* a real fetch of a real URL
-through `forge-net` in a test with a local fixture server; `web_search` refuses
+through `hearth-net` in a test with a local fixture server; `web_search` refuses
 with a named reason when unconfigured; `git worktree list` shows the new tree;
 `cargo test --workspace` + `check.ps1` green; no new dependency line in
 `Cargo.toml`.
-*Status: delivered (`a02e61f`, `abeb8cc`, `d218b03`). `forge-net` parses, fetches
+*Status: delivered (`a02e61f`, `abeb8cc`, `d218b03`). `hearth-net` parses, fetches
 and renders HTML with no new dependency; eight end-to-end tests run against a real
 loopback listener; attachment bodies lease `<dataDir>/blobs/` and the event keeps
 only the reference.*
 
 **P2 — time and memory (~2 weeks).**
-`forge-schedule` + `forge goal` + the continuation loop. *Acceptance:* a
+`hearth-schedule` + `hearth goal` + the continuation loop. *Acceptance:* a
 next-occurrence table for a fixed rrule corpus (the rrule subset is the oracle);
 a goal survives a restart because it is in the log; a continuation round is
 bounded and stops on `blocked`.
@@ -681,16 +681,16 @@ not continuations (a bug found by the acceptance run: the first round is the one
 that created the goal).*
 
 **P3 — platform layer (1–2 months).**
-`forge-plugin` (protocol doc + lifecycle + a reference plugin written in a
-*non-Rust* language, to prove the claim), `forge-market`, `forge-experts`,
-`forge-team`. *Acceptance:* **one** complete reference plugin in Node (the language
+`hearth-plugin` (protocol doc + lifecycle + a reference plugin written in a
+*non-Rust* language, to prove the claim), `hearth-market`, `hearth-experts`,
+`hearth-team`. *Acceptance:* **one** complete reference plugin in Node (the language
 DSH's plugin authors already use, so its friction is the migration path) plus a
 small Python smoke test that only proves a second runtime can join the protocol —
 two full reference plugins would be two maintenance surfaces bought to re-prove one
 property; a market install verifies a checksum and refuses a tampered tarball; an
 expert team dispatches two members and writes their results to a shared board.
 *Status: delivered (`2b90ab5`). The four crates are green (plugin 30+12, market 110,
-experts 77, team 48), and `forge plugin|expert|team|market` are CLI commands.
+experts 77, team 48), and `hearth plugin|expert|team|market` are CLI commands.
 Acceptance evidence, all run on this host:* the reference Node plugin answers
 `initialize`, four tools, a prompt and a hook; `tests/reference-node/smoke.py`
 joins the same protocol — **18 lines of code** (31 with its comment block), not the
@@ -698,12 +698,12 @@ ten the acceptance sentence first asked for, and the gap is honest: the closed t
 plus the id echo plus the `shutdown` reply do not fit in ten; the market refusal path
 was run against a real `python -m http.server` with an oversized and then a tampered
 tarball (each refusal named both numbers, nothing landed in `bundles/`);
-`forge team run release-squad --max-parallel 2` dispatched three roster members
+`hearth team run release-squad --max-parallel 2` dispatched three roster members
 onto one board, each task claimed by the worker of the same name, transcripts under
 `<board>/workers/`.
 
 **P4 — context and content (optional).**
-`forge-context` (addressable compression), Office skills, pure-Rust document
+`hearth-context` (addressable compression), Office skills, pure-Rust document
 writers if a single-file install becomes a requirement.
 
 Why this is last rather than first, in three lines:
@@ -720,7 +720,7 @@ Why this is last rather than first, in three lines:
    zero kernel risk, doable at any time. It sits last because it is not urgent,
    not because it is hard.
 
-*Status: `forge-context` delivered; Office and the document writers are not
+*Status: `hearth-context` delivered; Office and the document writers are not
 started.* What shipped is the addressing model the ADR asked for, and nothing
 above it:
 
@@ -741,13 +741,13 @@ above it:
   `result.meta.contextBlock` and the loop appends it, exactly as an approver
   returns a decision. Restoring is a read; the log never shrinks.
 
-*Evidence: `forge-context` 14 tests, `forge-cli` 133 lib tests (8 of them for the
+*Evidence: `hearth-context` 14 tests, `hearth-cli` 133 lib tests (8 of them for the
 three tools), a conformance case for the new event type (23 cases), and
 `archcheck: ok`. The block tools are `allow` in every mode because they neither
 touch the workspace, the network, nor a child process.*
 
 **Revisit trigger.** If long sessions lose detail before the model's window is
-full, `forge-context` moves ahead of P2 — the loss is in the context window, not
+full, `hearth-context` moves ahead of P2 — the loss is in the context window, not
 in rendering (10,001 events already scroll at 60 fps, measured in `docs/web-ui.md`).
 
 **A wave between P3 and P4, done first because the browser was blind.** Four
@@ -773,7 +773,7 @@ from disk, not stored in the log" means when it is true.*
 **Still not done, and named rather than implied:** the capability panel reports the
 last request's tool list and the configured-but-unused set; it does not show a
 plugin's own tool schema, because that is not in the capability snapshot and no
-route exposes it: `forge plugin start <name>` lists the names, and the schemas
+route exposes it: `hearth plugin start <name>` lists the names, and the schemas
 travel only on the plugin protocol. Exposing them is a decision about the wire
 format, not a missing field. The two things this paragraph used to list
 as unshown now have readers of their own: `GET /api/teams` feeds a board panel on

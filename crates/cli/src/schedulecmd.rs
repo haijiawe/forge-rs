@@ -1,8 +1,8 @@
-//! `forge schedule` — recurring prompts, kept in one JSON file.
+//! `hearth schedule` — recurring prompts, kept in one JSON file.
 //!
-//! The rule engine is `forge-schedule`; this command is the operator's half: a
+//! The rule engine is `hearth-schedule`; this command is the operator's half: a
 //! place to add, look at and remove tasks, a way to ask a rule what it means
-//! (`forge schedule next`), and a tick (`run`) that opens the turns which are
+//! (`hearth schedule next`), and a tick (`run`) that opens the turns which are
 //! due.
 //!
 //! Times are UTC everywhere, because the log is UTC and a schedule that silently
@@ -14,11 +14,11 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use forge_schedule::{parse_rule, Due, Registry, Task};
+use hearth_schedule::{parse_rule, Due, Registry, Task};
 
 use crate::{one_line, write_json, EXIT_FAILURE, EXIT_OK, EXIT_USAGE};
 
-pub const USAGE: &str = "usage: forge schedule <command> [flags]
+pub const USAGE: &str = "usage: hearth schedule <command> [flags]
 
 Commands:
   add      record a recurring prompt
@@ -39,16 +39,16 @@ Flags:
   --json               machine-readable output
 ";
 
-const USAGE_ADD: &str = "usage: forge schedule add --rule <rrule> --prompt <text> [--id <id>] [--target <session>] [--start <time>] [--json]
+const USAGE_ADD: &str = "usage: hearth schedule add --rule <rrule> --prompt <text> [--id <id>] [--target <session>] [--start <time>] [--json]
 ";
-const USAGE_LIST: &str = "usage: forge schedule list [--json]
+const USAGE_LIST: &str = "usage: hearth schedule list [--json]
 ";
-const USAGE_REMOVE: &str = "usage: forge schedule remove <id> [--json]
+const USAGE_REMOVE: &str = "usage: hearth schedule remove <id> [--json]
 ";
 const USAGE_NEXT: &str =
-    "usage: forge schedule next --rule <rrule> [--start <time>] [--count <n>] [--json]
+    "usage: hearth schedule next --rule <rrule> [--start <time>] [--count <n>] [--json]
 ";
-const USAGE_RUN: &str = "usage: forge schedule run [--limit <n>] [--dry-run] [--json]
+const USAGE_RUN: &str = "usage: hearth schedule run [--limit <n>] [--dry-run] [--json]
 ";
 
 #[derive(Debug, Default)]
@@ -70,7 +70,7 @@ fn parse(args: &[String], usage: &str, stderr: &mut dyn Write) -> std::result::R
     while i < args.len() {
         let arg = &args[i];
         if !arg.starts_with('-') {
-            let _ = writeln!(stderr, "forge schedule: unexpected argument {arg:?}");
+            let _ = writeln!(stderr, "hearth schedule: unexpected argument {arg:?}");
             let _ = stderr.write_all(usage.as_bytes());
             return Err(EXIT_USAGE);
         }
@@ -97,7 +97,8 @@ fn parse(args: &[String], usage: &str, stderr: &mut dyn Write) -> std::result::R
                 let value = match value {
                     Some(value) => value,
                     None => {
-                        let _ = writeln!(stderr, "forge schedule: flag needs an argument: -{name}");
+                        let _ =
+                            writeln!(stderr, "hearth schedule: flag needs an argument: -{name}");
                         let _ = stderr.write_all(usage.as_bytes());
                         return Err(EXIT_USAGE);
                     }
@@ -114,7 +115,7 @@ fn parse(args: &[String], usage: &str, stderr: &mut dyn Write) -> std::result::R
                 }
             }
             other => {
-                let _ = writeln!(stderr, "forge schedule: unknown flag -{other}");
+                let _ = writeln!(stderr, "hearth schedule: unknown flag -{other}");
                 let _ = stderr.write_all(usage.as_bytes());
                 return Err(EXIT_USAGE);
             }
@@ -184,7 +185,7 @@ fn parse_instant(text: &str) -> std::result::Result<i64, String> {
     if !(1..=12).contains(&month) || day < 1 || hour > 23 || minute > 59 || second > 59 {
         return Err(format!("{text:?} is not a real time"));
     }
-    Ok(forge_schedule::from_civil(
+    Ok(hearth_schedule::from_civil(
         year, month, day, hour, minute, second,
     ))
 }
@@ -195,7 +196,7 @@ fn data_dir(stderr: &mut dyn Write, command: &str) -> std::result::Result<PathBu
         Err(err) => {
             let _ = writeln!(
                 stderr,
-                "forge schedule {command}: read config: {}",
+                "hearth schedule {command}: read config: {}",
                 one_line(err.message())
             );
             Err(EXIT_FAILURE)
@@ -224,7 +225,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         "next" => next(rest, stdout, stderr),
         "run" => run_due(rest, stdout, stderr),
         other => {
-            let _ = writeln!(stderr, "forge schedule: unknown command {other:?}");
+            let _ = writeln!(stderr, "hearth schedule: unknown command {other:?}");
             let _ = stderr.write_all(USAGE.as_bytes());
             EXIT_USAGE
         }
@@ -243,7 +244,7 @@ fn add(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     if flags.rule.trim().is_empty() || flags.prompt.trim().is_empty() {
         let _ = writeln!(
             stderr,
-            "forge schedule add: --rule and --prompt are both required"
+            "hearth schedule add: --rule and --prompt are both required"
         );
         let _ = stderr.write_all(USAGE_ADD.as_bytes());
         return EXIT_USAGE;
@@ -251,13 +252,13 @@ fn add(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     // Parse the rule before touching the file: a stored rule that cannot fire is
     // a task that will be quietly skipped on every tick.
     if let Err(err) = parse_rule(&flags.rule) {
-        let _ = writeln!(stderr, "forge schedule add: {}", one_line(err.message()));
+        let _ = writeln!(stderr, "hearth schedule add: {}", one_line(err.message()));
         return EXIT_USAGE;
     }
     let start_ms = match parse_instant(&flags.start) {
         Ok(ms) => ms,
         Err(message) => {
-            let _ = writeln!(stderr, "forge schedule add: {message}");
+            let _ = writeln!(stderr, "hearth schedule add: {message}");
             return EXIT_USAGE;
         }
     };
@@ -275,7 +276,7 @@ fn add(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
         task.target = Some(flags.target.trim().to_string());
     }
     if let Err(err) = registry.add(task.clone()) {
-        let _ = writeln!(stderr, "forge schedule add: {}", one_line(err.message()));
+        let _ = writeln!(stderr, "hearth schedule add: {}", one_line(err.message()));
         return EXIT_FAILURE;
     }
 
@@ -297,7 +298,7 @@ fn add(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     }
     let _ = writeln!(stdout, "{}", task.id);
     for at in &upcoming {
-        let _ = writeln!(stderr, "forge schedule: next {at}");
+        let _ = writeln!(stderr, "hearth schedule: next {at}");
     }
     EXIT_OK
 }
@@ -330,7 +331,7 @@ fn list(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 
     let tasks = match registry.load() {
         Ok(tasks) => tasks,
         Err(err) => {
-            let _ = writeln!(stderr, "forge schedule list: {}", one_line(err.message()));
+            let _ = writeln!(stderr, "hearth schedule list: {}", one_line(err.message()));
             return EXIT_FAILURE;
         }
     };
@@ -367,7 +368,7 @@ fn list(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 
     if tasks.is_empty() {
         let _ = writeln!(
             stdout,
-            "no tasks in {} (add one with `forge schedule add`)",
+            "no tasks in {} (add one with `hearth schedule add`)",
             registry.path().display()
         );
         return EXIT_OK;
@@ -400,7 +401,7 @@ fn remove(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i3
         return EXIT_OK;
     }
     let Some(id) = args.iter().find(|arg| !arg.starts_with('-')).cloned() else {
-        let _ = writeln!(stderr, "forge schedule remove: which task? pass an id");
+        let _ = writeln!(stderr, "hearth schedule remove: which task? pass an id");
         let _ = stderr.write_all(USAGE_REMOVE.as_bytes());
         return EXIT_USAGE;
     };
@@ -414,7 +415,11 @@ fn remove(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i3
     };
     let registry = registry(&dir);
     if let Err(err) = registry.remove(&id) {
-        let _ = writeln!(stderr, "forge schedule remove: {}", one_line(err.message()));
+        let _ = writeln!(
+            stderr,
+            "hearth schedule remove: {}",
+            one_line(err.message())
+        );
         return EXIT_FAILURE;
     }
     if flags.json {
@@ -439,27 +444,27 @@ fn next(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 
         Err(code) => return code,
     };
     if flags.rule.trim().is_empty() {
-        let _ = writeln!(stderr, "forge schedule next: --rule is required");
+        let _ = writeln!(stderr, "hearth schedule next: --rule is required");
         let _ = stderr.write_all(USAGE_NEXT.as_bytes());
         return EXIT_USAGE;
     }
     let rule = match parse_rule(&flags.rule) {
         Ok(rule) => rule,
         Err(err) => {
-            let _ = writeln!(stderr, "forge schedule next: {}", one_line(err.message()));
+            let _ = writeln!(stderr, "hearth schedule next: {}", one_line(err.message()));
             return EXIT_USAGE;
         }
     };
     let start_ms = match parse_instant(&flags.start) {
         Ok(ms) => ms,
         Err(message) => {
-            let _ = writeln!(stderr, "forge schedule next: {message}");
+            let _ = writeln!(stderr, "hearth schedule next: {message}");
             return EXIT_USAGE;
         }
     };
     let count = match flags.count.trim().parse::<usize>() {
         Ok(0) => {
-            let _ = writeln!(stderr, "forge schedule next: --count must be at least 1");
+            let _ = writeln!(stderr, "hearth schedule next: --count must be at least 1");
             return EXIT_USAGE;
         }
         Ok(count) => count.min(50),
@@ -467,7 +472,7 @@ fn next(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 
         Err(_) => {
             let _ = writeln!(
                 stderr,
-                "forge schedule next: --count {:?} is not a number",
+                "hearth schedule next: --count {:?} is not a number",
                 flags.count
             );
             return EXIT_USAGE;
@@ -519,7 +524,7 @@ fn run_due(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     };
     let limit = match flags.limit.trim().parse::<usize>() {
         Ok(0) => {
-            let _ = writeln!(stderr, "forge schedule run: --limit must be at least 1");
+            let _ = writeln!(stderr, "hearth schedule run: --limit must be at least 1");
             return EXIT_USAGE;
         }
         Ok(limit) => limit,
@@ -527,7 +532,7 @@ fn run_due(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         Err(_) => {
             let _ = writeln!(
                 stderr,
-                "forge schedule run: --limit {:?} is not a number",
+                "hearth schedule run: --limit {:?} is not a number",
                 flags.limit
             );
             return EXIT_USAGE;
@@ -541,7 +546,7 @@ fn run_due(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     let due: Vec<Due> = match registry.due(now_ms()) {
         Ok(due) => due,
         Err(err) => {
-            let _ = writeln!(stderr, "forge schedule run: {}", one_line(err.message()));
+            let _ = writeln!(stderr, "hearth schedule run: {}", one_line(err.message()));
             return EXIT_FAILURE;
         }
     };
@@ -607,13 +612,13 @@ fn run_due(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         if session.is_empty() {
             let _ = writeln!(
                 stderr,
-                "forge schedule run: could not allocate a session id"
+                "hearth schedule run: could not allocate a session id"
             );
             return EXIT_FAILURE;
         }
         let _ = writeln!(
             stderr,
-            "forge schedule: {} at {} into session {}",
+            "hearth schedule: {} at {} into session {}",
             due.task.id,
             iso(due.at_ms),
             session
@@ -637,7 +642,7 @@ fn run_due(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         let blocked = code != EXIT_OK;
         failed |= blocked;
         let note = if blocked {
-            Some(format!("forge schedule: {} exited {code}", due.task.id))
+            Some(format!("hearth schedule: {} exited {code}", due.task.id))
         } else {
             None
         };
@@ -646,7 +651,7 @@ fn run_due(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         if let Err(err) = registry.mark_run(&due.task.id, due.at_ms) {
             let _ = writeln!(
                 stderr,
-                "forge schedule run: could not record {}: {}",
+                "hearth schedule run: could not record {}: {}",
                 due.task.id,
                 one_line(err.message())
             );
@@ -732,7 +737,7 @@ mod tests {
 
     fn temp_dir(label: &str) -> PathBuf {
         let path = std::env::temp_dir()
-            .join("forge-schedule-cmd-test")
+            .join("hearth-schedule-cmd-test")
             .join(format!("{}-{}", label, std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).expect("create dir");

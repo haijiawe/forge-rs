@@ -4,8 +4,8 @@
 
 use std::path::PathBuf;
 
-use forge_core::ErrorKind;
-use forge_schedule::{Registry, Task};
+use hearth_core::ErrorKind;
+use hearth_schedule::{Registry, Task};
 
 // 2026-11-17T00:00:00Z
 const TUE_0000: i64 = 1_794_873_600_000;
@@ -18,7 +18,7 @@ const WEEK_LATER: i64 = 1_795_510_800_000;
 
 fn scratch(name: &str) -> PathBuf {
     let root = std::env::temp_dir()
-        .join("forge-schedule-it")
+        .join("hearth-schedule-it")
         .join(format!("{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     root

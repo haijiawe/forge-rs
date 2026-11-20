@@ -1,9 +1,9 @@
-//! Checks that the documentation index `forge help` points at exists.
+//! Checks that the documentation index `hearth help` points at exists.
 //!
 //! The help text is the first documentation a user reads, and its last line
 //! sends them to this tree's index. A path that only appears inside a Rust
 //! string constant is checked by nothing: `cargo test` never opens the file, so
-//! a deleted index leaves every gate green while `forge help` points at a
+//! a deleted index leaves every gate green while `hearth help` points at a
 //! path that is not there. That is the exact defect this rule was written for.
 //!
 //! Why the help text and not a list of expected paths: any second copy of that
@@ -33,7 +33,7 @@ pub fn check(root: &Path) -> Vec<Finding> {
     let text = match fs::read_to_string(&path) {
         Ok(text) => text,
         // A tree without the CLI crate is the crate-graph rules' business: an
-        // absent forge-cli is `crate.missing`, which says more than this rule
+        // absent hearth-cli is `crate.missing`, which says more than this rule
         // could.
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
         Err(err) => {
@@ -94,7 +94,7 @@ mod tests {
         fs::create_dir_all(&cli).expect("create fixture");
         fs::write(
             cli.join("lib.rs"),
-            format!("pub const USAGE: &str = \"forge — an agent harness\n\n{usage}\";\n"),
+            format!("pub const USAGE: &str = \"hearth — an agent harness\n\n{usage}\";\n"),
         )
         .expect("write lib.rs");
         root

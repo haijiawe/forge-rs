@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use forge_core::{Error, ErrorKind, Event, Result};
+use hearth_core::{Error, ErrorKind, Event, Result};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

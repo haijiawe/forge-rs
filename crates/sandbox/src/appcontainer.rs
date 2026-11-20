@@ -30,14 +30,14 @@ use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
-use forge_core::{Error, ErrorKind, Result as CoreResult};
+use hearth_core::{Error, ErrorKind, Result as CoreResult};
 
 use crate::job_windows::close_handle;
 
 /// The channel the harness uses to tell its own re-executed self what to confine.
 /// Mirrors `linux.rs`'s `HELPER_ENV`; the environment is the only thing that
 /// survives a spawn without a second binary.
-pub(crate) const HELPER_ENV: &str = "FORGE_SANDBOX_APPCONTAINER_SPEC";
+pub(crate) const HELPER_ENV: &str = "HEARTH_SANDBOX_APPCONTAINER_SPEC";
 
 type Sid = *mut c_void;
 type Acl = *mut c_void;
@@ -75,10 +75,10 @@ const ERROR_PATH_NOT_FOUND: u32 = 3;
 const PROFILE_ATTEMPTS: usize = 8;
 /// One identity for the whole user, used only when the profile service refuses to
 /// create new names. See `package_sid`.
-const SHARED_PROFILE: &str = "forge.sandbox";
+const SHARED_PROFILE: &str = "hearth.sandbox";
 /// Every profile this crate creates starts with this, which is what makes pruning
 /// possible: the profile service cannot enumerate its own profiles.
-const PROFILE_PREFIX: &str = "forge.sandbox.";
+const PROFILE_PREFIX: &str = "hearth.sandbox.";
 /// What `GetStdHandle` returns for a stream the parent does not have.
 const INVALID_HANDLE_VALUE: isize = -1;
 
@@ -363,7 +363,7 @@ fn profile_name(workspace: &str) -> String {
         hash ^= u64::from(*byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    format!("forge.sandbox.{hash:016x}")
+    format!("hearth.sandbox.{hash:016x}")
 }
 
 /// Create the package profile (or adopt the existing one) and return its SID.
@@ -388,7 +388,7 @@ fn package_sid(workspace: &str) -> CoreResult<Sid> {
     }
     // Fallback: a single identity for this user. This exists because the profile
     // service on a busy host starts refusing *new* names outright — measured here
-    // after roughly ninety `forge.sandbox.*` profiles had accumulated: fresh
+    // after roughly ninety `hearth.sandbox.*` profiles had accumulated: fresh
     // workspaces were denied for minutes at a time while the ones whose profile
     // already existed kept working. A shared identity still confines the command to
     // the directories granted to it; what it gives up is the guarantee that two
@@ -488,9 +488,9 @@ fn sid_for(profile: &str) -> CoreResult<Sid> {
             return Ok(derived);
         }
     }
-    let display = wide(OsStr::new("forge sandbox"));
+    let display = wide(OsStr::new("hearth sandbox"));
     let description = wide(OsStr::new(
-        "Filesystem and network containment for forge tool processes",
+        "Filesystem and network containment for hearth tool processes",
     ));
     let mut last: i32 = 0;
     for attempt in 0..PROFILE_ATTEMPTS {
@@ -593,13 +593,13 @@ fn grant_path(path: &Path, sid: Sid, access: u32) -> CoreResult<()> {
         // pause is instead of looking hung.
         if elapsed.as_millis() > 2000 {
             eprintln!(
-                "forge: sandbox: granting read access to {} for the first time ({} ms)",
+                "hearth: sandbox: granting read access to {} for the first time ({} ms)",
                 directory.display(),
                 elapsed.as_millis()
             );
         }
         if let Err(error) = step {
-            if std::env::var_os("FORGE_SANDBOX_DEBUG").is_some() {
+            if std::env::var_os("HEARTH_SANDBOX_DEBUG").is_some() {
                 eprintln!(
                     "sandbox: appcontainer: traverse on {} skipped: {}",
                     directory.display(),
@@ -1044,18 +1044,18 @@ pub(crate) fn helper_code() -> Option<i32> {
     let spec: WrapperSpec = match serde_json::from_str(&raw) {
         Ok(spec) => spec,
         Err(error) => {
-            eprintln!("forge: sandbox wrapper: bad spec: {error}");
+            eprintln!("hearth: sandbox wrapper: bad spec: {error}");
             debug_log(&format!("bad spec: {error}"));
             return Some(1);
         }
     };
-    // Not inherited by the tool: a `forge` spawned inside the sandbox must not
+    // Not inherited by the tool: a `hearth` spawned inside the sandbox must not
     // think it is a wrapper too.
     std::env::remove_var(HELPER_ENV);
 
     let mut arguments = std::env::args_os().skip(1);
     let Some(program) = arguments.next() else {
-        eprintln!("forge: sandbox wrapper: no program to run");
+        eprintln!("hearth: sandbox wrapper: no program to run");
         debug_log("no program to run");
         return Some(1);
     };
@@ -1078,25 +1078,25 @@ pub(crate) fn helper_code() -> Option<i32> {
         }
         Err(error) => {
             // Fail closed: the caller's contract is "either confined or refused".
-            eprintln!("forge: sandbox: {}", error.message());
+            eprintln!("hearth: sandbox: {}", error.message());
             debug_log(&format!("refused: {}", error.message()));
             Some(1)
         }
     }
 }
 
-/// Append one line to `%TEMP%/forge-sandbox-wrapper.log` when `FORGE_SANDBOX_DEBUG`
+/// Append one line to `%TEMP%/hearth-sandbox-wrapper.log` when `HEARTH_SANDBOX_DEBUG`
 /// is set, and do nothing otherwise.
 ///
 /// The wrapper's stderr is not always a place a message survives: a test harness, a
 /// service manager or a closed pipe discards it, and all that remains is a command
 /// that never ran. A file is the one channel that works in every one of those cases.
 fn debug_log(line: &str) {
-    if std::env::var_os("FORGE_SANDBOX_DEBUG").is_none() {
+    if std::env::var_os("HEARTH_SANDBOX_DEBUG").is_none() {
         return;
     }
-    eprintln!("forge: sandbox debug: {line}");
-    let path = std::env::temp_dir().join("forge-sandbox-wrapper.log");
+    eprintln!("hearth: sandbox debug: {line}");
+    let path = std::env::temp_dir().join("hearth-sandbox-wrapper.log");
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -1108,7 +1108,7 @@ fn debug_log(line: &str) {
 }
 
 /// Whether this machine can create an AppContainer at all. Used by the enforcer
-/// so `support()` describes the host instead of a constant, and by `forge doctor`.
+/// so `support()` describes the host instead of a constant, and by `hearth doctor`.
 ///
 /// Deriving is a capability probe, not a state change: it answers "does this
 /// Windows know what an AppContainer is" without leaving a profile behind, and it
@@ -1125,7 +1125,7 @@ pub fn available() -> bool {
     if integrity_rid().is_some_and(|rid| rid < MEDIUM_INTEGRITY_RID) {
         return false;
     }
-    let probe = wide(OsStr::new("forge.sandbox.probe"));
+    let probe = wide(OsStr::new("hearth.sandbox.probe"));
     let mut sid: Sid = std::ptr::null_mut();
     let derived = unsafe { DeriveAppContainerSidFromAppContainerName(probe.as_ptr(), &mut sid) };
     if derived < 0 || sid.is_null() {
@@ -1270,13 +1270,13 @@ mod tests {
         let stopped = PruneReport {
             found: 57,
             removed: Vec::new(),
-            failed: vec![("forge.sandbox.aa".to_string(), -2147024891)],
+            failed: vec![("hearth.sandbox.aa".to_string(), -2147024891)],
             stopped_early: true,
         };
         assert!(!stopped.clean());
         let finished = PruneReport {
             found: 1,
-            removed: vec!["forge.sandbox.aa".to_string()],
+            removed: vec!["hearth.sandbox.aa".to_string()],
             failed: Vec::new(),
             stopped_early: false,
         };

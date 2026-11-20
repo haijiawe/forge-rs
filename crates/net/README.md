@@ -3,12 +3,12 @@ dir: crates/net
 layer: L1
 role: blocking HTTP and HTTPS client, plus HTML to text
 public: [Client, ClientOptions, Response, Url, Roots, Connection, Head, Body, BodyMode, connect, read_head, read_bounded, parse_pem_certificates, parse_status, status_slug, to_text, host_without_port, port_from_authority, DEFAULT_TIMEOUT, DEFAULT_MAX_BYTES, MAX_REDIRECTS, ERR_ABORTED]
-may_import: [forge-core]
+may_import: [hearth-core]
 must_not:
   - import any crate above L1
   - depend on an async runtime
   - decide that a non-2xx status is an error
-gate: cargo test -p forge-net --offline
+gate: cargo test -p hearth-net --offline
 ---
 
 ## 做什么
@@ -23,7 +23,7 @@ One blocking HTTP/1.1 client over `std::net` and `rustls`, with no async runtime
 
 ## 依赖与边界
 
-The dependency budget is deliberate: `rustls` + `rustls-pki-types` + `webpki-roots` and nothing else. That is the same stack `forge-llm` uses, so the binary carries one TLS implementation rather than two.
+The dependency budget is deliberate: `rustls` + `rustls-pki-types` + `webpki-roots` and nothing else. That is the same stack `hearth-llm` uses, so the binary carries one TLS implementation rather than two.
 
 A non-2xx status is **data**, not an error: the response is returned with its status and the caller decides. Only a transport failure — DNS, TLS, connection, deadline — is an `Err`. A body that breaks off mid-transfer after some bytes arrived is returned truncated instead of discarded, because a 200 that mostly worked is more useful than nothing.
 

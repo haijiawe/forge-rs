@@ -6,10 +6,10 @@ crates implement, and the language-neutral conformance corpora under
 tests/conformance/cases/ are what proves it. Read Go signatures as history:
 the Rust signatures live in the crates' README.md files.
 -->
-# forge HTTP + WebSocket API contract, protocol version 1
+# hearth HTTP + WebSocket API contract, protocol version 1
 
 > **Implemented.** Protocol 1 shipped in M3 and is served today by
-> `forge web` (`docs/contracts/cli.md` §2.7), which also serves the browser UI from
+> `hearth web` (`docs/contracts/cli.md` §2.7), which also serves the browser UI from
 > the same origin. `internal/server` is the implementation; `web/` is the
 > protocol-1 client, and `internal/protocol` + `web/src/api/protocol.ts` (generated
 > from it) are the shared wire types.
@@ -25,7 +25,7 @@ the Rust signatures live in the crates' README.md files.
 > a transport for those events, and it must never expose state that cannot be
 > derived from the log.
 
-Version: **1**. Negotiated with the `X-Forge-Protocol` header (§3).
+Version: **1**. Negotiated with the `X-Hearth-Protocol` header (§3).
 
 ---
 
@@ -39,7 +39,7 @@ Version: **1**. Negotiated with the `X-Forge-Protocol` header (§3).
   body. A request with any other body content type is `415 unsupported_media_type`.
 - Bodies are UTF-8 JSON objects. Unknown request members MUST be ignored
   (forward compatibility mirrors the event format).
-- Every response carries `X-Forge-Protocol: 1`.
+- Every response carries `X-Hearth-Protocol: 1`.
 - The server is single-user and local: no multi-tenant concepts, no user ids.
 - All state is derived from the event log. The API may cache projections, but a
   restart must reproduce identical responses from the log alone.
@@ -62,20 +62,20 @@ Version: **1**. Negotiated with the `X-Forge-Protocol` header (§3).
 - On first start the server generates a **32-byte random token** (256 bits,
   base64url without padding) and stores it in `<dataDir>/token` with owner-only
   permissions (`0600`); a later start reuses that file. The server itself prints
-  nothing: `forge web` prints the UI URL with the token as its `token` query
+  nothing: `hearth web` prints the UI URL with the token as its `token` query
   parameter on stderr, once per start, and that URL is a credential (§2.7 of
   `docs/contracts/cli.md`).
 - Every request must present the token, either as
   `Authorization: Bearer {token}` or, for browser clients, as the `HttpOnly`
-  cookie `forge_token`. Missing or wrong token → `401 unauthorized`. The token is
+  cookie `hearth_token`. Missing or wrong token → `401 unauthorized`. The token is
   compared in constant time.
   - A browser cannot set `Authorization` on a `GET /` navigation, so the server
     itself sets the cookie: when it serves the shell for a request whose `token`
     query parameter matches, the response carries
-    `Set-Cookie: forge_token={token}; HttpOnly; SameSite=Strict; Path=/`. A wrong
+    `Set-Cookie: hearth_token={token}; HttpOnly; SameSite=Strict; Path=/`. A wrong
     or absent `token` parameter still serves the shell, just without the cookie
     (the operator may also set it out of band; there is no auth endpoint in
-    protocol 1). This is what makes the URL `forge web` prints a working
+    protocol 1). This is what makes the URL `hearth web` prints a working
     credential end to end, including the WebSocket, which a page cannot attach a
     header to.
 - Requests whose peer address is not a loopback address are rejected with
@@ -94,8 +94,8 @@ Version: **1**. Negotiated with the `X-Forge-Protocol` header (§3).
 
 | Header | Direction | Required | Value |
 | --- | --- | --- | --- |
-| `X-Forge-Protocol` | request | yes | `1` |
-| `X-Forge-Protocol` | response | always | `1` |
+| `X-Hearth-Protocol` | request | yes | `1` |
+| `X-Hearth-Protocol` | response | always | `1` |
 
 - Missing header on an `/api/*` request → `400` with code `protocol_required`.
 - A version the server does not speak (e.g. `2`) → `400` with code
@@ -110,10 +110,10 @@ Version: **1**. Negotiated with the `X-Forge-Protocol` header (§3).
   also carries `"protocol": 1` so a proxy that strips headers cannot silently
   downgrade a stream.
   - A browser cannot send a request header on a WebSocket handshake at all. Such
-    a client therefore offers the subprotocol `forge.v1` in
-    `Sec-WebSocket-Protocol` instead of sending `X-Forge-Protocol`; the server
+    a client therefore offers the subprotocol `hearth.v1` in
+    `Sec-WebSocket-Protocol` instead of sending `X-Hearth-Protocol`; the server
     accepts a handshake that offers it and echoes
-    `Sec-WebSocket-Protocol: forge.v1` in the `101` (RFC 6455 §4.2.2 requires the
+    `Sec-WebSocket-Protocol: hearth.v1` in the `101` (RFC 6455 §4.2.2 requires the
     selection to be named, or the browser fails the connection). Either signal
     satisfies negotiation; a handshake carrying neither is still
     `400 protocol_required`.
@@ -145,7 +145,7 @@ All paths are under `{base}`. `{id}` is a session id; an unknown id is
 
 ### 4.1 `GET /healthz`
 
-No auth, no `X-Forge-Protocol`, no body. `200` with:
+No auth, no `X-Hearth-Protocol`, no body. `200` with:
 
 ```json
 {"status":"ok","protocol":1,"version":"0.0.0-dev","uptimeMs":123456}
@@ -358,7 +358,7 @@ slow"). Server pings every 30 s; a client that misses two pings is dropped with
 Policy failures are **not** close codes: a bad or missing token, a foreign or
 missing `Origin`, and a non-loopback peer are all rejected *before* the upgrade,
 so the client sees an ordinary HTTP status — `401 unauthorized`, `403 forbidden`
-or, for a missing/mismatched `X-Forge-Protocol`, `400 protocol_required` /
+or, for a missing/mismatched `X-Hearth-Protocol`, `400 protocol_required` /
 `protocol_unsupported` (§2, §3). Protocol 1 has no `1008` frame: by the time the
 socket is open, every policy check has already passed.
 
@@ -532,7 +532,7 @@ it are not ones this layer may depend on.
 
 ### 4.13 `GET /api/teams` and `GET /api/teams/{board}`
 
-Describes the team boards on **this machine**, not one session. `forge team run`
+Describes the team boards on **this machine**, not one session. `hearth team run`
 writes a run into `<dataDir>/teams/<slug>-<YYYYMMDD-HHMMSS>/`, and this route is
 the browser's window on it. It reads files and starts nothing: no worker process,
 no board repair, and no directory created on the request path.
@@ -575,7 +575,7 @@ no `boards` array.
   as RFC 3339 in UTC. A directory named otherwise (the `TeamTool` bridge names one
   after its call id) reports its own modification time and says so in
   `diagnostics`.
-- `parallel` is how many workers `forge team run` allowed at once. Nothing
+- `parallel` is how many workers `hearth team run` allowed at once. Nothing
   persists it — `--max-parallel`, `team.max_parallel` and the default are resolved
   in the CLI and then dropped — so a board written by this build reports `null`
   rather than a number the server would have had to invent. A client must render
@@ -617,7 +617,7 @@ no `boards` array.
 
 The goal this session is working toward, folded from the `goal/created`,
 `goal/continued` and `goal/ended` records in its log — the same fold
-`forge goal status` prints. It is a read of the log and nothing else: a goal
+`hearth goal status` prints. It is a read of the log and nothing else: a goal
 that lived in process memory would be a goal a restart loses, which is the
 thing a goal exists to survive.
 
@@ -655,14 +655,14 @@ A session that has one:
   goal — `complete`, `blocked`, `cancelled`, `exhausted` — because a round
   number there would promise a round nobody will run.
 - `nextRound` is a **round number**, the same numbering `maxRounds`, `rounds`
-  and `forge goal status` use, in which `goal/created` already spent round 1.
+  and `hearth goal status` use, in which `goal/created` already spent round 1.
   So the example above (on its third turn) reports `nextRound: 4`, and a goal
   with `rounds: 0` reports `nextRound: 2`. `Goal::next_action` hands back a
   *continuation* index instead — one lower — and this route adds the one back.
   A client that mirrors this field must not also add it: `rounds + 2` is the
   round number, `rounds + 1` is the continuation index, and reporting the
   latter as a round is the off-by-one that makes the browser and
-  `forge goal status` disagree about the same log.
+  `hearth goal status` disagree about the same log.
 - It is also **absent for an `active` goal whose budget is spent**: `fold` still
   says `active` because no `goal/ended` has been written yet, while
   `next_action` already says `Stop { Exhausted }`. `status: "active"` with no
@@ -672,7 +672,7 @@ A session that has one:
   continuation spent, `rounds: 1` and no `nextRound` is the truth, and
   `nextRound: 2` is precisely the lie the absent member avoids.
 - `status` is one of `active`, `complete`, `blocked`, `cancelled`, `exhausted`,
-  spelled as `forge_goal::Status::as_str()` spells them.
+  spelled as `hearth_goal::Status::as_str()` spells them.
 - The most recent `goal/created` wins. A session that finished one goal and
   started another reports the live one, and a trailing `goal/ended` carrying an
   older `goalId` does not close the new goal.
@@ -691,7 +691,7 @@ A session that has one:
 - `404 not_found` — no such session. `405 method_not_allowed` — any method other
   than `GET`. `500 log_read_failed` — the log exists but its bytes could not be
   read; that is not "no such session", because the session may be perfectly fine.
-- `forge goal status --json` folds the same records but names the id `goalId`
+- `hearth goal status --json` folds the same records but names the id `goalId`
   and carries no `nextRound`. This route is the HTTP shape; a client porting one
   to the other renames the field rather than assuming they are byte-identical.
 
@@ -750,7 +750,7 @@ is the read side of that manifest, and the only reader of it.
   is a fact, not an error, and not a `404`. A `GET` that manufactured the file
   would answer its own question.
 - The route answers from the configured data directory only. The
-  `<workspace>/.forge/presented.jsonl` fallback `present` uses when no data
+  `<workspace>/.hearth/presented.jsonl` fallback `present` uses when no data
   directory is configured is a different path, and serving it here would report
   handoffs this host's data directory never recorded.
 - `GET` only; anything else is `405 method_not_allowed`.
@@ -843,7 +843,7 @@ Codes and their HTTP statuses:
 | `code` | Status | When |
 | --- | --- | --- |
 | `bad_request` | 400 | Malformed JSON, missing/invalid member, bad query value. |
-| `protocol_required` | 400 | `X-Forge-Protocol` missing on an `/api/*` request. |
+| `protocol_required` | 400 | `X-Hearth-Protocol` missing on an `/api/*` request. |
 | `protocol_unsupported` | 400 | Header present but not a version the server speaks. |
 | `unauthorized` | 401 | Missing/wrong token. |
 | `forbidden` | 403 | Non-loopback peer, or bad `Origin` on POST. |
@@ -870,7 +870,7 @@ Codes and their HTTP statuses:
 >    `POST /api/sessions/{id}/messages` is limited. The budget is per *session*
 >    (not per peer: the listener is loopback-only, and one browser tab is one
 >    session), with a fixed window of **120 turns per 60 s** by default
->    (`forge_server::RateLimit::default()`). The response carries
+>    (`hearth_server::RateLimit::default()`). The response carries
 >    `Retry-After: <seconds>`, rounded up and never below `1`, plus
 >    `details: {sessionId, limit, windowSeconds, retryAfterSeconds}`. A refused
 >    request appends **nothing** — the charge happens after the state checks and
@@ -881,13 +881,13 @@ Codes and their HTTP statuses:
 >    (the e2e harness, the benchmark) and know their own rate.
 >
 > `method_not_allowed` used to be deviation #1: `405` answers shipped with
-> `bad_request`. Fixed in M7 — `forge_protocol::code` now has the constant and
+> `bad_request`. Fixed in M7 — `hearth_protocol::code` now has the constant and
 > the three sites use it.
 >
 > §2 and §3 gained the two browser mechanisms late: the shell sets the
-> `forge_token` cookie for the printed `?token=` URL, and a WebSocket handshake
-> may signal its version with the `forge.v1` subprotocol instead of
-> `X-Forge-Protocol`. Neither is a wire deviation — both are additive, and a
+> `hearth_token` cookie for the printed `?token=` URL, and a WebSocket handshake
+> may signal its version with the `hearth.v1` subprotocol instead of
+> `X-Hearth-Protocol`. Neither is a wire deviation — both are additive, and a
 > handshake carrying neither signal is still `400`. They exist because the
 > earlier text described a browser flow no browser could perform: the UI's
 > stream retried `401` forever against a real Edge window before these landed.
@@ -907,7 +907,7 @@ added; unknown codes must be handled as their HTTP status category.
   version.
 - Breaking changes (removing/renaming members, changing types or semantics,
   changing status codes, dropping an endpoint) require
-  `X-Forge-Protocol: 2` and a documented overlap window in which the server
+  `X-Hearth-Protocol: 2` and a documented overlap window in which the server
   accepts both header values.
 - Responses may add members at any time; clients MUST ignore unknown members.
   Clients MUST NOT fail on an unknown event `type` (it is passed through).

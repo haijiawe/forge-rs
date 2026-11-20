@@ -26,12 +26,12 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Mutex};
 
-use forge_core::EventType;
+use hearth_core::EventType;
 use serde_json::Value;
 
 /// A borrowed view of one event, handed to listeners.
 ///
-/// It is deliberately not `forge_core::Event`: a listener has no business with
+/// It is deliberately not `hearth_core::Event`: a listener has no business with
 /// the session id or the sequence number (it is being called *during* the
 /// append), and a borrowed view makes it impossible to keep one.
 #[derive(Debug, Clone, Copy)]

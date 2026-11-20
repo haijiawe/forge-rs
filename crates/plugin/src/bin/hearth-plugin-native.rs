@@ -16,7 +16,7 @@
 //!    error means the call was never attempted.
 //! 4. `shutdown` is answered and flushed before the process exits.
 //!
-//! Build it with `cargo build -p forge-plugin --bin forge-plugin-native`, then
+//! Build it with `cargo build -p hearth-plugin --bin hearth-plugin-native`, then
 //! point a `plugin.json` at the produced executable with `"runtime": "exec"`.
 
 use std::io::{BufRead, Write};

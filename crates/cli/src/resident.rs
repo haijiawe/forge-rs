@@ -11,7 +11,7 @@
 //! DSH solves this with a resident agent: a long-lived object per session that
 //! owns an inbox and a phase, woken by events. This tree has no resident object,
 //! because the loop is a function of the log (I1) and a process that is not
-//! running has no inbox to keep. What it has is [`forge_agent::Agent::kick`],
+//! running has no inbox to keep. What it has is [`hearth_agent::Agent::kick`],
 //! which claims queued messages and runs each as one turn — so "resident" here
 //! means a loop that keeps asking, not an object that stays alive.
 //!
@@ -21,7 +21,7 @@
 //! is that stop, and [`Drained::capped`] says whether it was hit, so a caller can
 //! report "there is still work queued" rather than pretending the queue is empty.
 
-use forge_agent::Agent;
+use hearth_agent::Agent;
 
 /// How many turns one drain may run before it stops and says so.
 ///
@@ -48,7 +48,7 @@ pub struct Drained {
     pub capped: bool,
     /// The first failure, if one stopped the drain early. A failed turn's error is
     /// already in the log; this is for the host to report, not to re-record.
-    pub error: Option<forge_core::Error>,
+    pub error: Option<hearth_core::Error>,
 }
 
 impl Drained {
@@ -86,8 +86,8 @@ pub fn drain(agent: &Agent) -> Drained {
 /// provider that would only ever answer "pong".
 pub fn drain_with<P, K>(mut pending: P, mut kick: K) -> Drained
 where
-    P: FnMut() -> forge_core::Result<bool>,
-    K: FnMut() -> (usize, Option<forge_core::Error>),
+    P: FnMut() -> hearth_core::Result<bool>,
+    K: FnMut() -> (usize, Option<hearth_core::Error>),
 {
     let mut out = Drained::default();
     loop {
@@ -123,7 +123,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use forge_core::{Error, ErrorKind};
+    use hearth_core::{Error, ErrorKind};
     use std::cell::Cell;
 
     // The cap itself is guarded by the `const _: () = assert!(..)` above: a test

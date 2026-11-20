@@ -4,8 +4,8 @@
 //! compatibility break. Every builder here returns a `serde_json::Value` whose
 //! object has exactly the members the contract lists.
 
-use forge_core::EventType;
-use forge_llm::Usage;
+use hearth_core::EventType;
+use hearth_llm::Usage;
 use serde_json::{json, Map, Value};
 
 pub const STOP_END_TURN: &str = "end_turn";

@@ -162,7 +162,7 @@ describe('TeamBoards', () => {
     );
     const rendered = text(view.container);
     expect(rendered).toContain('log_read_failed');
-    expect(rendered).toContain('forge team list');
+    expect(rendered).toContain('hearth team list');
     expect(view.container.querySelector('.banner-error')?.getAttribute('role')).toBe('alert');
     // A failed read shows no boards at all: none of them is claimed to be current.
     expect(view.container.querySelector('.team-board')).toBeNull();

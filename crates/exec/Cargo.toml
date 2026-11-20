@@ -1,5 +1,5 @@
 [package]
-name = "forge-exec"
+name = "hearth-exec"
 description = "process spawn, tree kill, sandbox hook"
 version.workspace = true
 edition.workspace = true
@@ -7,4 +7,4 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-forge-core = { path = "../core" }
+hearth-core = { path = "../core" }

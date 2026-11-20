@@ -3,16 +3,16 @@ dir: crates/schedule
 layer: L2
 role: recurrence rules and the scheduled-task registry
 public: [Rule, Freq, Weekday, Task, Due, Registry, parse_rule]
-may_import: [forge-core]
+may_import: [hearth-core]
 must_not: [any I/O beyond the registry file, any model or session knowledge]
-gate: cargo test -p forge-schedule --offline
+gate: cargo test -p hearth-schedule --offline
 ---
 
-# forge-schedule
+# hearth-schedule
 
 ## 做什么
 
-`forge-schedule` 拥有一件事：**一个计划任务下一次何时发生**。它解析 RFC 5545
+`hearth-schedule` 拥有一件事：**一个计划任务下一次何时发生**。它解析 RFC 5545
 `RRULE` 的一个子集，把规则变成一串 UTC 毫秒时刻，并把「规则 + prompt」这一对
 持久化到 `<root>/tasks.json`，与任何会话日志无关——没有会话时任务也还在，重启后
 任务也还在。
@@ -72,7 +72,7 @@ gate: cargo test -p forge-schedule --offline
 
 ## 依赖与边界
 
-只依赖 `forge-core`（错误种类、`new_id()`）和标准库；`serde` / `serde_json` 是
+只依赖 `hearth-core`（错误种类、`new_id()`）和标准库；`serde` / `serde_json` 是
 工作区已有的依赖，用来读写那一份注册表文件。不引入 rrule crate、不引入日期库：
 日历换算（Howard Hinnant 的 era 算法）在本 crate 内，三十行，可以被手算值逐条验证。
 

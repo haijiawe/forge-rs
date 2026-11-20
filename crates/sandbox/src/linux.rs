@@ -19,7 +19,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use forge_core::{Error, ErrorKind, Result as CoreResult};
+use hearth_core::{Error, ErrorKind, Result as CoreResult};
 
 use crate::{Mode, Platform, Spec, Support, ERR_CLOSED, ERR_UNAVAILABLE};
 
@@ -66,7 +66,7 @@ impl Platform for LinuxPlatform {
             )
         })?;
         // The wrapper has to be a program that calls `maybe_exec_helper` before
-        // it parses anything. In production that is `forge`; in an integration
+        // it parses anything. In production that is `hearth`; in an integration
         // test the test harness itself is the current executable and would run
         // its own argument parser instead, so `Spec::wrapper` must be honoured
         // here exactly as Windows honours it. Falling back to this process keeps
@@ -173,7 +173,7 @@ struct HelperPayload {
     allow_net: bool,
 }
 
-const HELPER_ENV: &str = "FORGE_SANDBOX_LANDLOCK_SPEC";
+const HELPER_ENV: &str = "HEARTH_SANDBOX_LANDLOCK_SPEC";
 
 const SYS_LANDLOCK_CREATE_RULESET: c_long = 444;
 const SYS_LANDLOCK_ADD_RULE: c_long = 445;

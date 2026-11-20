@@ -22,7 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
-use forge_config::Config;
+use hearth_config::Config;
 
 /// Read grants for the platforms that deny reads by default.
 ///
@@ -222,7 +222,7 @@ mod tests {
         // in a config whose `network` member is written as false while everything
         // else is wide open. The written false must win, not be re-derived.
         let mut cfg = Config::defaults();
-        cfg.sandbox = forge_config::SANDBOX_FULL_ACCESS.to_string();
+        cfg.sandbox = hearth_config::SANDBOX_FULL_ACCESS.to_string();
         cfg.sandbox_access.read = Some(Vec::new());
         cfg.sandbox_access.write = Some(Vec::new());
         cfg.sandbox_access.network = Some(false);

@@ -25,7 +25,7 @@
 //!
 //! Concurrency is bounded by permits, not by thread count. The roster gets one
 //! thread each (so a worker's stack and its panic are its own), but a thread waits
-//! for a permit before it enters the runner. That is `forge-subagent`'s serial
+//! for a permit before it enters the runner. That is `hearth-subagent`'s serial
 //! semaphore widened to N — and it is measured, not inferred from timing, by
 //! [`RecordingRunner::max_inside`](crate::RecordingRunner::max_inside).
 

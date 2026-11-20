@@ -78,7 +78,7 @@ export interface ListSessionsOptions {
 export type OutgoingAttachment = Attachment & { name?: string; mediaType?: string };
 
 /** The subset of the client the session screen needs, so tests can fake it. */
-export interface ForgeApi {
+export interface HearthApi {
   listSessions(options?: ListSessionsOptions): Promise<SessionList>;
   getSession(id: string): Promise<SessionDetail>;
   events(id: string, after: number, limit?: number): Promise<EventsPage>;
@@ -99,7 +99,7 @@ export interface ForgeApi {
   ): Promise<ApprovalDecisionResponse>;
   /** What this process was configured with; one GET, no session involved. */
   capabilities(): Promise<CapabilityReport>;
-  /** Team boards `forge team run` left in the data dir; one GET, no session. */
+  /** Team boards `hearth team run` left in the data dir; one GET, no session. */
   teams(): Promise<TeamBoardReport>;
   /** The goal a session pursues, or null when it pursues none. */
   getGoal(id: string): Promise<Goal | null>;
@@ -120,7 +120,7 @@ function newIdempotencyKey(): string {
     : `${String(Date.now())}-${Math.random().toString(36).slice(2)}`;
 }
 
-export class ForgeClient implements ForgeApi {
+export class HearthClient implements HearthApi {
   readonly baseUrl: string;
   readonly token: string;
   readonly protocolVersion: number;
@@ -291,12 +291,12 @@ export class ForgeClient implements ForgeApi {
 
 /**
  * The WebSocket subprotocol that carries the protocol version. A page cannot
- * set `X-Forge-Protocol` on a handshake, so the version rides here and the
+ * set `X-Hearth-Protocol` on a handshake, so the version rides here and the
  * server echoes the choice in the 101 (RFC 6455 §4.2.2). The token cannot ride
- * here too: the server sets the HttpOnly `forge_token` cookie when it serves the
+ * here too: the server sets the HttpOnly `hearth_token` cookie when it serves the
  * shell for the printed URL.
  */
-export const WS_SUBPROTOCOL = 'forge.v1';
+export const WS_SUBPROTOCOL = 'hearth.v1';
 
 /** WebSocket URL for a session stream, same origin unless baseUrl overrides. */
 export function streamUrl(baseUrl: string, sessionId: string, after: number): string {
@@ -315,7 +315,7 @@ export function streamUrl(baseUrl: string, sessionId: string, after: number): st
   return `${origin}/api/sessions/${encodeURIComponent(sessionId)}/stream?${query.toString()}`;
 }
 
-export const TOKEN_STORAGE_KEY = 'forge.token';
+export const TOKEN_STORAGE_KEY = 'hearth.token';
 
 export interface TokenCaptureSources {
   /** Location-like object; defaults to the real window.location. */

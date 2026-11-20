@@ -25,7 +25,7 @@ use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use forge_core::{Error, ErrorKind, Result as CoreResult};
+use hearth_core::{Error, ErrorKind, Result as CoreResult};
 
 use crate::appcontainer::{self, WrapperSpec, HELPER_ENV};
 use crate::job_windows::{
@@ -41,7 +41,7 @@ pub(crate) struct WindowsPlatform;
 impl crate::Platform for WindowsPlatform {
     fn support(&self) -> Support {
         // A machine that cannot create a package profile must say so here rather
-        // than at the first command, so `forge doctor` and the refusal agree.
+        // than at the first command, so `hearth doctor` and the refusal agree.
         if !appcontainer::available() {
             return Support {
                 filesystem: false,

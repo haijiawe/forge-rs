@@ -1,5 +1,5 @@
 [package]
-name = "forge-experts"
+name = "hearth-experts"
 description = "expert and expert-team definitions parsed from Markdown plus YAML frontmatter"
 version.workspace = true
 edition.workspace = true

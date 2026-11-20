@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use forge_core::event::FORMAT_VERSION;
-use forge_core::{Error, ErrorKind, Event, Result};
+use hearth_core::event::FORMAT_VERSION;
+use hearth_core::{Error, ErrorKind, Event, Result};
 
 /// How often the store calls `fsync`.
 ///
@@ -99,7 +99,7 @@ impl Store {
             record.ts = now_millis()?;
         }
         if record.id.is_empty() {
-            record.id = forge_core::new_id()?;
+            record.id = hearth_core::new_id()?;
         }
         record.validate()?;
 

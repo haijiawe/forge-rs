@@ -1,9 +1,9 @@
 {
-  "name": "forge-web",
+  "name": "hearth-web",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "forge local Web UI (M3): session list, transcript, tool cards, approvals. No UI kit, no CSS framework, own virtualizer.",
+  "description": "hearth local Web UI (M3): session list, transcript, tool cards, approvals. No UI kit, no CSS framework, own virtualizer.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

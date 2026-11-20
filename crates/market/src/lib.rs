@@ -78,7 +78,7 @@ pub use unpack::{unpack, Unpacked};
 
 /// Parse a tarball into an archive, decompressing it first when it is a gzip
 /// member. The one entry point most callers want after a download.
-pub fn open_tarball(bytes: &[u8]) -> forge_core::Result<Archive> {
+pub fn open_tarball(bytes: &[u8]) -> hearth_core::Result<Archive> {
     if is_gzip(bytes) {
         parse_tar(&gunzip(bytes)?)
     } else {

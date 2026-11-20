@@ -60,7 +60,7 @@ impl EventType {
     /// be on the record — a log with no `hook/rewrite` proves none happened.
     pub const HOOK_REWRITE: EventType = EventType("hook/rewrite");
     /// One row per direct child a parent session created: the stable identity a
-    /// name, a resumable child, and `forge subagent list` all hang off. Written
+    /// name, a resumable child, and `hearth subagent list` all hang off. Written
     /// on the parent log, by the loop, from `Result.meta["subagentCatalog"]`.
     pub const SUBAGENT_CATALOG: EventType = EventType("subagent/catalog");
     /// The child's own record of what it was started as (provider/model/label and

@@ -11,8 +11,8 @@ mod common;
 use std::sync::Arc;
 
 use common::*;
-use forge_core::event::{Event, EventType};
-use forge_subagent::{CallContext, CatalogEntry, Mode, Options, Runner};
+use hearth_core::event::{Event, EventType};
+use hearth_subagent::{CallContext, CatalogEntry, Mode, Options, Runner};
 use serde_json::json;
 
 const FIXED_NOW_MS: i64 = 1_777_863_721_000;

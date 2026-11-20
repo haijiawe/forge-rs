@@ -12,7 +12,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 
 use crate::http::{parse_retry_after, read_head, status_slug, Body};
 use crate::tls::{connect, Roots};
@@ -42,7 +42,7 @@ impl Default for ClientOptions {
         Self {
             timeout: DEFAULT_TIMEOUT,
             max_bytes: DEFAULT_MAX_BYTES,
-            user_agent: concat!("forge/", env!("CARGO_PKG_VERSION")).to_string(),
+            user_agent: concat!("hearth/", env!("CARGO_PKG_VERSION")).to_string(),
             max_redirects: MAX_REDIRECTS,
             ca_file: None,
         }

@@ -5,10 +5,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use forge_config::{
+use hearth_config::{
     Config, MCP_TRANSPORT_HTTP, MCP_TRANSPORT_STDIO, SANDBOX_FULL_ACCESS, SANDBOX_WORKSPACE_WRITE,
 };
-use forge_core::ErrorKind;
+use hearth_core::ErrorKind;
 
 struct TempDir {
     path: PathBuf,
@@ -21,7 +21,7 @@ impl TempDir {
             .expect("clock before epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "forge-config-test-{}-{tag}-{unique}",
+            "hearth-config-test-{}-{tag}-{unique}",
             std::process::id()
         ));
         fs::create_dir_all(&path).expect("create temp dir");
@@ -107,7 +107,7 @@ fn invalid_sandbox_is_a_typed_error_with_the_go_message() {
 fn every_sandbox_mode_constant_validates() {
     let dir = TempDir::new("sandbox-modes");
     for mode in [
-        forge_config::SANDBOX_READ_ONLY,
+        hearth_config::SANDBOX_READ_ONLY,
         SANDBOX_WORKSPACE_WRITE,
         SANDBOX_FULL_ACCESS,
     ] {
@@ -139,7 +139,7 @@ fn broken_mcp_entry_is_skipped_with_a_warning_and_the_rest_still_loads() {
         .expect_err("a bad MCP entry is reported by Validate, not by Load");
     assert_eq!(err.kind(), ErrorKind::Invalid);
     let mcp_err = std::error::Error::source(&err)
-        .and_then(|source| source.downcast_ref::<forge_config::MCPConfigError>())
+        .and_then(|source| source.downcast_ref::<hearth_config::MCPConfigError>())
         .expect("the error carries the typed MCPConfigError");
     assert_eq!(mcp_err.problems.len(), 1);
     assert!(mcp_err.problems[0].contains("mcp.servers[1] (\"typo\")"));
@@ -181,7 +181,7 @@ fn duplicate_mcp_names_keep_the_first_declaration() {
 
 #[test]
 fn transport_is_inferred_from_command_or_url() {
-    let mut server = forge_config::MCPServerConfig {
+    let mut server = hearth_config::MCPServerConfig {
         name: "local".to_string(),
         command: vec!["server".to_string()],
         ..Default::default()
@@ -238,13 +238,16 @@ fn serialization_uses_the_go_json_names() {
 #[test]
 fn ca_file_parses_from_config_json() {
     let dir = TempDir::new("ca-file");
-    let path = dir.file("config.json", r#"{"caFile": "/etc/forge/private-ca.pem"}"#);
+    let path = dir.file("config.json", r#"{"caFile": "/etc/hearth/private-ca.pem"}"#);
     let config = load(&path);
-    assert_eq!(config.ca_file.as_deref(), Some("/etc/forge/private-ca.pem"));
+    assert_eq!(
+        config.ca_file.as_deref(),
+        Some("/etc/hearth/private-ca.pem")
+    );
 
     // The key round-trips under its Go/JSON name.
     let value = serde_json::to_value(&config).expect("config serializes");
-    assert_eq!(value["caFile"], "/etc/forge/private-ca.pem");
+    assert_eq!(value["caFile"], "/etc/hearth/private-ca.pem");
 }
 
 #[test]
@@ -410,7 +413,7 @@ fn subagent_providers_round_trip_with_their_arguments() {
             "subagent": {
                 "backend": "sandboxed",
                 "providers": [
-                    {"name": "sandboxed", "program": "forge", "args": ["subagent", "worker"], "timeoutSecs": 900}
+                    {"name": "sandboxed", "program": "hearth", "args": ["subagent", "worker"], "timeoutSecs": 900}
                 ]
             }
         }"#,
@@ -420,7 +423,7 @@ fn subagent_providers_round_trip_with_their_arguments() {
     assert_eq!(cfg.subagent.providers.len(), 1);
     let entry = &cfg.subagent.providers[0];
     assert_eq!(entry.name, "sandboxed");
-    assert_eq!(entry.program, "forge");
+    assert_eq!(entry.program, "hearth");
     assert_eq!(
         entry.args,
         vec!["subagent".to_string(), "worker".to_string()]
@@ -461,7 +464,7 @@ fn duplicate_provider_names_are_refused() {
     let path = dir.file(
         "config.json",
         r#"{"subagent": {"providers": [
-            {"name": "a", "program": "forge"},
+            {"name": "a", "program": "hearth"},
             {"name": "a", "program": "other"}
         ]}}"#,
     );

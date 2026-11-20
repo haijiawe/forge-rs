@@ -21,11 +21,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 
-use forge_market::{
+use hearth_market::{
     download, gunzip, install, is_sha256_hex, list, sha256_hex, uninstall, Bundle, Index, Store,
     ERR_CHECKSUM_MISMATCH, ERR_EXTRA_FILES, ERR_FILE_MODIFIED, ERR_TRUNCATED,
 };
-use forge_net::{Client, ClientOptions};
+use hearth_net::{Client, ClientOptions};
 
 /// The real `tar -czf` blob, produced by `tar.exe` on this machine.
 const TARBALL_GZ: &[u8] = include_bytes!("fixtures/fixture.tar.gz");
@@ -139,7 +139,7 @@ fn index_document(base: &str, name: &str, version: &str, bytes: &[u8]) -> String
             r#""keywords":["fixture"],"homepage":"https://example.invalid/","#,
             r#""tarball":"{base}/tarballs/{name}-{version}.tar.gz","#,
             r#""sha256":"{sha}","size":{size},"#,
-            r#""engines":{{"forge":">=0.1.0","runtime":"node"}}}}]}}"#
+            r#""engines":{{"hearth":">=0.1.0","runtime":"node"}}}}]}}"#
         ),
         name = name,
         version = version,
@@ -162,8 +162,8 @@ fn bundle_for(base: &str, name: &str, version: &str, bytes: &[u8]) -> Bundle {
         tarball: format!("{base}/tarballs/{name}-{version}.tar.gz"),
         sha256: sha256_hex(bytes),
         size: bytes.len() as u64,
-        engines: Some(forge_market::Engines {
-            forge: Some(">=0.1.0".to_string()),
+        engines: Some(hearth_market::Engines {
+            hearth: Some(">=0.1.0".to_string()),
             runtime: Some("node".to_string()),
         }),
         // The fixture is a source plugin: one tarball, every platform.
@@ -179,7 +179,8 @@ fn client() -> Client {
 }
 
 fn scratch(label: &str) -> PathBuf {
-    let path = std::env::temp_dir().join(format!("forge-market-it-{}-{label}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("hearth-market-it-{}-{label}", std::process::id()));
     let _ = fs::remove_dir_all(&path);
     fs::create_dir_all(&path).expect("create scratch");
     path
@@ -398,7 +399,10 @@ fn a_body_longer_than_declared_is_refused() {
     let root = scratch("too-long");
     let err = download(&client(), &bundle, &root.join("downloads")).unwrap_err();
     let text = err.to_string();
-    assert!(text.starts_with(forge_market::ERR_BODY_TOO_LARGE), "{text}");
+    assert!(
+        text.starts_with(hearth_market::ERR_BODY_TOO_LARGE),
+        "{text}"
+    );
     // Both numbers are in the message, so the operator sees which side lied.
     assert!(text.contains(&TARBALL_GZ.len().to_string()), "{text}");
     assert!(text.contains(&longer.len().to_string()), "{text}");
@@ -456,7 +460,7 @@ fn a_failed_tarball_request_names_its_status() {
     let root = scratch("status");
     let err = download(&client(), &bundle, &root.join("downloads")).unwrap_err();
     let text = err.to_string();
-    assert!(text.starts_with(forge_market::ERR_HTTP_STATUS), "{text}");
+    assert!(text.starts_with(hearth_market::ERR_HTTP_STATUS), "{text}");
     assert!(text.contains("404"), "{text}");
     let _ = fs::remove_dir_all(&root);
 }
@@ -494,13 +498,13 @@ fn the_fetched_index_refuses_a_version_it_does_not_publish() {
     let err = index.resolve("fixture", "^0.3").unwrap_err();
     assert!(
         err.to_string()
-            .starts_with(forge_market::ERR_RANGE_REQUIREMENT),
+            .starts_with(hearth_market::ERR_RANGE_REQUIREMENT),
         "{err}"
     );
     let err = index.resolve("fixture", "9.9.9").unwrap_err();
     assert!(
         err.to_string()
-            .starts_with(forge_market::ERR_UNKNOWN_VERSION),
+            .starts_with(hearth_market::ERR_UNKNOWN_VERSION),
         "{err}"
     );
     assert!(err.to_string().contains("0.3.1"), "{err}");

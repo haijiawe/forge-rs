@@ -1,15 +1,15 @@
 //! The goal a session is working toward, as a read-only wire value.
 //!
 //! Layer L3. A goal is not server state: it is three `goal/*` lines in the
-//! session log, and `forge_goal::fold` is the state machine that turns them
-//! back into a [`forge_goal::Goal`]. This module carries that fold to the
+//! session log, and `hearth_goal::fold` is the state machine that turns them
+//! back into a [`hearth_goal::Goal`]. This module carries that fold to the
 //! browser and nothing else, so `GET /api/sessions/{id}/goal` answers on a box
 //! that has never run a turn and on a session whose model provider is dead.
 //!
 //! Three rules for what belongs here:
 //!
 //! 1. **Read, do not create.** A missing log is [`Problem::NotFound`], never a
-//!    file to open for append. `forge_session::Store::open` would create the
+//!    file to open for append. `hearth_session::Store::open` would create the
 //!    file it cannot find, so this module reads the bytes itself and parses
 //!    them with `Event::parse_line`, the same way `fold_session` in
 //!    `server.rs` does for the other read-only routes.
@@ -33,8 +33,8 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use forge_core::Event;
-use forge_goal::{Action, Goal};
+use hearth_core::Event;
+use hearth_goal::{Action, Goal};
 use serde::{Deserialize, Serialize};
 
 /// Why [`read`] could not answer.
@@ -86,7 +86,7 @@ pub struct GoalView {
 /// Fold a list of events into the answer. Pure: no I/O, no clock, no lock.
 pub fn report(events: &[Event]) -> Reply {
     Reply {
-        goal: forge_goal::fold(events).as_ref().map(view),
+        goal: hearth_goal::fold(events).as_ref().map(view),
     }
 }
 
@@ -147,7 +147,7 @@ fn events_in(content: &str) -> Vec<Event> {
 /// count rounds, and `goal/created` already spent round 1. So a goal with
 /// `rounds: 0` is on round 1 and its next round is round 2 — `round + 1` here.
 /// Reporting the raw member would promise a round the loop has already
-/// numbered differently, and `forge goal status` would print "next round 2"
+/// numbered differently, and `hearth goal status` would print "next round 2"
 /// while this route said "nextRound": 1 about the same log.
 fn view(goal: &Goal) -> GoalView {
     let next_round = match goal.next_action() {
@@ -169,8 +169,8 @@ fn view(goal: &Goal) -> GoalView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use forge_core::EventType;
-    use forge_goal::{goal_continued, goal_created, goal_ended, StopReason};
+    use hearth_core::EventType;
+    use hearth_goal::{goal_continued, goal_created, goal_ended, StopReason};
     use serde_json::{json, Value};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -294,7 +294,7 @@ mod tests {
     impl TempLog {
         fn new(label: &str) -> TempLog {
             TempLog(std::env::temp_dir().join(format!(
-                "forge-goal-route-{}-{}-{}.jsonl",
+                "hearth-goal-route-{}-{}-{}.jsonl",
                 label,
                 std::process::id(),
                 NEXT_FILE.fetch_add(1, Ordering::Relaxed)

@@ -1,4 +1,4 @@
-//! Captures the compiler version for `forge --version` and the doctor report.
+//! Captures the compiler version for `hearth --version` and the doctor report.
 //!
 //! Why a build script: the Go build stamped `runtime.Version()` at build time.
 //! Rust has no runtime version string, and printing a hard-coded one would go
@@ -23,5 +23,5 @@ fn main() {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "unknown".to_string());
-    println!("cargo:rustc-env=FORGE_RUSTC_VERSION={version}");
+    println!("cargo:rustc-env=HEARTH_RUSTC_VERSION={version}");
 }

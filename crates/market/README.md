@@ -3,7 +3,7 @@ dir: crates/market
 layer: L2
 role: plugin market — index fetch, resolve, checksummed download, tar/tar.gz pack and unpack, install record
 public: [Index, Bundle, Engines, Platform, host_platform, KNOWN_OS, KNOWN_ARCH, INDEX_VERSION, Store, InstalledSet, InstalledRecord, InstalledFile, install, install_bytes, uninstall, list, modified_files, extract_to, Installed, Removed, download, verify_file, open_tarball, pack_dir, Packed, parse_tar, Archive, Entry, MAX_ENTRIES, unpack, Unpacked, gunzip, gunzip_limited, is_gzip, inflate, inflate_from, sha256_hex, is_sha256_hex, digest_of_file, crc32, crc16_from_crc32, is_safe_name, is_safe_version, is_safe_relative_path, is_absolute_http_url, now_rfc3339, rfc3339_from_epoch, BUNDLES_DIR, RECORD_NAME, RECORD_VERSION, STAGING_DIR, DEFAULT_MAX_OUTPUT, DEFAULT_MAX_GZIP_OUTPUT]
-may_import: [forge-core, forge-net]
+may_import: [hearth-core, hearth-net]
 must_not:
   - import any crate above L2
   - add flate2, tar or sha2; the budget answers to "why can the standard library not do this"
@@ -11,7 +11,7 @@ must_not:
   - write outside the destination directory during an unpack
   - keep an install that failed verification
   - let pack and unpack disagree about the format; pack writes what parse_tar reads
-gate: cargo test -p forge-market --offline
+gate: cargo test -p hearth-market --offline
 ---
 
 ## 做什么
@@ -54,11 +54,11 @@ Every refusal prefix lives in `error` as a `pub const ERR_*`, so a caller (and a
 
 ## 依赖与边界
 
-`forge-core` for `Error`/`ErrorKind`/`Result`, `forge-net` for the HTTP client, and `ring` for SHA-256 — all three already in the budget, none of them added for this crate. `serde` and `serde_json` are here because the index and the record are JSON.
+`hearth-core` for `Error`/`ErrorKind`/`Result`, `hearth-net` for the HTTP client, and `ring` for SHA-256 — all three already in the budget, none of them added for this crate. `serde` and `serde_json` are here because the index and the record are JSON.
 
 There is deliberately no `flate2`, no `tar` and no `sha2`. The DEFLATE decoder in `inflate` covers all three RFC 1951 block types (stored, fixed Huffman, dynamic Huffman), all 29 length codes and 30 distance codes, the repeat codes 16/17/18 in the code-length alphabet, and a bounded output buffer; it does not accept preset dictionaries (gzip has no such field) or trailing bytes after the final block. It is checked against vectors produced by a reference encoder, one of which is a real `tar -czf` blob from this machine with its digest pinned in the tests, so the dynamic-Huffman path — the one that tends to be silently wrong — is exercised against output no test writer made up. The tar reader is hand-written for the same reason: 512-byte headers, octal and GNU base-256 numbers, GNU `L` and pax `x` long names, ustar `prefix`, and both spellings of the header checksum.
 
-HTTP is not re-implemented here. `forge_net::Client` owns redirects, TLS trust roots, the deadline and the body cap; this crate only decides what a status, a length and a digest mean. A non-2xx response is reported as a refusal naming the status, never retried and never treated as a transport failure.
+HTTP is not re-implemented here. `hearth_net::Client` owns redirects, TLS trust roots, the deadline and the body cap; this crate only decides what a status, a length and a digest mean. A non-2xx response is reported as a refusal naming the status, never retried and never treated as a transport failure.
 
 The window is narrow on purpose: this crate does not sign anything, and it does not run what it installs. `engines` is recorded, not enforced. `pack_dir` produces bytes; it does not host them and it does not write an index — the CLI does that, because a URL is the publisher's decision and this crate has no opinion about one.
 

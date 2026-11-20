@@ -12,7 +12,7 @@
 //! understand: the fields it does not understand are exactly the ones that would
 //! change what "verified" means.
 
-use forge_core::Result;
+use hearth_core::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{
@@ -153,7 +153,7 @@ impl Bundle {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Engines {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub forge: Option<String>,
+    pub hearth: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<String>,
 }
@@ -292,8 +292,8 @@ impl Index {
         }
         let all: Vec<&Bundle> = self.versions_of(name);
         if all.is_empty() {
-            return Err(forge_core::Error::new(
-                forge_core::ErrorKind::NotFound,
+            return Err(hearth_core::Error::new(
+                hearth_core::ErrorKind::NotFound,
                 format!("{}: {name:?}", ERR_UNKNOWN_NAME),
             ));
         }
@@ -391,8 +391,8 @@ impl Index {
                     .collect();
                 versions.sort_unstable();
                 versions.dedup();
-                Err(forge_core::Error::new(
-                    forge_core::ErrorKind::NotFound,
+                Err(hearth_core::Error::new(
+                    hearth_core::ErrorKind::NotFound,
                     format!(
                         "{}: {name:?} has {}",
                         ERR_UNKNOWN_VERSION,
@@ -511,7 +511,7 @@ fn validate_bundle(bundle: &mut Bundle, position: usize) -> Result<()> {
 }
 
 /// A bundle name becomes `<root>/bundles/<name>`; the rule is the same one
-/// `forge-skill` and the plugin protocol use for a name that becomes a path.
+/// `hearth-skill` and the plugin protocol use for a name that becomes a path.
 pub fn is_safe_name(name: &str) -> bool {
     let mut bytes = name.bytes();
     match bytes.next() {
@@ -615,7 +615,7 @@ mod tests {
         let text = r#"{"version":2,"bundles":[]}"#;
         let err = Index::parse(text.as_bytes()).unwrap_err();
         assert!(err.to_string().starts_with(ERR_INDEX_VERSION), "{err}");
-        assert_eq!(err.kind(), forge_core::ErrorKind::UnsupportedVersion);
+        assert_eq!(err.kind(), hearth_core::ErrorKind::UnsupportedVersion);
     }
 
     #[test]
@@ -780,7 +780,7 @@ mod tests {
 
         let err = index.resolve("beta", "1.0.0").unwrap_err();
         assert!(err.to_string().starts_with(ERR_UNKNOWN_NAME), "{err}");
-        assert_eq!(err.kind(), forge_core::ErrorKind::NotFound);
+        assert_eq!(err.kind(), hearth_core::ErrorKind::NotFound);
 
         let err = index.resolve("alpha", "9.9.9").unwrap_err();
         assert!(err.to_string().starts_with(ERR_UNKNOWN_VERSION), "{err}");
@@ -810,7 +810,7 @@ mod tests {
     #[test]
     fn an_unknown_member_does_not_stop_a_v1_index_from_reading() {
         // Additive members are how a market grows without a version bump; the
-        // same rule `forge-core` states for event payloads.
+        // same rule `hearth-core` states for event payloads.
         let text = format!(
             r#"{{"version":1,"bundles":[{{"name":"a","version":"1","description":"d","tarball":"https://x.invalid/a.tar","sha256":"{}","size":1,"screenshots":["a.png"]}}]}}"#,
             sha256_hex(b"x")

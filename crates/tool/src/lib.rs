@@ -1,6 +1,6 @@
 //! Registry, executor, policy, approvals and the seven built-in tools.
 //!
-//! Layer L2. The crate depends only on `forge-core`, `forge-exec`, `forge-llm`,
+//! Layer L2. The crate depends only on `hearth-core`, `hearth-exec`, `hearth-llm`,
 //! `serde` and `serde_json`. It writes no events: the loop owns the session log.
 
 #![forbid(unsafe_code)]
@@ -46,13 +46,13 @@ pub use truncate::{
 /// adapter test below proves `Executor` satisfies the same specs/run contract.
 #[cfg(test)]
 trait ToolRunner {
-    fn specs(&self) -> Vec<forge_llm::ToolSpec>;
+    fn specs(&self) -> Vec<hearth_llm::ToolSpec>;
     fn run(&self, call: Call) -> Result;
 }
 
 #[cfg(test)]
 impl ToolRunner for Executor {
-    fn specs(&self) -> Vec<forge_llm::ToolSpec> {
+    fn specs(&self) -> Vec<hearth_llm::ToolSpec> {
         Executor::specs(self)
     }
 
@@ -70,8 +70,8 @@ mod tests {
     struct Echo;
 
     impl Tool for Echo {
-        fn spec(&self) -> forge_llm::ToolSpec {
-            forge_llm::ToolSpec {
+        fn spec(&self) -> hearth_llm::ToolSpec {
+            hearth_llm::ToolSpec {
                 name: "echo".into(),
                 description: "Echo the text argument".into(),
                 schema: json!({"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}),
@@ -164,7 +164,7 @@ mod tests {
 
         let mut options = Options::new(DefaultLimits);
         let client = std::sync::Arc::new(
-            forge_net::Client::new(forge_net::ClientOptions::default()).expect("client"),
+            hearth_net::Client::new(hearth_net::ClientOptions::default()).expect("client"),
         );
         options.net = Some(std::sync::Arc::clone(&client));
         let with_fetch = names(&options);

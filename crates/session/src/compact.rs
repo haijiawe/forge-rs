@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use forge_core::{Error, ErrorKind, Event, EventType, Result};
+use hearth_core::{Error, ErrorKind, Event, EventType, Result};
 use serde_json::{json, Value};
 
 use crate::store::Store;
@@ -56,7 +56,7 @@ pub const DEFAULT_SUMMARY_BYTES: usize = 2048;
 /// result cannot consume the whole budget and hide the rest of the history.
 const SNIPPET_BYTES: usize = 120;
 
-/// `forge_core::Error` carries no downcast target, so the four refusals are
+/// `hearth_core::Error` carries no downcast target, so the four refusals are
 /// identified by the message each one starts with — the same strings the Go
 /// sentinels use, which is what lets a ported test read either implementation.
 pub fn is_already_compacted(err: &Error) -> bool {
@@ -550,7 +550,7 @@ pub fn compact(
 ///
 /// The trait is declared here, in the consumer, because compaction is the only
 /// thing that needs one: a provider-backed summary (an LLM) is an option, not a
-/// dependency, so `forge-session` must not import one to name the shape it wants.
+/// dependency, so `hearth-session` must not import one to name the shape it wants.
 pub trait Summarizer {
     fn summarize(&self, events: &[Event]) -> Result<String>;
 }

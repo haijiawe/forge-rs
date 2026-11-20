@@ -12,13 +12,13 @@ use std::io::Write;
 use std::path::Path;
 
 use common::TempDir;
-use forge_core::event::{Event, EventType};
-use forge_core::ErrorKind;
-use forge_session::{Options as StoreOptions, Store};
-use forge_subagent::catalog::CatalogEntry;
-use forge_subagent::child::child_log_path;
-use forge_subagent::descriptor::{Descriptor, Mode};
-use forge_subagent::list::{self, Diagnostic};
+use hearth_core::event::{Event, EventType};
+use hearth_core::ErrorKind;
+use hearth_session::{Options as StoreOptions, Store};
+use hearth_subagent::catalog::CatalogEntry;
+use hearth_subagent::child::child_log_path;
+use hearth_subagent::descriptor::{Descriptor, Mode};
+use hearth_subagent::list::{self, Diagnostic};
 use serde_json::json;
 
 /// A data dir with the `sessions/` directory the store writes into.

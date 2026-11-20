@@ -50,8 +50,8 @@ function Configured({ report, error }: { report: CapabilityReport | null; error:
     return (
       <p className="muted capability-note">
         the configured set could not be read: <code>{error}</code>. this pane lists only what the
-        last request carried; <code>forge plugin list</code>, <code>forge expert list</code> and{' '}
-        <code>forge team list</code> read it from the CLI.
+        last request carried; <code>hearth plugin list</code>, <code>hearth expert list</code> and{' '}
+        <code>hearth team list</code> read it from the CLI.
       </p>
     );
   }

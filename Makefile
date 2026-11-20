@@ -29,22 +29,22 @@ bench:
 	cargo bench --offline
 
 bench-run: build
-	cargo run --release -q -p forge-bench --offline --
+	cargo run --release -q -p hearth-bench --offline --
 
 bench-record: build
-	cargo run --release -q -p forge-bench --offline -- -out scripts/bench/baseline.json -baseline ""
+	cargo run --release -q -p hearth-bench --offline -- -out scripts/bench/baseline.json -baseline ""
 
 bench-check: build
-	cargo run --release -q -p forge-bench --offline -- -strict
+	cargo run --release -q -p hearth-bench --offline -- -strict
 
 # Cross builds are compile checks only: x86_64-unknown-linux-gnu and
 # aarch64-apple-darwin are installed, but no linker for either triple exists on
 # this host. Do not turn this into a link step and call it verified.
 #
-# forge-cli is excluded because rustls/ring compiles C and needs a target cc;
+# hearth-cli is excluded because rustls/ring compiles C and needs a target cc;
 # this host has none. The other nine crates are pure Rust and can be checked.
 release:
 	@echo "release: compile-checking installed cross targets only (no linkers on this host)"
-	@echo "release: forge-cli excluded (rustls/ring needs a target C compiler)"
-	cargo check --release --offline --target x86_64-unknown-linux-gnu --workspace --exclude forge-cli
-	cargo check --release --offline --target aarch64-apple-darwin --workspace --exclude forge-cli
+	@echo "release: hearth-cli excluded (rustls/ring needs a target C compiler)"
+	cargo check --release --offline --target x86_64-unknown-linux-gnu --workspace --exclude hearth-cli
+	cargo check --release --offline --target aarch64-apple-darwin --workspace --exclude hearth-cli

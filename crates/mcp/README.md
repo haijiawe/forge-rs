@@ -20,11 +20,11 @@ public:
   - ErrProtocolVersion
 may_import: []
 must_not:
-  - import any forge crate, including forge-core
+  - import any hearth crate, including hearth-core
   - put stderr bytes into the JSON-RPC stream
   - handshake inside Dial
   - use the real network in tests
-gate: cargo test -p forge-mcp --offline
+gate: cargo test -p hearth-mcp --offline
 ---
 
 ## 做什么
@@ -47,7 +47,7 @@ receives stderr and diagnostics — it never receives protocol bytes.
 
 ## 依赖与边界
 
-No forge-internal dependency, not even `forge-core`: MCP is an external
+No hearth-internal dependency, not even `hearth-core`: MCP is an external
 protocol and must not be bound to internal event or error types. External
 dependencies are `serde`/`serde_json` for wire JSON and
 `rustls`/`rustls-pki-types`/`webpki-roots` for HTTPS, all from the workspace

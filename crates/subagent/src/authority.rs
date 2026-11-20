@@ -20,8 +20,8 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use forge_core::event::EventType;
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::event::EventType;
+use hearth_core::{Error, ErrorKind, Result};
 
 use crate::child::{child_log_path, is_child_id};
 use crate::list::read_events;

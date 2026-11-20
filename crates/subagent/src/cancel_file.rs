@@ -1,7 +1,7 @@
 //! Cross-process interrupt requests, carried as a file in the data directory.
 //!
 //! `Runner::interrupt` cancels a child that is running in *this* process by
-//! tripping the cancel token it registered under the child's id. A `forge
+//! tripping the cancel token it registered under the child's id. A `hearth
 //! subagent interrupt <id>` invocation is a different process, so it cannot see
 //! that token. Instead it drops a marker file next to the child's log:
 //! `<data_dir>/sessions/<id>.cancel`. A `Runner` that is running that child
@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 
 use crate::child::is_child_id;
 
@@ -68,7 +68,7 @@ mod tests {
 
     fn dir(label: &str) -> PathBuf {
         let path =
-            std::env::temp_dir().join(format!("forge-cancel-{label}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("hearth-cancel-{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).expect("temp dir");
         path

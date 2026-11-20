@@ -1,6 +1,6 @@
 //! Behaviour of the two network tools against a real loopback server.
 //!
-//! The point is not that HTML is stripped — the unit tests in `forge-net` cover
+//! The point is not that HTML is stripped — the unit tests in `hearth-net` cover
 //! that — but that the tool builds a request a server answers, reports a
 //! non-success as data, and turns a broken search endpoint into a code the
 //! model can act on instead of a panic or a lie.
@@ -10,7 +10,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 
-use forge_tool::{Call, SearchConfig, Tool, WebFetchTool, WebSearchTool, WEB_CODE_BAD_CONTENT};
+use hearth_tool::{Call, SearchConfig, Tool, WebFetchTool, WebSearchTool, WEB_CODE_BAD_CONTENT};
 use serde_json::json;
 
 fn serve<F>(responses: usize, handler: F) -> String
@@ -66,8 +66,8 @@ fn response(status: &str, headers: &[(&str, &str)], body: &str) -> Vec<u8> {
     out.into_bytes()
 }
 
-fn client() -> Arc<forge_net::Client> {
-    Arc::new(forge_net::Client::new(forge_net::ClientOptions::default()).expect("client"))
+fn client() -> Arc<hearth_net::Client> {
+    Arc::new(hearth_net::Client::new(hearth_net::ClientOptions::default()).expect("client"))
 }
 
 fn call(name: &str, args: serde_json::Value) -> Call {
@@ -84,7 +84,7 @@ fn fetch_turns_a_page_into_text_and_reports_the_status() {
              <body><h1>Heading</h1><p>first&amp;second</p><script>x()</script></body></html>",
         )
     });
-    let tool = WebFetchTool::new(forge_tool::DefaultLimits, client());
+    let tool = WebFetchTool::new(hearth_tool::DefaultLimits, client());
     let result = tool.call(call("web_fetch", json!({ "url": base })));
     assert!(!result.is_error, "{}", result.output);
     assert!(result.output.starts_with("200 "), "{}", result.output);
@@ -99,7 +99,7 @@ fn fetch_returns_a_non_success_status_as_data() {
     let base = serve(1, |_, _| {
         response("404 Not Found", &[("Content-Type", "text/plain")], "gone")
     });
-    let tool = WebFetchTool::new(forge_tool::DefaultLimits, client());
+    let tool = WebFetchTool::new(hearth_tool::DefaultLimits, client());
     let result = tool.call(call("web_fetch", json!({ "url": base })));
     // A missing page is a fact about the page, not a broken tool.
     assert!(!result.is_error, "{}", result.output);
@@ -109,10 +109,10 @@ fn fetch_returns_a_non_success_status_as_data() {
 
 #[test]
 fn fetch_refuses_a_url_that_is_not_http() {
-    let tool = WebFetchTool::new(forge_tool::DefaultLimits, client());
+    let tool = WebFetchTool::new(hearth_tool::DefaultLimits, client());
     let result = tool.call(call("web_fetch", json!({ "url": "file:///etc/passwd" })));
     assert!(result.is_error);
-    assert_eq!(result.code, forge_tool::ERR_BAD_ARGS);
+    assert_eq!(result.code, hearth_tool::ERR_BAD_ARGS);
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn search_parses_a_results_list_and_sends_the_key() {
         )
     });
     let tool = WebSearchTool::new(
-        forge_tool::DefaultLimits,
+        hearth_tool::DefaultLimits,
         client(),
         SearchConfig {
             endpoint: format!("{base}/search"),
@@ -166,7 +166,7 @@ fn search_reports_an_endpoint_that_is_not_json() {
         )
     });
     let tool = WebSearchTool::new(
-        forge_tool::DefaultLimits,
+        hearth_tool::DefaultLimits,
         client(),
         SearchConfig {
             endpoint: format!("{base}/search"),
@@ -188,7 +188,7 @@ fn search_turns_an_error_status_into_an_error_result() {
         response("429 Too Many Requests", &[], "slow down")
     });
     let tool = WebSearchTool::new(
-        forge_tool::DefaultLimits,
+        hearth_tool::DefaultLimits,
         client(),
         SearchConfig {
             endpoint: format!("{base}/search"),

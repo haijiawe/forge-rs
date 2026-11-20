@@ -11,7 +11,7 @@ use std::os::windows::process::CommandExt;
 pub(crate) fn apply(
     command: &mut std::process::Command,
     line: Option<&str>,
-) -> forge_core::Result<()> {
+) -> hearth_core::Result<()> {
     if let Some(line) = line {
         if !line.is_empty() {
             // `raw_arg` appends the text after the quoted program path without

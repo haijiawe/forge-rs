@@ -15,10 +15,10 @@ public:
   - Result
 may_import: []
 must_not:
-  - import any other forge crate
+  - import any other hearth crate
   - validate payload members (only the envelope is enforced)
   - depend on the filesystem, the clock, or the network
-gate: cargo test -p forge-core --offline
+gate: cargo test -p hearth-core --offline
 ---
 
 ## 做什么
@@ -53,5 +53,5 @@ session is, or what a tool is, belongs one layer up.
   history.
 - Do not make `v` optional or defaulted. A record without a version is a record
   whose meaning cannot be checked, and guessing is worse than refusing.
-- Do not add file or network access. `forge-session` owns the file; this crate
+- Do not add file or network access. `hearth-session` owns the file; this crate
   owns the bytes.

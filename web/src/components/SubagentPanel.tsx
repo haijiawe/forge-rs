@@ -10,7 +10,7 @@
 // - no children, no panel: a session that never delegated should not carry an
 //   empty box saying so;
 // - a failed read prints one quiet line pointing at the CLI, because the
-//   sessions still works and the operator still has `forge subagent tree`;
+//   sessions still works and the operator still has `hearth subagent tree`;
 // - a child whose log is unreadable keeps its row with the diagnostic, since
 //   hiding it would make it look like a child that never existed.
 import { describeState, flatten, type SubagentRow, type SubagentTree } from '../api/subagents';
@@ -31,7 +31,7 @@ export function SubagentPanel({ tree, error }: SubagentPanelProps) {
     return (
       <section className="subagents" aria-label="subagents">
         <p className="subagents-empty">
-          the subagent tree could not be read: <code>{error}</code> — try <code>forge subagent tree</code>
+          the subagent tree could not be read: <code>{error}</code> — try <code>hearth subagent tree</code>
         </p>
       </section>
     );

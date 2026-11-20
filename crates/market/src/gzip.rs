@@ -9,7 +9,7 @@
 //! and silently reading the first member of one is exactly the kind of "mostly
 //! worked" that leaves a half-populated directory.
 
-use forge_core::Result;
+use hearth_core::Result;
 
 use crate::crc32::crc32;
 use crate::error::{

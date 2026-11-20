@@ -6,7 +6,7 @@
 - **Decision owner:** the user. This document records the consequences, not the
   debate; ADR-0001 keeps the measurements that led to Go so the reversal has a
   paper trail.
-- **Scope:** a new tree at `D:\魔改版Agent框架\forge-rs`. The Go tree this port
+- **Scope:** a new tree at `D:\魔改版Agent框架\hearth`. The Go tree this port
   started from was **deleted on 2026-11-17**, at the user's instruction, once the
   port had passed W6 and the five capability crates were wired in. It spent its
   last day archived (git history intact) as the frozen reference implementation,
@@ -52,29 +52,29 @@ per boundary that a reviewer would want to see violated loudly:
 
 | Crate | Layer | Holds | Must not |
 | --- | --- | --- | --- |
-| `forge-core` | L0 | event envelope, ids, canonical JSON, error kinds | import any other forge crate |
-| `forge-config` | L0 | config file, home dir, defaults, validation | know about sessions |
-| `forge-exec` | L1 | spawn, stdio, timeouts, process-tree kill, sandbox hook | know about tools or sessions |
-| `forge-sandbox` | L1 | containment: job objects, Landlock, `sandbox-exec` | know about the model |
-| `forge-session` | L2 | append-only log, projection, compaction, decisions, fork | perform I/O outside its log |
-| `forge-llm` | L2 | provider contract, OpenAI-compatible SSE client | know about sessions |
-| `forge-tool` | L2 | registry, executor, policy, approvals, builtin tools | decide policy itself |
-| `forge-protocol` | L2 | wire types shared by server and UI | depend on the server |
-| `forge-net` | L1 | blocking HTTP(S) client, HTML to text, redirects | know about tools or the model |
-| `forge-store` | L2 | SQLite index, FTS search, rebuild | own the event log |
-| `forge-import` | L2 | read-only import of old session trees | overwrite an existing session |
-| `forge-subagent` | L2 | nested agent runs on their own logs | run without a depth limit |
-| `forge-mcp` | L1 | MCP stdio/HTTP client | know about sessions or tools |
-| `forge-skill` | L1 | skill frontmatter scanner | import any forge crate |
-| `forge-goal` | L2 | goal lifecycle as events, folding, the continuation prompt | write events itself |
-| `forge-schedule` | L2 | rrule subset to instants, the task registry, due times | run a turn |
-| `forge-market` | L2 | index parse, checksum-verified install, tamper-aware uninstall | trust a tarball before it is digested |
-| `forge-experts` | L1 | Markdown expert/team roster with a closed YAML subset | reach into skills or sessions |
-| `forge-plugin` | L2 | plugin host over stdio JSON-RPC, one protocol, no second transport | run a plugin without a manifest |
-| `forge-team` | L2 | parallel workers over a shared task board | let two workers write one scope |
-| `forge-context` | L2 | addressable blocks over the event log: ranges, ledger, the event | write to a log |
-| `forge-server` | L3 | HTTP/1.1 + WebSocket over the log | contain agent logic |
-| `forge-cli` | L3 | the `forge` binary | hold logic that belongs in a crate |
+| `hearth-core` | L0 | event envelope, ids, canonical JSON, error kinds | import any other hearth crate |
+| `hearth-config` | L0 | config file, home dir, defaults, validation | know about sessions |
+| `hearth-exec` | L1 | spawn, stdio, timeouts, process-tree kill, sandbox hook | know about tools or sessions |
+| `hearth-sandbox` | L1 | containment: job objects, Landlock, `sandbox-exec` | know about the model |
+| `hearth-session` | L2 | append-only log, projection, compaction, decisions, fork | perform I/O outside its log |
+| `hearth-llm` | L2 | provider contract, OpenAI-compatible SSE client | know about sessions |
+| `hearth-tool` | L2 | registry, executor, policy, approvals, builtin tools | decide policy itself |
+| `hearth-protocol` | L2 | wire types shared by server and UI | depend on the server |
+| `hearth-net` | L1 | blocking HTTP(S) client, HTML to text, redirects | know about tools or the model |
+| `hearth-store` | L2 | SQLite index, FTS search, rebuild | own the event log |
+| `hearth-import` | L2 | read-only import of old session trees | overwrite an existing session |
+| `hearth-subagent` | L2 | nested agent runs on their own logs | run without a depth limit |
+| `hearth-mcp` | L1 | MCP stdio/HTTP client | know about sessions or tools |
+| `hearth-skill` | L1 | skill frontmatter scanner | import any hearth crate |
+| `hearth-goal` | L2 | goal lifecycle as events, folding, the continuation prompt | write events itself |
+| `hearth-schedule` | L2 | rrule subset to instants, the task registry, due times | run a turn |
+| `hearth-market` | L2 | index parse, checksum-verified install, tamper-aware uninstall | trust a tarball before it is digested |
+| `hearth-experts` | L1 | Markdown expert/team roster with a closed YAML subset | reach into skills or sessions |
+| `hearth-plugin` | L2 | plugin host over stdio JSON-RPC, one protocol, no second transport | run a plugin without a manifest |
+| `hearth-team` | L2 | parallel workers over a shared task board | let two workers write one scope |
+| `hearth-context` | L2 | addressable blocks over the event log: ranges, ledger, the event | write to a log |
+| `hearth-server` | L3 | HTTP/1.1 + WebSocket over the log | contain agent logic |
+| `hearth-cli` | L3 | the `hearth` binary | hold logic that belongs in a crate |
 
 `tools/archcheck` reads `architecture.yaml` and the crate manifests and fails
 the build when an edge points up. It is the same tool as the Go one, re-derived
@@ -123,7 +123,7 @@ These are not preferences. Each was found by a failing build:
    only the target must move. The fix lives in the environment, not in the
    tracked tree: `check.ps1` derives an ASCII target directory when the checkout
    path is not ASCII, and every CI job sets `CARGO_TARGET_DIR` itself. An
-   earlier draft pinned `target-dir = "D:/forge-rs-target/forge-rs"` in
+   earlier draft pinned `target-dir = "D:/hearth-target/hearth"` in
    `.cargo/config.toml`; on Linux that is one path segment containing a colon
    and it broke the first hosted ubuntu job, so it was removed.
 2. **MSVC only.** The `stable-x86_64-pc-windows-gnu` toolchain is installed but
@@ -167,7 +167,7 @@ Rules that keep the oracle honest:
 - **The conformance runner is shared, not duplicated.** It reads the same
   directory; adding a case adds it to both languages at once.
 
-`cargo test -p forge-core` already runs all 21 cases and reproduces every
+`cargo test -p hearth-core` already runs all 21 cases and reproduces every
 `canonical` array byte for byte (W0, 2026-11-16).
 
 ## 6. Waves
@@ -177,19 +177,19 @@ wave boundary.
 
 | Wave | Delivers | Acceptance | Status (2026-11-16) |
 | --- | --- | --- | --- |
-| **W0** | workspace, `.cargo/config.toml`, `forge-core` (event, ids, canonical JSON, errors), conformance runner, this document | 21/21 cases; canonical bytes identical; `cargo test` green | Delivered, `04ebb4f` |
-| **W1** | `forge-session` (store, recovery, projection), `forge-config`, `forge-exec`, `forge-sandbox`, `forge-cli` (version/help/doctor), `tools/archcheck` | 5 fixture logs replay to the golden projection; torn tail repaired; `--version` < 30 ms; `doctor` prints ten checks | Delivered, `1b5ef75` |
-| **W2** | `forge-llm` (SSE), agent loop with retries, cancellation, steering | fixture streams drive a whole turn; event order matches `tests/golden/agent/text-turn.json` | Delivered, `1242294` |
-| **W3** | `forge-tool` (registry, executor, policy, approvals, 7 builtin tools, danger list) | a tool call executes end to end; approval recorded before asked; denied paths produce `denied`/`denied_refused` | Delivered with W2, `1242294` |
-| **W4** | `forge-protocol`, `forge-server` (HTTP + WS), embedded UI, `forge chat`/`forge web` | API contract §4 satisfied; WS frames; the React build served from the binary | Delivered, `4002c60` |
-| **W5** | index (`rusqlite`), import, MCP, skills, subagent | `forge index --rebuild` / `--search`; `forge import` reproduces an old tree; a fake MCP server's tools appear | Delivered, `4002c60` |
+| **W0** | workspace, `.cargo/config.toml`, `hearth-core` (event, ids, canonical JSON, errors), conformance runner, this document | 21/21 cases; canonical bytes identical; `cargo test` green | Delivered, `04ebb4f` |
+| **W1** | `hearth-session` (store, recovery, projection), `hearth-config`, `hearth-exec`, `hearth-sandbox`, `hearth-cli` (version/help/doctor), `tools/archcheck` | 5 fixture logs replay to the golden projection; torn tail repaired; `--version` < 30 ms; `doctor` prints ten checks | Delivered, `1b5ef75` |
+| **W2** | `hearth-llm` (SSE), agent loop with retries, cancellation, steering | fixture streams drive a whole turn; event order matches `tests/golden/agent/text-turn.json` | Delivered, `1242294` |
+| **W3** | `hearth-tool` (registry, executor, policy, approvals, 7 builtin tools, danger list) | a tool call executes end to end; approval recorded before asked; denied paths produce `denied`/`denied_refused` | Delivered with W2, `1242294` |
+| **W4** | `hearth-protocol`, `hearth-server` (HTTP + WS), embedded UI, `hearth chat`/`hearth web` | API contract §4 satisfied; WS frames; the React build served from the binary | Delivered, `4002c60` |
+| **W5** | index (`rusqlite`), import, MCP, skills, subagent | `hearth index --rebuild` / `--search`; `hearth import` reproduces an old tree; a fake MCP server's tools appear | Delivered, `4002c60` |
 | **W6** | bench, release, docs | portable six-metric bench; three native release runners; this document's claims all measured | Delivered, `4002c60` |
 
 ### W1 evidence (measured on this host, not quoted from a report)
 
 - `pwsh -File check.ps1` (fmt → clippy `-D warnings` → archcheck → workspace tests): **ok**.
-- `forge --version`: **10.5 ms**, binary **1.64 MB** (Go: 11 ms / 13.1 MB).
-- `forge doctor`: 10 checks in **4 ms** warm. The Rust port initially spawned
+- `hearth --version`: **10.5 ms**, binary **1.64 MB** (Go: 11 ms / 13.1 MB).
+- `hearth doctor`: 10 checks in **4 ms** warm. The Rust port initially spawned
   PowerShell for the disk check (664–1379 ms); it now calls
   `GetDiskFreeSpaceExW` from `windows-sys 0.52` — a dependency already present in
   the lock file via `ring`, not a new one.
@@ -199,8 +199,8 @@ wave boundary.
   job-object cap; its "memory allocation failed" line is the expected signal,
   not a failing test.
 - `tools/archcheck` proves its rules by deliberate violations: an upward edge
-  in `crates/core/Cargo.toml` reports `edge.upward: forge-core (L0) depends on
-  forge-exec (L1)` and exits 1.
+  in `crates/core/Cargo.toml` reports `edge.upward: hearth-core (L0) depends on
+  hearth-exec (L1)` and exits 1.
 
 GNU `make` is not installed on this host (only `nmake`, which echoes recipes),
 so `check.ps1` runs the same four steps in the same order as the Makefile.
@@ -211,9 +211,9 @@ so `check.ps1` runs the same four steps in the same order as the Makefile.
 writes the provider. It froze `Role`, `Message`, `ToolCall`, `ToolSpec`,
 `Request::validate`, `Usage`, `Delta`, `Stream`, `Provider`, `ProviderError` and
 `Aggregator` before three agents started in parallel, so the agent loop and the
-SSE client compile against the same shapes. `forge-agent` likewise defines its
-own narrow `ToolRunner` trait; W3's `forge-tool` implements it later instead of
-the two crates waiting on each other. `forge-agent` is declared in
+SSE client compile against the same shapes. `hearth-agent` likewise defines its
+own narrow `ToolRunner` trait; W3's `hearth-tool` implements it later instead of
+the two crates waiting on each other. `hearth-agent` is declared in
 `architecture.yaml` L2, and no new dependency was added to the workspace for
 this split.
 
@@ -223,14 +223,14 @@ across unchanged, which is also the cheapest proof that the wire contract held.
 ### W2/W3 evidence (measured on this host)
 
 - `pwsh -File check.ps1`: **ok** across the whole workspace, after W2/W3 landed.
-- `forge-llm`: 35 integration tests, including UTF-8 split inside 🚀, a 256 KiB
+- `hearth-llm`: 35 integration tests, including UTF-8 split inside 🚀, a 256 KiB
   tool-arguments fragment, exact `[0, 1, 0, 1]` call indices, Retry-After in
   seconds and HTTP-date form, key redaction, and `[DONE]` gating. `https://`
   bases use the workspace-frozen rustls stack, not a TCP-only stub.
-- `forge-agent`: 8 loop tests + 9 summarizer tests. Golden two-step turn matches
+- `hearth-agent`: 8 loop tests + 9 summarizer tests. Golden two-step turn matches
   `tests/golden/agent/text-turn.json` once `ts`/`id` are stripped. The frozen
   `contract.rs` was not edited by the provider or loop agents.
-- `forge-tool`: 31 tests after replacing the brief's accidental hand-rolled
+- `hearth-tool`: 31 tests after replacing the brief's accidental hand-rolled
   regex with the workspace's `regex` crate. The dumber matcher would have
   changed what the model sees from `fs_grep` — a behaviour port cannot ship.
 - `DEFAULT_SUMMARY_BYTES` was first written as 8 KiB by the agent; the lead
@@ -246,8 +246,8 @@ across unchanged, which is also the cheapest proof that the wire contract held.
 - `cargo build --release --offline`: exit 0, native binary **4,368,896 B**. The
   Go release binary was 13.1 MB; the difference is mostly Go's runtime and the
   two HTTP/TLS stacks, not missing functionality.
-- `forge --version` returns in **5 ms** in the bench harness; the Go tree's
-  recorded figure was 7.21 ms. `forge doctor` prints ten checks in warm
+- `hearth --version` returns in **5 ms** in the bench harness; the Go tree's
+  recorded figure was 7.21 ms. `hearth doctor` prints ten checks in warm
   single-digit milliseconds; the sandbox check is a WARN that names exactly
   what this host does and does not confine.
 - Web assets from the unchanged React tree build cleanly
@@ -256,12 +256,12 @@ across unchanged, which is also the cheapest proof that the wire contract held.
   run against the real Rust loopback server; a further six server tests cover
   WebSocket frames, policy-before-upgrade, static cache headers, embedded UI,
   cookie auth, and cancel/steer.
-- `forge-store` rebuilds 1,000 sessions / 100,000 events in **335 ms** best of
-  repeated runs (budget 10 s). `forge-import` ports all six fixture families
-  verbatim and re-parses every output with `forge_core::parse_log`; 37 tests.
-  `forge-mcp` has 43 tests over stdio and HTTP/SSE, `forge-skill` 21 over
-  fixtures and a golden scan, `forge-subagent` 22 including nested delegation.
-- `forge chat`/`forge web` are wired into `crates/cli` with the Go flags,
+- `hearth-store` rebuilds 1,000 sessions / 100,000 events in **335 ms** best of
+  repeated runs (budget 10 s). `hearth-import` ports all six fixture families
+  verbatim and re-parses every output with `hearth_core::parse_log`; 37 tests.
+  `hearth-mcp` has 43 tests over stdio and HTTP/SSE, `hearth-skill` 21 over
+  fixtures and a golden scan, `hearth-subagent` 22 including nested delegation.
+- `hearth chat`/`hearth web` are wired into `crates/cli` with the Go flags,
   exit codes, golden event order, `RecordingApprover`, and per-turn adapters.
   Browser answers are written by the HTTP layer with `decidedBy:"user"`;
   cancelled/timed-out asks are written by the adapter with
@@ -313,13 +313,13 @@ each one is a shape of mistake that will recur in the later waves.
 | Trusting "uniqueness" as global | The same confusion would make `import` reject a legacy log whose ids came from another tool, or make W5's index key on `(session, id)` instead of `(session, seq)`. | events-v1 §9 |
 | A placeholder that "looks finished" | `crates/{llm,protocol,server,tool}` contain only a doc comment naming their wave. Their READMEs say `public: []` and state what is *planned*, because a half-implementation is harder to spot than an empty one. | AGENTS.md law 3 |
 | A fixture that projects to nothing | The first version of `web_compaction_folds_closed_turns_into_one_summary` seeded `{"turn": n}` for every record. The summarizer projects `text`, so the history came out empty, `summarize_messages` took its "one message (the system prompt)" branch and returned an **empty string with no error** — the test failed on the payload, not on the compaction. Seed what the product writes, or the fixture measures nothing. | m4 surface (`text` is the projected field) |
-| Two writers, one guard | `forge_session::compact` refuses an empty summary (`ERR_EMPTY_SUMMARY`), and `forge chat` inherits that guard through `compact_log`. `forge web` builds its summary event by hand and called the summarizer directly, so it had no guard: a log whose records project to no messages would have replaced hundreds of records with an empty summary. The guard now lives in `crates/cli/src/web.rs` too, pinned by `web_compaction_refuses_an_empty_summary` (log bytes identical before and after). A shared helper would have made this impossible; two calls to the same library are not one code path. | session compaction invariants |
+| Two writers, one guard | `hearth_session::compact` refuses an empty summary (`ERR_EMPTY_SUMMARY`), and `hearth chat` inherits that guard through `compact_log`. `hearth web` builds its summary event by hand and called the summarizer directly, so it had no guard: a log whose records project to no messages would have replaced hundreds of records with an empty summary. The guard now lives in `crates/cli/src/web.rs` too, pinned by `web_compaction_refuses_an_empty_summary` (log bytes identical before and after). A shared helper would have made this impossible; two calls to the same library are not one code path. | session compaction invariants |
 | A test that encodes the bug it guards | The handshake test asserted the RFC sample's `Sec-WebSocket-Accept` **without** its trailing `=`, and the WebSocket corpus trimmed `=` from both sides before comparing. So a server that dropped the padding passed 100% of the suite while failing every browser: a browser compares the accept byte for byte. SHA-1 is 20 bytes, so the correct value always ends in one `=`. Both assertions now demand it. When a test compares an encoding, compare the whole encoding. | RFC 6455 §4.2.2, api.md §3 |
-| A flow no real client can perform | `api.md` described a browser that sends `X-Forge-Protocol` on a WebSocket upgrade and presents a cookie "set out of band". A page can do neither: it cannot set handshake headers, and nothing in the product ever set that cookie. Every test passed because the tests wrote raw handshakes and could set any header they liked. Found by driving the shipped bundle in a real browser; see `docs/web-ui.md`. A protocol step that only a hand-written client can execute is not implemented, it is documented. | api.md §2, §3 |
+| A flow no real client can perform | `api.md` described a browser that sends `X-Hearth-Protocol` on a WebSocket upgrade and presents a cookie "set out of band". A page can do neither: it cannot set handshake headers, and nothing in the product ever set that cookie. Every test passed because the tests wrote raw handshakes and could set any header they liked. Found by driving the shipped bundle in a real browser; see `docs/web-ui.md`. A protocol step that only a hand-written client can execute is not implemented, it is documented. | api.md §2, §3 |
 | Blaming the optimiser for a flaky API | After a rebuild, the release binary failed to create package profiles with `ERROR_ACCESS_DENIED` while the debug binary worked — twice, so "thin LTO plus one codegen unit miscompiles our FFI" looked settled. The isolation matrix then showed every configuration passing: the failures were the *same* transient profile-service errors, and only the first run on a fresh path exercises the failure. Sixteen fresh-path runs afterwards: sixteen successes. The tell was that the "permanent" failure went away without a code change. Reproduce a suspected codegen bug N times before pinning the profile against it; a codegen hypothesis is cheap to form and expensive to ship. | 
 | A probe that mutates what it measures | `appcontainer_available()` created a package profile named after the temp directory. Several test processes asked at once, one got `ERROR_PATH_NOT_FOUND`, and the enforcer reported `filesystem: false` on a machine that builds containers fine — for ten minutes the sandbox looked broken and `read-only` was refused for no reason. The probe now only *derives* a SID from a fixed name: an answer, not a side effect. A capability check must not be able to change the answer. | m6 surface (§Windows) |
 | An API that answers before it works | `DeriveAppContainerSidFromAppContainerName` returns `S_OK` and a SID for a name that has **no** profile. Handing that SID to `CreateProcessW` fails with `ERROR_FILE_NOT_FOUND` (2) — a message naming neither the profile nor the SID — or `ERROR_INVALID_PARAMETER` (87). So `package_sid` creates the profile first and derives only on `ERROR_ALREADY_EXISTS`. When two Win32 calls describe the same object, the one that does not create it may be describing nothing. | m6 surface, `crates/sandbox/src/appcontainer.rs` |
-| A quota that arrives as a permission error | After enough `forge.sandbox.*` profiles had accumulated (about ninety), `CreateAppContainerProfile` began refusing **new** names with `ERROR_ACCESS_DENIED` while every existing name kept working, and recovered on its own minutes later. Nothing in the message says "throttled"; it reads like a permissions problem, so the first hour went into auditing ACLs and tokens. The fix is structural, not a bigger retry budget: adopt an existing profile by folder lookup and never re-create it, retry a new one for ~8 s, and fall back to one shared identity rather than refusing to run any command. A resource that can only be *created* once per name makes creation a one-time cost, not a per-run one — treat it that way and the failure mode shrinks to the first run. | m6 surface (§Windows), `crates/sandbox/src/appcontainer.rs` |
+| A quota that arrives as a permission error | After enough `hearth.sandbox.*` profiles had accumulated (about ninety), `CreateAppContainerProfile` began refusing **new** names with `ERROR_ACCESS_DENIED` while every existing name kept working, and recovered on its own minutes later. Nothing in the message says "throttled"; it reads like a permissions problem, so the first hour went into auditing ACLs and tokens. The fix is structural, not a bigger retry budget: adopt an existing profile by folder lookup and never re-create it, retry a new one for ~8 s, and fall back to one shared identity rather than refusing to run any command. A resource that can only be *created* once per name makes creation a one-time cost, not a per-run one — treat it that way and the failure mode shrinks to the first run. | m6 surface (§Windows), `crates/sandbox/src/appcontainer.rs` |
 
 The Windows AppContainer brought four more traps, all of them invisible to a compile
 check and to a test that only inspects its own arguments:
@@ -331,15 +331,15 @@ check and to a test that only inspects its own arguments:
 | The wrapper lost the flag that made it safe | `crates/sandbox/src/lib.rs:wrap_command` rebuilds the command (`*command = wrapped`) for the re-exec path, and the `CREATE_SUSPENDED` flag lives on the old command. The child then ran before `after_start` could adopt it into the job, and `AssignProcessToJobObject` failed with `ERROR_ACCESS_DENIED` (5). `CommandExt` has a setter and no getter, so the flag must be applied **after** wrapping. | Order: build → wrap → flags. |
 | `env_clear()` on a re-exec is a bug | The wrapper was launched with a sanitised environment, so it had no `SystemRoot` and its own `CreateProcessW` failed with `ERROR_ENVVAR_NOT_FOUND` (203) — while the identical command run by hand worked, because a hand-run shell has an environment. `env_clear` means "no environment", not "no extra variables": copy the caller's explicit `env`/`env_remove` calls instead. | Inherit, then subtract. |
 | A correct sandbox that no tool can use | Containment worked and `git` broke, because an AppContainer starts with nothing readable and the Go tree never had to grant a *read*. The kernel-level fix (an `extra_read` list resolved like `extra_write`) was not enough on its own: someone has to decide *which* paths, and that decision belongs in a reviewable file, not in a C struct. | The mechanism in `crates/sandbox`, the policy in `crates/cli/src/grants.rs`, and a config key that replaces it. |
-| Leftovers that quietly disable the strict path | 106 `forge.sandbox.*` profiles accumulated, and the profile service began refusing new names — the sandbox then fell back to the shared identity, which is *narrower* than full-access but no longer per-workspace. The profile service has no enumerate call, so the leftovers were invisible until the directory was counted. | `forge doctor --prune-profiles`, and a fallback that is announced instead of silently taken. |
+| Leftovers that quietly disable the strict path | 106 `hearth.sandbox.*` profiles accumulated, and the profile service began refusing new names — the sandbox then fell back to the shared identity, which is *narrower* than full-access but no longer per-workspace. The profile service has no enumerate call, so the leftovers were invisible until the directory was counted. | `hearth doctor --prune-profiles`, and a fallback that is announced instead of silently taken. |
 | A grant that is correct and unusable | Granting read on `~/.gitconfig` alone still failed: the tool stats every component of the path first, so a missing `FILE_TRAVERSE` on `AppData\Local` killed `git` before it opened anything. The permission that was missing was on a *different object* than the one being granted. | The grant walks the ancestors, and the test's file sits three directories down. |
 | A permission change that costs minutes | Making that walk cheap to *write* was the trap: setting a DACL makes Windows re-evaluate inheritance across the whole subtree — 9 s for `%TEMP%`, 20 s for `AppData`, 25 s for the profile root, and 160 s for `E:\`. Correct code that takes minutes per command is a broken product with a plausible excuse. | Skip a directory whose ACL already grants it (asked via `GetEffectiveRightsFromAclW`), never touch a volume root, keep the workspace grant to the directory itself, and print the pause when one still happens. |
 | A retry that outlives the truth | Pruning 57 leftover profiles took 182 s and removed none: every name was refused with `0x80070005` because the profile service was refusing *everything* at that moment, which a fresh create proved. Retrying per item treated one shared condition as 57 independent failures. | Probe once with the full budget, stop when the first probe fails with nothing removed, and say the service is refusing — 3.9 s and an answer the operator can act on. |
 | A correlation you did not test for | Two variables moved together: profiles failed under `D:\魔改版Agent框架\...` and worked under `%TEMP%`, so the path's non-ASCII characters looked like the cause, and a workaround was built (re-exec from an ASCII copy) that could never work — the failing process could not even create the copy's folder. The real variable was the mandatory integrity label: the project tree is labelled `Low`, its binaries run at Low integrity, and a Low process cannot write `%LOCALAPPDATA%` or read a Medium object's DACL. Every "language" test had been run inside the labelled tree; every "control" outside it. | Change one variable at a time, and when a hypothesis predicts a mechanism, go and look at the mechanism (`whoami /groups` showing `Mandatory Label\Low` was one command away). Then make the failure name the condition and print the fix instead of leaving a workaround that hides it. |
 | An identity check that compares with the wrong boundary | `integrity_rid() < 0x1000` never fires, because Low *is* `0x1000`; the hint stayed silent exactly on the host it was written for. | Compare against the boundary you actually mean (`< Medium, 0x2000`) and name the constant after the meaning, not the example. |
 | A test that cleans up its parent | The bridge tests built their plugin roots directly in `%TEMP%` and removed `root.parent()` at the end — that is `TEMP` itself. Windows refused to delete open files, so the damage was invisible for months; the hosted Linux job owns `/tmp`, deleted it, and took every other test's scratch directory with it. | A per-test base directory (`<base>/plugins`, `<base>/experts`); a test may only delete its own. |
-| A build flag that encodes one machine's network | `forge-bench` shells out to `cargo build -p forge-cli` and always passed `--offline`, which is right on a mirrored development box and fatal on a runner with an empty registry (`failed to download aho-corasick`). | The caller decides: `FORGE_BENCH_OFFLINE=1` on the offline box, absent in the workflow. |
-| A path that is one segment here and two there | `.cargo/config.toml` pinned `target-dir = "D:/forge-rs-target/forge-rs"` to dodge MSVC error `D8050`. To a Linux loader that is one string containing a colon, and the ubuntu job died with `failed to join paths from $LD_LIBRARY_PATH together`. | Pin no machine-specific path in a tracked file; derive it in the local script and let CI set its own. |
+| A build flag that encodes one machine's network | `hearth-bench` shells out to `cargo build -p hearth-cli` and always passed `--offline`, which is right on a mirrored development box and fatal on a runner with an empty registry (`failed to download aho-corasick`). | The caller decides: `HEARTH_BENCH_OFFLINE=1` on the offline box, absent in the workflow. |
+| A path that is one segment here and two there | `.cargo/config.toml` pinned `target-dir = "D:/hearth-target/hearth"` to dodge MSVC error `D8050`. To a Linux loader that is one string containing a colon, and the ubuntu job died with `failed to join paths from $LD_LIBRARY_PATH together`. | Pin no machine-specific path in a tracked file; derive it in the local script and let CI set its own. |
 
 ## 9. Risks
 

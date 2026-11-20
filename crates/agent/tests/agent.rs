@@ -1,13 +1,13 @@
 //! Public-surface tests for the one-turn loop. Every test drives a real
-//! `forge_session::Store` on disk and reads it back, so history is exercised
+//! `hearth_session::Store` on disk and reads it back, so history is exercised
 //! through the same path a resumed session uses (I1).
 
 mod common;
 
 use std::sync::Arc;
 
-use forge_agent::{Agent, Options, Target, TURN_CANCELLED, TURN_COMPLETED, TURN_ERROR};
-use forge_llm::{Delta, ToolCallDelta, Usage};
+use hearth_agent::{Agent, Options, Target, TURN_CANCELLED, TURN_COMPLETED, TURN_ERROR};
+use hearth_llm::{Delta, ToolCallDelta, Usage};
 use serde_json::json;
 
 use common::{
@@ -17,7 +17,7 @@ use common::{
 
 const MODEL: &str = "fake-model";
 const SESSION: &str = "s_test";
-const WORKSPACE: &str = "/work/forge";
+const WORKSPACE: &str = "/work/hearth";
 const SYSTEM: &str = "you are a test assistant";
 
 fn fixed_clock() -> Arc<dyn Fn() -> i64 + Send + Sync> {
@@ -194,9 +194,9 @@ fn prompt_recorded_does_not_duplicate_prompt() {
     // Simulate the HTTP layer: session/start + turn/start(2) + user/message
     // already in the log, with the turn still open (no turn/end).
     {
-        let ev = forge_core::Event::new(
+        let ev = hearth_core::Event::new(
             SESSION,
-            forge_core::EventType::SESSION_START,
+            hearth_core::EventType::SESSION_START,
             Some(json!({
                 "workspace": WORKSPACE,
                 "model": MODEL,
@@ -205,16 +205,16 @@ fn prompt_recorded_does_not_duplicate_prompt() {
             })),
         );
         store.append(&ev).expect("append session/start");
-        let mut ts = forge_core::Event::new(
+        let mut ts = hearth_core::Event::new(
             SESSION,
-            forge_core::EventType::TURN_START,
+            hearth_core::EventType::TURN_START,
             Some(json!({"number": 1})),
         );
         ts.turn = 1;
         store.append(&ts).expect("append turn/start");
-        let mut um = forge_core::Event::new(
+        let mut um = hearth_core::Event::new(
             SESSION,
-            forge_core::EventType::USER_MESSAGE,
+            hearth_core::EventType::USER_MESSAGE,
             Some(json!({"text": "already written", "attachments": []})),
         );
         um.turn = 1;
@@ -244,11 +244,11 @@ fn prompt_recorded_does_not_duplicate_prompt() {
     let events = read_all(&open_store(&path));
     let turn_starts = events
         .iter()
-        .filter(|e| e.typ == forge_core::EventType::TURN_START.as_str())
+        .filter(|e| e.typ == hearth_core::EventType::TURN_START.as_str())
         .count();
     let user_messages = events
         .iter()
-        .filter(|e| e.typ == forge_core::EventType::USER_MESSAGE.as_str())
+        .filter(|e| e.typ == hearth_core::EventType::USER_MESSAGE.as_str())
         .count();
     assert_eq!(turn_starts, 1, "turn/start written twice");
     assert_eq!(user_messages, 1, "user/message written twice");
@@ -258,7 +258,7 @@ fn prompt_recorded_does_not_duplicate_prompt() {
     let user_count = reqs[0]
         .messages
         .iter()
-        .filter(|m| m.role == forge_llm::Role::User)
+        .filter(|m| m.role == hearth_llm::Role::User)
         .count();
     assert_eq!(user_count, 1, "prompt duplicated in model history");
 }
@@ -293,7 +293,7 @@ fn retry_before_text_succeeds() {
     assert!(
         !events
             .iter()
-            .any(|e| e.typ == forge_core::EventType::ERROR.as_str()),
+            .any(|e| e.typ == hearth_core::EventType::ERROR.as_str()),
         "recovered failure must not leave an error event"
     );
 }
@@ -302,15 +302,15 @@ fn retry_before_text_succeeds() {
 /// the failure is transient and ask the loop to retry it anyway.
 #[test]
 fn a_request_error_hook_can_override_a_non_retryable_failure() {
-    use forge_agent::{Hook, HookCall, HookOutcome, Hooks};
+    use hearth_agent::{Hook, HookCall, HookOutcome, Hooks};
 
     let path = temp_log("hook-retry");
     let store = open_store(&path);
     let provider = Arc::new(ScriptedProvider::new(vec![
         // Refused is not retryable by the transport policy, so only a hook can
         // bring this turn back.
-        Response::StartErr(forge_core::Error::new(
-            forge_core::ErrorKind::Refused,
+        Response::StartErr(hearth_core::Error::new(
+            hearth_core::ErrorKind::Refused,
             "policy refused",
         )),
         Response::Deltas(vec![
@@ -369,7 +369,7 @@ fn no_retry_after_text() {
     let events = read_all(&open_store(&path));
     let replies = events
         .iter()
-        .filter(|e| e.typ == forge_core::EventType::ASSISTANT_MESSAGE.as_str())
+        .filter(|e| e.typ == hearth_core::EventType::ASSISTANT_MESSAGE.as_str())
         .count();
     assert_eq!(replies, 1, "text duplicated in the log");
 }
@@ -394,11 +394,11 @@ fn no_tools_refusal() {
     assert!(
         events
             .iter()
-            .any(|e| e.typ == forge_core::EventType::TOOL_CALL.as_str()),
+            .any(|e| e.typ == hearth_core::EventType::TOOL_CALL.as_str()),
         "tool/call must be recorded even when refused"
     );
     assert!(events.iter().any(|e| {
-        e.typ == forge_core::EventType::ERROR.as_str()
+        e.typ == hearth_core::EventType::ERROR.as_str()
             && e.payload
                 .as_ref()
                 .and_then(|p| p.get("code"))
@@ -413,7 +413,7 @@ fn no_tools_refusal() {
 fn cancel_before_first_delta() {
     let path = temp_log("cancel-early");
     let store = open_store(&path);
-    let cancel = forge_agent::Cancel::default();
+    let cancel = hearth_agent::Cancel::default();
     let provider = Arc::new(ScriptedProvider::new(vec![Response::CancelOnFirstRecv(
         cancel.clone(),
     )]));
@@ -430,11 +430,11 @@ fn cancel_before_first_delta() {
     assert!(
         !events
             .iter()
-            .any(|e| e.typ == forge_core::EventType::ERROR.as_str()),
+            .any(|e| e.typ == hearth_core::EventType::ERROR.as_str()),
         "cancelled turn must not emit an error event"
     );
     assert!(events.iter().any(|e| {
-        e.typ == forge_core::EventType::TURN_END.as_str()
+        e.typ == hearth_core::EventType::TURN_END.as_str()
             && e.payload
                 .as_ref()
                 .and_then(|p| p.get("reason"))
@@ -501,7 +501,7 @@ fn resume_rebuilds_history_from_log() {
     let events = read_all(&open_store(&path));
     let starts = events
         .iter()
-        .filter(|e| e.typ == forge_core::EventType::SESSION_START.as_str())
+        .filter(|e| e.typ == hearth_core::EventType::SESSION_START.as_str())
         .count();
     assert_eq!(starts, 1, "resume must not start a new session");
 }
@@ -516,18 +516,18 @@ fn resume_rebuilds_history_from_log() {
 #[test]
 fn attachment_parts_reach_the_provider_request() {
     let path = temp_log("attachments");
-    let blob_root = std::env::temp_dir().join(format!("forge-agent-blobs-{}", std::process::id()));
+    let blob_root = std::env::temp_dir().join(format!("hearth-agent-blobs-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&blob_root);
-    let blobs = forge_session::Blobs::new(blob_root.join("blobs"));
+    let blobs = hearth_session::Blobs::new(blob_root.join("blobs"));
     let id = blobs.put(&[0x89, 0x50, 0x4E, 0x47]).expect("write blob");
 
     let store = open_store(&path);
     // The HTTP layer wrote the prompt, including the reference. History is
     // rebuilt from this, never from a cached message list.
     {
-        let ev = forge_core::Event::new(
+        let ev = hearth_core::Event::new(
             SESSION,
-            forge_core::EventType::SESSION_START,
+            hearth_core::EventType::SESSION_START,
             Some(json!({
                 "workspace": WORKSPACE,
                 "model": MODEL,
@@ -536,16 +536,16 @@ fn attachment_parts_reach_the_provider_request() {
             })),
         );
         store.append(&ev).expect("append session/start");
-        let mut ts = forge_core::Event::new(
+        let mut ts = hearth_core::Event::new(
             SESSION,
-            forge_core::EventType::TURN_START,
+            hearth_core::EventType::TURN_START,
             Some(json!({"number": 1})),
         );
         ts.turn = 1;
         store.append(&ts).expect("append turn/start");
-        let mut um = forge_core::Event::new(
+        let mut um = hearth_core::Event::new(
             SESSION,
-            forge_core::EventType::USER_MESSAGE,
+            hearth_core::EventType::USER_MESSAGE,
             Some(json!({
                 "text": "what is in this picture?",
                 "attachments": [{
@@ -575,7 +575,7 @@ fn attachment_parts_reach_the_provider_request() {
     opt.system = SYSTEM.into();
     opt.prompt_recorded = true;
     opt.clock = fixed_clock();
-    opt.attachments = Some(Arc::new(forge_cli_like_hook(blob_root.clone())));
+    opt.attachments = Some(Arc::new(hearth_cli_like_hook(blob_root.clone())));
     let agent = Agent::new(opt).expect("new agent");
     let (result, error) = agent.run("what is in this picture?");
     assert!(error.is_none(), "turn failed: {:?}", error);
@@ -586,7 +586,7 @@ fn attachment_parts_reach_the_provider_request() {
     let user = reqs[0]
         .messages
         .iter()
-        .find(|m| m.role == forge_llm::Role::User)
+        .find(|m| m.role == hearth_llm::Role::User)
         .expect("a user message");
     assert!(
         user.has_parts(),
@@ -595,7 +595,7 @@ fn attachment_parts_reach_the_provider_request() {
     assert_eq!(user.content, "what is in this picture?");
     assert_eq!(user.parts.len(), 1);
     match &user.parts[0] {
-        forge_llm::ContentPart::Image { media_type, data } => {
+        hearth_llm::ContentPart::Image { media_type, data } => {
             assert_eq!(media_type, "image/png");
             assert_eq!(data, &[0x89, 0x50, 0x4E, 0x47]);
         }
@@ -615,9 +615,9 @@ fn a_hidden_range_is_not_sent_but_the_prompt_still_is() {
     let store = open_store(&path);
     {
         store
-            .append(&forge_core::Event::new(
+            .append(&hearth_core::Event::new(
                 SESSION,
-                forge_core::EventType::SESSION_START,
+                hearth_core::EventType::SESSION_START,
                 Some(json!({
                     "workspace": WORKSPACE,
                     "model": MODEL,
@@ -626,31 +626,31 @@ fn a_hidden_range_is_not_sent_but_the_prompt_still_is() {
                 })),
             ))
             .expect("append session/start");
-        let mut ts = forge_core::Event::new(
+        let mut ts = hearth_core::Event::new(
             SESSION,
-            forge_core::EventType::TURN_START,
+            hearth_core::EventType::TURN_START,
             Some(json!({"number": 1})),
         );
         ts.turn = 1;
         store.append(&ts).expect("append turn/start");
-        let mut um = forge_core::Event::new(
+        let mut um = hearth_core::Event::new(
             SESSION,
-            forge_core::EventType::USER_MESSAGE,
+            hearth_core::EventType::USER_MESSAGE,
             Some(json!({"text": "the old question"})),
         );
         um.turn = 1;
         store.append(&um).expect("append user/message");
-        let mut am = forge_core::Event::new(
+        let mut am = hearth_core::Event::new(
             SESSION,
-            forge_core::EventType::ASSISTANT_MESSAGE,
+            hearth_core::EventType::ASSISTANT_MESSAGE,
             Some(json!({"text": "the old answer", "stopReason": "stop"})),
         );
         am.turn = 1;
         store.append(&am).expect("append assistant/message");
         // A block over exactly those two records, as `compress` would write it.
-        let mut cb = forge_core::Event::new(
+        let mut cb = hearth_core::Event::new(
             SESSION,
-            forge_core::EventType::CONTEXT_COMPRESSED,
+            hearth_core::EventType::CONTEXT_COMPRESSED,
             Some(json!({
                 "blockId": "a".repeat(32),
                 "from": um.seq,
@@ -661,16 +661,16 @@ fn a_hidden_range_is_not_sent_but_the_prompt_still_is() {
         );
         cb.turn = 1;
         store.append(&cb).expect("append context/compressed");
-        let mut ts2 = forge_core::Event::new(
+        let mut ts2 = hearth_core::Event::new(
             SESSION,
-            forge_core::EventType::TURN_START,
+            hearth_core::EventType::TURN_START,
             Some(json!({"number": 2})),
         );
         ts2.turn = 2;
         store.append(&ts2).expect("append turn/start");
-        let mut um2 = forge_core::Event::new(
+        let mut um2 = hearth_core::Event::new(
             SESSION,
-            forge_core::EventType::USER_MESSAGE,
+            hearth_core::EventType::USER_MESSAGE,
             Some(json!({"text": "the new question"})),
         );
         um2.turn = 2;
@@ -720,13 +720,13 @@ fn a_hidden_range_is_not_sent_but_the_prompt_still_is() {
 }
 
 /// The same lookup the CLI wires into `Options::attachments`, spelled here so the
-/// test does not depend on `forge-cli` (which would be a cycle: the CLI is a
+/// test does not depend on `hearth-cli` (which would be a cycle: the CLI is a
 /// consumer of this crate).
-fn forge_cli_like_hook(
+fn hearth_cli_like_hook(
     data_dir: std::path::PathBuf,
-) -> impl Fn(&forge_session::projection::Message) -> Vec<forge_llm::ContentPart> + Send + Sync {
-    let blobs = forge_session::Blobs::new(data_dir.join("blobs"));
-    move |message: &forge_session::projection::Message| {
+) -> impl Fn(&hearth_session::projection::Message) -> Vec<hearth_llm::ContentPart> + Send + Sync {
+    let blobs = hearth_session::Blobs::new(data_dir.join("blobs"));
+    move |message: &hearth_session::projection::Message| {
         message
             .attachments
             .iter()
@@ -739,7 +739,7 @@ fn forge_cli_like_hook(
                 } else {
                     a.media_type.clone()
                 };
-                Some(forge_llm::ContentPart::image(media_type, data))
+                Some(hearth_llm::ContentPart::image(media_type, data))
             })
             .collect()
     }
@@ -779,12 +779,12 @@ fn hiding_a_tool_call_takes_its_result_with_it() {
     let events = read_all(&open_store(&path));
     let call_index = events
         .iter()
-        .position(|e| e.typ == forge_core::EventType::TOOL_CALL.as_str())
+        .position(|e| e.typ == hearth_core::EventType::TOOL_CALL.as_str())
         .expect("the log records the call");
     let call_seq = events[..call_index]
         .iter()
         .rev()
-        .find(|e| e.typ == forge_core::EventType::ASSISTANT_MESSAGE.as_str())
+        .find(|e| e.typ == hearth_core::EventType::ASSISTANT_MESSAGE.as_str())
         .map(|e| e.seq)
         .expect("an assistant record precedes its call");
 
@@ -810,7 +810,7 @@ fn hiding_a_tool_call_takes_its_result_with_it() {
     let has_tool_message = reqs[0]
         .messages
         .iter()
-        .any(|m| m.role == forge_llm::Role::Tool);
+        .any(|m| m.role == hearth_llm::Role::Tool);
     assert!(
         !has_tool_message,
         "the result outlived its call, which every provider rejects: {:?}",
@@ -927,16 +927,16 @@ fn dispatch_observes_every_event_and_survives_a_panicking_listener() {
     let serial_hits: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let serial_sink = Arc::clone(&serial_hits);
 
-    opt.dispatch = forge_agent::Dispatch::none()
+    opt.dispatch = hearth_agent::Dispatch::none()
         // Registration order matters: the panicking listener goes first, so a
         // loop that let one throw end the chain would never reach the recorder.
-        .on_emit(Arc::new(|_: &forge_agent::EventView<'_>| {
+        .on_emit(Arc::new(|_: &hearth_agent::EventView<'_>| {
             panic!("observer blew up")
         }))
-        .on_emit(Arc::new(move |view: &forge_agent::EventView<'_>| {
+        .on_emit(Arc::new(move |view: &hearth_agent::EventView<'_>| {
             sink.lock().unwrap().push(view.typ.to_string());
         }))
-        .on_serial(Arc::new(move |view: &forge_agent::EventView<'_>| {
+        .on_serial(Arc::new(move |view: &hearth_agent::EventView<'_>| {
             serial_sink.lock().unwrap().push(view.typ.to_string());
         }));
 
@@ -1262,7 +1262,7 @@ fn the_request_context_row_names_what_went_out() {
     // must match what a reader computing the same digest would get.
     assert_eq!(
         payload["systemFingerprint"],
-        json!(forge_core::fingerprint(SYSTEM.as_bytes()))
+        json!(hearth_core::fingerprint(SYSTEM.as_bytes()))
     );
     assert_eq!(
         payload["systemFingerprint"].as_str().map(str::len),
@@ -1308,7 +1308,7 @@ fn a_request_with_no_named_endpoint_omits_the_provider() {
 fn a_cancelled_turn_records_who_stopped_it() {
     let path = temp_log("cancel-cause");
     let store = open_store(&path);
-    let cancel = forge_agent::Cancel::default();
+    let cancel = hearth_agent::Cancel::default();
     // The provider raises the token with a cause, the way the HTTP layer does.
     let raiser = cancel.clone();
     let provider = Arc::new(ScriptedProvider::new(vec![Response::CancelOnFirstRecv(
@@ -1325,7 +1325,7 @@ fn a_cancelled_turn_records_who_stopped_it() {
     let events = read_all(&open_store(&path));
     let end = events
         .iter()
-        .find(|e| e.typ == forge_core::EventType::TURN_END.as_str())
+        .find(|e| e.typ == hearth_core::EventType::TURN_END.as_str())
         .and_then(|e| e.payload.clone())
         .expect("a turn/end row");
     assert_eq!(end["reason"], json!(TURN_CANCELLED));
@@ -1355,7 +1355,7 @@ fn a_completed_turn_has_no_cancelled_by() {
     let events = read_all(&open_store(&path));
     let end = events
         .iter()
-        .find(|e| e.typ == forge_core::EventType::TURN_END.as_str())
+        .find(|e| e.typ == hearth_core::EventType::TURN_END.as_str())
         .and_then(|e| e.payload.clone())
         .expect("a turn/end row");
     assert_eq!(end["reason"], json!(TURN_COMPLETED));
@@ -1388,20 +1388,20 @@ fn a_transient_rewrite_does_not_reach_the_next_step() {
     opt.clock = fixed_clock();
     opt.tools = Some(Arc::new(EchoTool::new()));
 
-    let mut hooks = forge_agent::Hooks::none();
-    hooks.push(forge_agent::Hook::new(
+    let mut hooks = hearth_agent::Hooks::none();
+    hooks.push(hearth_agent::Hook::new(
         "redactor",
-        |call: &forge_agent::HookCall<'_>| match call {
-            forge_agent::HookCall::PreStep { messages, .. } => {
+        |call: &hearth_agent::HookCall<'_>| match call {
+            hearth_agent::HookCall::PreStep { messages, .. } => {
                 let mut rewritten = messages.to_vec();
                 for message in &mut rewritten {
-                    if message.role == forge_llm::Role::User {
+                    if message.role == hearth_llm::Role::User {
                         message.content = "REDACTED".into();
                     }
                 }
-                Ok(forge_agent::HookOutcome::Messages(rewritten))
+                Ok(hearth_agent::HookOutcome::Messages(rewritten))
             }
-            _ => Ok(forge_agent::HookOutcome::Unchanged),
+            _ => Ok(hearth_agent::HookOutcome::Unchanged),
         },
     ));
     opt.hooks = hooks;

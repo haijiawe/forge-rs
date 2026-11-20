@@ -1,7 +1,7 @@
 //! The crate's one error type, plus the stable codes a CLI branches on.
 //!
 //! Why an enum of refusal kinds instead of a free-form message: `doctor` and
-//! `forge expert list` have to answer "is the roster usable, and if not, what do
+//! `hearth expert list` have to answer "is the roster usable, and if not, what do
 //! I fix" without a human reading prose. Each kind maps to one fixed string, so
 //! a script can match it and a doc can list it. The message beside the code is
 //! the sentence a human reads, and every one of them ends by naming the fix.
@@ -63,7 +63,7 @@ impl fmt::Display for ErrorKind {
 /// One refusal, with the file it came from already spelled into the message.
 ///
 /// The message always names the path (when there is one) and the fix, because
-/// this string is what `forge doctor` prints and a roster is edited by hand.
+/// this string is what `hearth doctor` prints and a roster is edited by hand.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Error {
     kind: ErrorKind,

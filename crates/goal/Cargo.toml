@@ -1,11 +1,11 @@
 [package]
-name = "forge-goal"
+name = "hearth-goal"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-forge-core = { path = "../core" }
+hearth-core = { path = "../core" }
 serde.workspace = true
 serde_json.workspace = true

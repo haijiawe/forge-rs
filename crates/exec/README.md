@@ -3,16 +3,16 @@ dir: crates/exec
 layer: L1
 role: process spawn, stdio capture, timeout, process-tree kill, sandbox hook
 public: [Command, Result, Runner, Pipe, Sandbox, DEFAULT_MAX_OUTPUT_BYTES, ENV_INHERIT]
-may_import: [forge-core]
-must_not: [forge-sandbox, forge-session, forge-llm, forge-tool, forge-protocol, forge-server, forge-cli]
+may_import: [hearth-core]
+must_not: [hearth-sandbox, hearth-session, hearth-llm, hearth-tool, hearth-protocol, hearth-server, hearth-cli]
 gate: make arch
 ---
 
-# forge-exec
+# hearth-exec
 
 ## 做什么
 
-`forge-exec` 只做一件事：把一条命令变成一个可观察、可终止的进程树。它负责
+`hearth-exec` 只做一件事：把一条命令变成一个可观察、可终止的进程树。它负责
 启动子进程、把 stdin 送进去、按上限收集 stdout/stderr、在超时或取消时杀掉整棵
 进程树，并把结果（退出码、输出、耗时、是否截断）作为数据返回。
 
@@ -40,7 +40,7 @@ gate: make arch
 
 ## 依赖与边界
 
-只依赖 `forge-core`（错误类型）和标准库。不得依赖 `forge-sandbox`：沙箱通过
+只依赖 `hearth-core`（错误类型）和标准库。不得依赖 `hearth-sandbox`：沙箱通过
 `Sandbox` trait 注入，exec 不需要知道 job object、Landlock 或 Seatbelt 的存在。
 不得知道会话、LLM、工具策略或 HTTP。进程树终止由本 crate 自己负责（Windows
 Job Object，Unix 进程组），沙箱的 job object 是额外一层，不是替代品。

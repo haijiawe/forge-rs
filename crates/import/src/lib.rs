@@ -1,4 +1,4 @@
-//! One-way import of retired Forge session logs (session-format v0..v4) into
+//! One-way import of retired Hearth session logs (session-format v0..v4) into
 //! this build's v1 event log.
 //!
 //! Three steps, only the last of which has a side effect: `detect` reads the

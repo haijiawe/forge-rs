@@ -10,7 +10,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 
 use crate::task::{Due, Task};
 
@@ -205,7 +205,7 @@ mod tests {
 
     fn scratch(name: &str) -> PathBuf {
         let root = std::env::temp_dir()
-            .join("forge-schedule-unit")
+            .join("hearth-schedule-unit")
             .join(format!("{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         root

@@ -14,8 +14,8 @@
 
 use std::sync::Arc;
 
-use forge_core::{Error, ErrorKind, Result};
-use forge_llm::{Message, Request, ToolSpec};
+use hearth_core::{Error, ErrorKind, Result};
+use hearth_llm::{Message, Request, ToolSpec};
 
 /// The closure a [`Hook`] runs. Factored into an alias so the field's type is a
 /// name rather than a `dyn Fn(...)` spelling repeated at every mention.
@@ -295,7 +295,7 @@ fn hook_wrong_phase(name: &str, ran_as: &str, returned: &str) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use forge_llm::Message;
+    use hearth_llm::Message;
 
     fn user(text: &str) -> Message {
         Message::user(text)

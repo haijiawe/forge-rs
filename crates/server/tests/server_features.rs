@@ -3,10 +3,10 @@
 //! loopback-only binding, and turn control. Everything runs against a real
 //! loopback listener with no model in the loop.
 
-use forge_core::{Event, EventType};
-use forge_protocol::SnapshotFrame;
-use forge_server::api::{Options, StaticSource, TurnContext, TurnRunner};
-use forge_server::{RateLimit, Server, WS_SUBPROTOCOL};
+use hearth_core::{Event, EventType};
+use hearth_protocol::SnapshotFrame;
+use hearth_server::api::{Options, StaticSource, TurnContext, TurnRunner};
+use hearth_server::{RateLimit, Server, WS_SUBPROTOCOL};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{Read, Write};
@@ -29,7 +29,7 @@ static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 fn unique_dir(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "forge-feature-{}-{}-{}",
+        "hearth-feature-{}-{}-{}",
         label,
         std::process::id(),
         NEXT_DIR.fetch_add(1, Ordering::Relaxed)
@@ -56,14 +56,14 @@ impl TurnRunner for HoldRunner {
         context: &TurnContext,
         _session: &str,
         _text: &str,
-    ) -> forge_core::Result<()> {
+    ) -> hearth_core::Result<()> {
         while !self.stop.load(Ordering::Relaxed) && !context.cancel.is_cancelled() {
             thread::sleep(Duration::from_millis(5));
         }
         Ok(())
     }
 
-    fn cancel(&self) -> forge_core::Result<()> {
+    fn cancel(&self) -> hearth_core::Result<()> {
         Ok(())
     }
 }
@@ -167,7 +167,7 @@ impl Fixture {
         let origin = format!("http://{}", self.addr);
         let content_type = "application/json; charset=utf-8";
         let mut headers = vec![
-            ("X-Forge-Protocol", "1"),
+            ("X-Hearth-Protocol", "1"),
             ("Origin", origin.as_str()),
             ("Authorization", bearer.as_str()),
             ("Content-Type", content_type),
@@ -265,7 +265,8 @@ fn write_masked_frame(stream: &mut TcpStream, opcode: u8, payload: &[u8]) {
 #[test]
 fn websocket_snapshot_backlog_live_ping_and_close() {
     let fixture = Fixture::default();
-    let workspace = std::env::temp_dir().join(format!("forge-ws-workspace-{}", std::process::id()));
+    let workspace =
+        std::env::temp_dir().join(format!("hearth-ws-workspace-{}", std::process::id()));
     let session = fixture.create_session(&workspace);
     fixture.append(&session, EventType::TURN_START, 1, json!({ "number": 1 }));
 
@@ -283,7 +284,7 @@ fn websocket_snapshot_backlog_live_ping_and_close() {
          Connection: keep-alive, Upgrade\r\n\
          Sec-WebSocket-Key: {key}\r\n\
          Sec-WebSocket-Version: 13\r\n\
-         X-Forge-Protocol: 1\r\n\
+         X-Hearth-Protocol: 1\r\n\
          Origin: {origin}\r\n\
          Authorization: {bearer}\r\n\r\n",
         fixture.addr
@@ -302,7 +303,7 @@ fn websocket_snapshot_backlog_live_ping_and_close() {
         head.starts_with("HTTP/1.1 101 Switching Protocols"),
         "{head}"
     );
-    assert!(head.contains("X-Forge-Protocol: 1"), "{head}");
+    assert!(head.contains("X-Hearth-Protocol: 1"), "{head}");
     assert!(head.contains("Sec-WebSocket-Accept:"), "{head}");
 
     let mut accept_value = String::new();
@@ -375,7 +376,7 @@ fn read_upgrade_head(stream: &mut TcpStream) -> String {
 }
 
 /// A browser-shaped upgrade: cookie credential, subprotocol version, and no
-/// `Authorization` or `X-Forge-Protocol` header at all.
+/// `Authorization` or `X-Hearth-Protocol` header at all.
 const WS_PADDED_KEY: &str = "4P9nCkKqC5XSj9D3a7utoQ==";
 /// SHA-1 of `WS_PADDED_KEY` plus the RFC 6455 GUID, base64 with padding.
 const WS_PADDED_ACCEPT: &str = "uYxl2aMFAJzUVMCCqNX8cPhh+8U=";
@@ -427,7 +428,7 @@ fn the_shell_sets_the_cookie_for_the_printed_token() {
     assert_eq!(
         cookie,
         format!(
-            "forge_token={}; HttpOnly; SameSite=Strict; Path=/",
+            "hearth_token={}; HttpOnly; SameSite=Strict; Path=/",
             fixture.token
         )
     );
@@ -436,7 +437,7 @@ fn the_shell_sets_the_cookie_for_the_printed_token() {
 #[test]
 fn a_browser_style_upgrade_authenticates_by_cookie_and_names_its_subprotocol() {
     let fixture = Fixture::default();
-    let workspace = std::env::temp_dir().join(format!("forge-ws-browser-{}", std::process::id()));
+    let workspace = std::env::temp_dir().join(format!("hearth-ws-browser-{}", std::process::id()));
     let session = fixture.create_session(&workspace);
     fixture.append(&session, EventType::TURN_START, 1, json!({ "number": 1 }));
 
@@ -448,7 +449,7 @@ fn a_browser_style_upgrade_authenticates_by_cookie_and_names_its_subprotocol() {
         "a handshake with no credential must be refused: {head}"
     );
 
-    let cookie = format!("forge_token={}", fixture.token);
+    let cookie = format!("hearth_token={}", fixture.token);
     let mut stream = browser_upgrade(&fixture.addr.to_string(), &session, Some(&cookie));
     let head = read_upgrade_head(&mut stream);
     assert!(
@@ -477,14 +478,14 @@ fn a_browser_style_upgrade_authenticates_by_cookie_and_names_its_subprotocol() {
 #[test]
 fn websocket_policy_failure_before_upgrade_is_http() {
     let fixture = Fixture::default();
-    let workspace = std::env::temp_dir().join(format!("forge-ws-policy-{}", std::process::id()));
+    let workspace = std::env::temp_dir().join(format!("hearth-ws-policy-{}", std::process::id()));
     let session = fixture.create_session(&workspace);
     let bearer = format!("Bearer {}", fixture.token);
     let (status, _, bytes) = fixture.raw_request(
         "GET",
         &format!("/api/sessions/{session}/stream"),
         &[
-            ("X-Forge-Protocol", "1"),
+            ("X-Hearth-Protocol", "1"),
             ("Origin", "http://example.com"),
             ("Authorization", bearer.as_str()),
             ("Connection", "Upgrade"),
@@ -508,7 +509,7 @@ fn websocket_policy_failure_before_upgrade_is_http() {
 
 #[test]
 fn static_dir_serves_shell_and_assets_with_distinct_cache_headers() {
-    let root = std::env::temp_dir().join(format!("forge-static-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("hearth-static-{}", std::process::id()));
     let assets = root.join("assets");
     fs::create_dir_all(&assets).expect("create assets dir");
     fs::write(root.join("index.html"), b"<html>shell</html>").expect("write shell");
@@ -568,11 +569,11 @@ fn static_embedded_answers_200_even_without_a_build() {
 #[test]
 fn cookie_auth_and_loopback_only_binding() {
     let fixture = Fixture::default();
-    let cookie = format!("forge_token={}", fixture.token);
+    let cookie = format!("hearth_token={}", fixture.token);
     let (status, _, _) = fixture.raw_request(
         "GET",
         "/api/sessions",
-        &[("X-Forge-Protocol", "1"), ("Cookie", cookie.as_str())],
+        &[("X-Hearth-Protocol", "1"), ("Cookie", cookie.as_str())],
         &[],
     );
     assert_eq!(status, 200, "cookie is an accepted credential");
@@ -609,7 +610,7 @@ fn cancel_and_steer_act_on_a_live_turn() {
         ..Options::default()
     };
     let fixture = Fixture::start(options);
-    let workspace = std::env::temp_dir().join(format!("forge-control-ws-{}", std::process::id()));
+    let workspace = std::env::temp_dir().join(format!("hearth-control-ws-{}", std::process::id()));
     let session = fixture.create_session(&workspace);
 
     let message = json!({ "text": "start a turn" });
@@ -675,11 +676,11 @@ impl TurnRunner for QuickRunner {
         _context: &TurnContext,
         _session: &str,
         _text: &str,
-    ) -> forge_core::Result<()> {
+    ) -> hearth_core::Result<()> {
         Ok(())
     }
 
-    fn cancel(&self) -> forge_core::Result<()> {
+    fn cancel(&self) -> hearth_core::Result<()> {
         Ok(())
     }
 }
@@ -696,7 +697,8 @@ fn a_burst_of_turns_is_refused_with_429_and_retry_after() {
         ..Options::default()
     };
     let fixture = Fixture::start(options);
-    let workspace = std::env::temp_dir().join(format!("forge-ratelimit-ws-{}", std::process::id()));
+    let workspace =
+        std::env::temp_dir().join(format!("hearth-ratelimit-ws-{}", std::process::id()));
     let session = fixture.create_session(&workspace);
 
     for (index, key) in ["rl-1", "rl-2"].iter().enumerate() {
@@ -778,7 +780,7 @@ fn post_message(fixture: &Fixture, session: &str, body: &Value, key: &str) -> (u
 #[test]
 fn an_attachment_body_goes_to_the_blob_store_and_the_event_names_it() {
     let fixture = attachment_fixture("attach-store");
-    let workspace = std::env::temp_dir().join(format!("forge-attach-ws-{}", std::process::id()));
+    let workspace = std::env::temp_dir().join(format!("hearth-attach-ws-{}", std::process::id()));
     let session = fixture.create_session(&workspace);
 
     let payload = b"the bytes of a small image";
@@ -864,7 +866,7 @@ fn an_attachment_body_goes_to_the_blob_store_and_the_event_names_it() {
 fn an_attachment_name_is_never_a_path() {
     let fixture = attachment_fixture("attach-names");
     let workspace =
-        std::env::temp_dir().join(format!("forge-attach-name-ws-{}", std::process::id()));
+        std::env::temp_dir().join(format!("hearth-attach-name-ws-{}", std::process::id()));
     let session = fixture.create_session(&workspace);
 
     for name in [
@@ -891,8 +893,8 @@ fn an_attachment_name_is_never_a_path() {
 #[test]
 fn an_attachment_from_another_session_is_not_served_here() {
     let fixture = attachment_fixture("attach-cross");
-    let one = std::env::temp_dir().join(format!("forge-attach-own-{}", std::process::id()));
-    let two = std::env::temp_dir().join(format!("forge-attach-other-{}", std::process::id()));
+    let one = std::env::temp_dir().join(format!("hearth-attach-own-{}", std::process::id()));
+    let two = std::env::temp_dir().join(format!("hearth-attach-other-{}", std::process::id()));
     let owner = fixture.create_session(&one);
     let stranger = fixture.create_session(&two);
 
@@ -933,7 +935,7 @@ fn an_attachment_from_another_session_is_not_served_here() {
 fn a_body_that_is_not_base64_is_refused_and_leaves_no_turn() {
     let fixture = attachment_fixture("attach-bad64");
     let workspace =
-        std::env::temp_dir().join(format!("forge-attach-bad-ws-{}", std::process::id()));
+        std::env::temp_dir().join(format!("hearth-attach-bad-ws-{}", std::process::id()));
     let session = fixture.create_session(&workspace);
     let before = fs::read_to_string(fixture.server.path(&session)).expect("session log");
 
@@ -962,7 +964,7 @@ fn a_body_that_is_not_base64_is_refused_and_leaves_no_turn() {
 fn an_image_without_a_body_is_refused() {
     let fixture = attachment_fixture("attach-nobody");
     let workspace =
-        std::env::temp_dir().join(format!("forge-attach-nobody-ws-{}", std::process::id()));
+        std::env::temp_dir().join(format!("hearth-attach-nobody-ws-{}", std::process::id()));
     let session = fixture.create_session(&workspace);
 
     let body = json!({
@@ -982,7 +984,7 @@ fn an_image_without_a_body_is_refused() {
 fn a_file_attachment_names_a_workspace_path_and_carries_no_body() {
     let fixture = attachment_fixture("attach-file");
     let workspace =
-        std::env::temp_dir().join(format!("forge-attach-file-ws-{}", std::process::id()));
+        std::env::temp_dir().join(format!("hearth-attach-file-ws-{}", std::process::id()));
     let session = fixture.create_session(&workspace);
 
     let body = json!({
@@ -1045,15 +1047,15 @@ fn the_capability_report_is_served_before_any_session_exists() {
         addr: "127.0.0.1:0".to_string(),
         data_dir: unique_dir("capabilities"),
         version: "feature-test".to_string(),
-        capabilities: forge_server::Report {
+        capabilities: hearth_server::Report {
             mode: "workspace-write".to_string(),
             workspace: "C:/work".to_string(),
             model: "m1".to_string(),
             plugins: vec![
-                forge_server::Entry::new("counter", "1.0.0 (node runtime)", true),
-                forge_server::Entry::inactive("ghost", "0.1.0 (node runtime), not enabled"),
+                hearth_server::Entry::new("counter", "1.0.0 (node runtime)", true),
+                hearth_server::Entry::inactive("ghost", "0.1.0 (node runtime), not enabled"),
             ],
-            skills: vec![forge_server::Entry::new("deploy", "ship it", true)],
+            skills: vec![hearth_server::Entry::new("deploy", "ship it", true)],
             ..Default::default()
         },
         ..Options::default()
@@ -1152,7 +1154,7 @@ fn the_present_route_creates_nothing() {
 }
 
 /// A fixture whose data dir is a path the test already prepared, so a board can
-/// be written the way `forge team run` writes one before the server starts.
+/// be written the way `hearth team run` writes one before the server starts.
 fn fixture_for(data_dir: &Path) -> Fixture {
     Fixture::start(Options {
         addr: "127.0.0.1:0".to_string(),
@@ -1255,7 +1257,7 @@ fn a_board_written_by_hand_is_listed() {
     let row = &boards[0];
     assert_eq!(row["board"], "release-squad-20261118-002223");
     assert_eq!(row["team"], "release-squad");
-    // Chosen by `forge team run` and persisted nowhere, so it is an honest null
+    // Chosen by `hearth team run` and persisted nowhere, so it is an honest null
     // rather than a number this process would have had to invent.
     assert!(row.get("parallel").is_some(), "{row}");
     assert!(row["parallel"].is_null(), "{row}");
@@ -1531,9 +1533,9 @@ fn a_server_embedded_in_a_test_still_names_every_capability_group() {
 fn seed_child_log(root: &Path, child: &str, parent: &str, turns: u32) {
     let dir = root.join("sessions");
     fs::create_dir_all(&dir).expect("sessions dir");
-    let store = forge_session::Store::open(
+    let store = hearth_session::Store::open(
         dir.join(format!("{child}.jsonl")),
-        forge_session::Options::default(),
+        hearth_session::Options::default(),
     )
     .expect("open child log");
     let head = Event::new(

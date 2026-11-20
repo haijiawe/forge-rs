@@ -1,5 +1,5 @@
 [package]
-name = "forge-market"
+name = "hearth-market"
 description = "plugin market client: index, checksummed download, tarball extraction, install records"
 version.workspace = true
 edition.workspace = true
@@ -7,8 +7,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-forge-core = { path = "../core" }
-forge-net = { path = "../net" }
+hearth-core = { path = "../core" }
+hearth-net = { path = "../net" }
 # SHA-256 of a downloaded tarball, and of every extracted file. Already in the
 # budget because rustls needs a digest; `sha2` would be a second implementation
 # of the same function in the same binary.

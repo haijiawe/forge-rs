@@ -1,4 +1,4 @@
-//! HTTP/1.1 and WebSocket surface for the forge session log.
+//! HTTP/1.1 and WebSocket surface for the hearth session log.
 //!
 //! Layer L3. This module is the Rust half of `forge-go/internal/server`. The
 //! event log is the only state that survives a restart: every list, detail and
@@ -19,10 +19,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use forge_core::{Error, ErrorKind, Event, EventType, Result};
-use forge_protocol::*;
-use forge_session::projection::is_abort_reason;
-use forge_session::{Blobs, Store};
+use hearth_core::{Error, ErrorKind, Event, EventType, Result};
+use hearth_protocol::*;
+use hearth_session::projection::is_abort_reason;
+use hearth_session::{Blobs, Store};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -39,13 +39,13 @@ use crate::teams;
 // failure.
 include!(concat!(env!("OUT_DIR"), "/embedded_assets.rs"));
 
-const TOKEN_COOKIE: &str = "forge_token";
+const TOKEN_COOKIE: &str = "hearth_token";
 /// The subprotocol a browser offers on the upgrade, and the one this server
 /// selects. It exists because `new WebSocket(url, protocols)` is the only field
-/// a page can set on a handshake: no `Authorization`, no `X-Forge-Protocol`.
+/// a page can set on a handshake: no `Authorization`, no `X-Hearth-Protocol`.
 /// A real browser proved it — the UI's stream answered `401` forever, and would
 /// have answered `400 protocol_required` even with a cookie.
-pub const WS_SUBPROTOCOL: &str = "forge.v1";
+pub const WS_SUBPROTOCOL: &str = "hearth.v1";
 const TOKEN_FILE: &str = "token";
 const SESSIONS_DIR: &str = "sessions";
 /// Attachment bodies, beside the log rather than inside it.
@@ -218,7 +218,7 @@ fn random_bytes(count: usize) -> Result<Vec<u8>> {
     // `new_id` is the workspace CSPRNG boundary; each call yields 16 bytes.
     let mut out = Vec::with_capacity(count);
     while out.len() < count {
-        let id = forge_core::new_id()?;
+        let id = hearth_core::new_id()?;
         let mut bytes = hex_to_bytes(&id).ok_or_else(|| {
             Error::new(
                 ErrorKind::Invalid,
@@ -989,7 +989,7 @@ impl Server {
             return Err(ApiFailure::new(
                 400,
                 "protocol_required",
-                "the X-Forge-Protocol header is required",
+                "the X-Hearth-Protocol header is required",
             ));
         }
         let mut parts = value.split(',');
@@ -1181,7 +1181,7 @@ enum FoldError {
 }
 
 /// A failure the caller cannot fix: the server's own storage broke.
-fn internal(error: forge_core::Error) -> ApiFailure {
+fn internal(error: hearth_core::Error) -> ApiFailure {
     ApiFailure::new(500, code::INTERNAL, format!("storage: {}", error.message()))
 }
 
@@ -1474,7 +1474,7 @@ impl Server {
                 _ => Err(method_not_allowed("GET")),
             };
         }
-        // A window on what `forge team run` left behind: two GETs that read
+        // A window on what `hearth team run` left behind: two GETs that read
         // files and start nothing. It sits beside `capabilities` for the same
         // reason -- it describes the machine, not one session log -- and it
         // answers on a machine that has never run a team, because "no boards"
@@ -1558,7 +1558,7 @@ impl Server {
     ///
     /// Read-only in the strict sense: `goal_route::read` opens the file for
     /// reading and creates nothing, which matters because
-    /// `forge_session::Store::open` would create the file it cannot find and a
+    /// `hearth_session::Store::open` would create the file it cannot find and a
     /// GET must not manufacture a session. A goal that was never set is
     /// `{"goal":null}` -- a fact, not a 404; only a missing log is a 404.
     fn handle_goal(&self, id: &str) -> ApiResult<Response> {
@@ -1931,7 +1931,7 @@ impl Server {
         }
 
         let id = new_session_id().map_err(|error| CreateProblem::Internal(error.to_string()))?;
-        forge_core::SessionId::parse(&id)
+        hearth_core::SessionId::parse(&id)
             .map_err(|error| CreateProblem::Internal(error.to_string()))?;
         let mut payload = json!({
             "workspace": workspace,
@@ -1951,7 +1951,7 @@ impl Server {
         let event = Event::new(&id, EventType::SESSION_START, Some(payload));
         let log_path = self.session_path(&id);
         let _guard = lock_append(&self.shared.append_lock);
-        let store = Store::open(&log_path, forge_session::store::Options::default())
+        let store = Store::open(&log_path, hearth_session::store::Options::default())
             .map_err(|error| CreateProblem::Internal(error.to_string()))?;
         let seq = store
             .append(&event)
@@ -2517,7 +2517,7 @@ impl Server {
         }
         let store = Store::open(
             self.session_path(session_id),
-            forge_session::store::Options::default(),
+            hearth_session::store::Options::default(),
         )?;
         store.append(event)
     }
@@ -2772,7 +2772,7 @@ impl Server {
              Connection: Upgrade\r\n\
              Sec-WebSocket-Accept: {accept}\r\n\
              {selected}\
-             X-Forge-Protocol: 1\r\n\r\n"
+             X-Hearth-Protocol: 1\r\n\r\n"
         );
         if let Err(error) = stream
             .write_all(response.as_bytes())
@@ -2998,8 +2998,8 @@ impl Server {
         };
         response = response.header("Cache-Control", cache);
         response = response.header("X-Content-Type-Options", "nosniff");
-        // The URL `forge web` prints carries the token as a query parameter, and
-        // the contract's browser mechanism is the HttpOnly `forge_token` cookie.
+        // The URL `hearth web` prints carries the token as a query parameter, and
+        // the contract's browser mechanism is the HttpOnly `hearth_token` cookie.
         // Nothing bridged the two, so the UI could read history over REST (it
         // sets `Authorization` from the URL) and never open its stream: a
         // browser cannot put a token on a WebSocket handshake. Setting the

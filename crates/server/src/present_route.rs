@@ -10,7 +10,7 @@
 //! The line shape belongs to the tool and is authoritative here:
 //! `{"ts": <unix millis>, "path": <string>, "size": <bytes>, "description": <string>}`.
 //! Only `<dataDir>/presented.jsonl` is served. The
-//! `<workspace>/.forge/presented.jsonl` fallback the tool writes when no data
+//! `<workspace>/.hearth/presented.jsonl` fallback the tool writes when no data
 //! directory is configured is a different path owned by a different directory,
 //! so answering from it would report handoffs the configured data directory
 //! never saw — and merge two operators' lists into one.

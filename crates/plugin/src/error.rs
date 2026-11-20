@@ -1,6 +1,6 @@
 //! One error type, with a stable code per failure mode.
 //!
-//! `forge_core::ErrorKind` is deliberately closed — it is the vocabulary the
+//! `hearth_core::ErrorKind` is deliberately closed — it is the vocabulary the
 //! event log and the HTTP envelope already speak, and a plugin failure has no
 //! place in it (no event type carries "a plugin timed out"). So this crate has
 //! its own small enum whose `code()` is what a human greps for and what the CLI

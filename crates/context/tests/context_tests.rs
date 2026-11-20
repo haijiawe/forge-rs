@@ -1,12 +1,12 @@
 //! What a compressed block has to guarantee before anything trusts it.
 
-use forge_context::{
+use hearth_context::{
     context_compressed, context_compressed_with_surface, is_bad_block, is_block_too_large,
     is_empty_summary, is_overlap, parse_block, parse_record, parse_surface_op, prune_tool_outputs,
     Block, Ledger, SurfaceOp, ToolOutput, MAX_SUMMARY_BYTES,
 };
-use forge_core::event::{parse_log, Event, EventType};
-use forge_core::ErrorKind;
+use hearth_core::event::{parse_log, Event, EventType};
+use hearth_core::ErrorKind;
 use std::collections::BTreeSet;
 
 const SESSION: &str = "s_01jya7c9q3r5t7v9w1x3y5z7";

@@ -1,7 +1,7 @@
 # Nothing in this file may name a machine-specific absolute path.
 #
 # Why that rule exists: this file used to pin
-#   [build] target-dir = "D:/forge-rs-target/forge-rs"
+#   [build] target-dir = "D:/hearth-target/hearth"
 # to work around an MSVC bug on the development box. On Linux that value is a
 # single path segment containing `:`, so cargo died before compiling anything:
 #   error: failed to join paths from `$LD_LIBRARY_PATH` together
@@ -17,8 +17,8 @@
 # the *target* directory at an ASCII path; the source tree may keep its name.
 #
 # So the setting lives in the environment instead:
-#   PowerShell:  $env:CARGO_TARGET_DIR = 'D:\forge-rs-target\forge-rs'
-#   bash:        export CARGO_TARGET_DIR=/tmp/forge-rs-target
+#   PowerShell:  $env:CARGO_TARGET_DIR = 'D:\hearth-target\hearth'
+#   bash:        export CARGO_TARGET_DIR=/tmp/hearth-target
 # `check.ps1` does this automatically when the checkout path is not ASCII, and
 # `tests/e2e` finds the built binary through the same variable.
 

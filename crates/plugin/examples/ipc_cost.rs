@@ -9,7 +9,7 @@
 //! Run it with:
 //!
 //! ```text
-//! cargo run --release -p forge-plugin --example ipc_cost --offline
+//! cargo run --release -p hearth-plugin --example ipc_cost --offline
 //! ```
 //!
 //! It writes a throwaway plugin, starts it once, and then times three payload
@@ -23,7 +23,7 @@
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use forge_plugin::Host;
+use hearth_plugin::Host;
 use serde_json::{json, Value};
 
 /// Calls per payload size. Enough that a scheduler hiccup shows up in p95 rather
@@ -111,7 +111,7 @@ fn temp_root() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("forge-ipc-cost-{}-{nanos}", std::process::id()))
+    std::env::temp_dir().join(format!("hearth-ipc-cost-{}-{nanos}", std::process::id()))
 }
 
 fn main() {
@@ -280,10 +280,10 @@ fn native_comparison() {
     let Some(exe) = native_plugin_path() else {
         println!();
         println!("native comparison skipped: build it first with");
-        println!("  cargo build --release -p forge-plugin --bin forge-plugin-native");
+        println!("  cargo build --release -p hearth-plugin --bin hearth-plugin-native");
         return;
     };
-    let root = std::env::temp_dir().join(format!("forge-ipc-native-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("hearth-ipc-native-{}", std::process::id()));
     let plugin = root.join("native");
     if std::fs::create_dir_all(&plugin).is_err() {
         return;
@@ -382,9 +382,9 @@ fn native_plugin_path() -> Option<PathBuf> {
     let current = std::env::current_exe().ok()?;
     let profile = current.parent()?.parent()?;
     let name = if cfg!(windows) {
-        "forge-plugin-native.exe"
+        "hearth-plugin-native.exe"
     } else {
-        "forge-plugin-native"
+        "hearth-plugin-native"
     };
     let candidate = profile.join(name);
     candidate.is_file().then_some(candidate)

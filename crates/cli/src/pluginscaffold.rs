@@ -93,7 +93,7 @@ pub fn generate(
     description: &str,
     force: bool,
 ) -> Result<Outcome, Reject> {
-    if !forge_plugin::is_valid_name(name) {
+    if !hearth_plugin::is_valid_name(name) {
         return Err(Reject::Usage(format!(
             "{name:?} is not a legal plugin name; the name becomes a directory and a tool \
              prefix, so it must match ^[a-z0-9][a-z0-9._-]{{0,63}}$"
@@ -187,7 +187,7 @@ mod tests {
 
     fn scratch(label: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("forge-scaffold-{}-{label}", std::process::id()));
+            std::env::temp_dir().join(format!("hearth-scaffold-{}-{label}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }
@@ -202,7 +202,7 @@ mod tests {
         // is a manifest `Host::discover` reads without a complaint.
         let root = scratch("discover");
         let outcome = generate(&root, "good", &node(), "", false).expect("generate");
-        let host = forge_plugin::Host::start(&root);
+        let host = hearth_plugin::Host::start(&root);
         let (found, broken) = host.discover();
         assert!(
             broken.is_empty(),
@@ -242,7 +242,7 @@ mod tests {
         let outcome = generate(&root, "pyslug", &kind, "", false).expect("generate");
         assert_eq!(outcome.runtime, "python");
         assert!(outcome.files.contains(&"main.py".to_string()));
-        let host = forge_plugin::Host::start(&root);
+        let host = hearth_plugin::Host::start(&root);
         let (found, broken) = host.discover();
         assert!(broken.is_empty(), "{broken:?}");
         assert_eq!(found[0].runtime.as_str(), "python");

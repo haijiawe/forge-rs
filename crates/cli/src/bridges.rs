@@ -3,8 +3,8 @@
 //! These live in the CLI crate for the same reason the MCP bridge does
 //! (`wiring.rs`): they need three things at once that no single library crate
 //! owns — what the operator configured, the process that must own the children,
-//! and the provider a team worker runs on. `forge-tool` deliberately does not
-//! depend on `forge-plugin` or `forge-team`; it only ever sees `Arc<dyn Tool>`.
+//! and the provider a team worker runs on. `hearth-tool` deliberately does not
+//! depend on `hearth-plugin` or `hearth-team`; it only ever sees `Arc<dyn Tool>`.
 //!
 //! Three rules shaped this module:
 //!
@@ -21,8 +21,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use forge_llm::ToolSpec;
-use forge_tool::{
+use hearth_llm::ToolSpec;
+use hearth_tool::{
     decode_args, effective_limits, truncate, Call, Limits, Meta, Result as ToolResult, Tool,
     CODE_IO_ERROR, CODE_NOT_FOUND, ERR_BAD_ARGS,
 };
@@ -51,7 +51,7 @@ pub const MAX_EXPERTS_IN_DESCRIPTION: usize = 24;
 
 /// One tool a plugin contributed, behind the `Tool` interface.
 pub struct PluginTool {
-    host: Arc<forge_plugin::Host>,
+    host: Arc<hearth_plugin::Host>,
     plugin: String,
     /// The name the plugin knows.
     tool: String,
@@ -65,7 +65,7 @@ pub struct PluginTool {
 
 impl PluginTool {
     pub fn new(
-        host: Arc<forge_plugin::Host>,
+        host: Arc<hearth_plugin::Host>,
         plugin: impl Into<String>,
         tool: impl Into<String>,
         spec: ToolSpec,
@@ -154,7 +154,7 @@ struct ExpertArgs {
 /// useful action is "give me that document", not "run something". A team is the
 /// other half (see [`TeamTool`]).
 pub struct ExpertTool {
-    set: forge_experts::Set,
+    set: hearth_experts::Set,
     /// Sorted, so the description and every "available experts" list is stable.
     slugs: Vec<String>,
     description: String,
@@ -162,7 +162,7 @@ pub struct ExpertTool {
 }
 
 impl ExpertTool {
-    pub fn new(set: forge_experts::Set, limits: Limits) -> Self {
+    pub fn new(set: hearth_experts::Set, limits: Limits) -> Self {
         let slugs: Vec<String> = {
             let mut names: Vec<String> = set
                 .experts()
@@ -228,7 +228,7 @@ impl Tool for ExpertTool {
         // A disabled expert is `not_found` rather than `bad_args`: the name was
         // well formed and the listing is the recovery hint, but summoning a
         // retired persona is the operator's decision, not the model's.
-        let Some(brief) = forge_experts::prompt_for(&self.set, name) else {
+        let Some(brief) = hearth_experts::prompt_for(&self.set, name) else {
             return ToolResult::error(
                 CODE_NOT_FOUND,
                 format!(
@@ -278,7 +278,7 @@ struct TeamMemberArg {
 
 /// One tool that dispatches workers over a shared board.
 pub struct TeamTool {
-    runner: Arc<dyn forge_team::WorkerRunner>,
+    runner: Arc<dyn hearth_team::WorkerRunner>,
     /// `<dataDir>/teams/<call-id>` per call: a board per dispatch, because a
     /// mutable board shared between unrelated calls would let one call's failure
     /// make the next call's report wrong.
@@ -292,7 +292,7 @@ pub struct TeamTool {
 
 impl TeamTool {
     pub fn new(
-        runner: Arc<dyn forge_team::WorkerRunner>,
+        runner: Arc<dyn hearth_team::WorkerRunner>,
         root: impl Into<PathBuf>,
         max_parallel: usize,
         limits: Limits,
@@ -342,7 +342,7 @@ impl Tool for TeamTool {
         // per tool invocation. The id is model-visible in the log and therefore
         // not a file name, so it is sanitised before it reaches the filesystem.
         let board_root = self.root.join(sanitise(&call.id));
-        let board = match forge_team::Board::open(&board_root) {
+        let board = match hearth_team::Board::open(&board_root) {
             Ok(board) => board,
             Err(err) => {
                 return ToolResult::error(
@@ -363,7 +363,7 @@ impl Tool for TeamTool {
         } else {
             args.max_parallel.min(self.parallel)
         };
-        let mut plan = forge_team::Plan::new(&board_root).max_parallel(asked);
+        let mut plan = hearth_team::Plan::new(&board_root).max_parallel(asked);
         let mut specs: Vec<(String, String)> = Vec::new();
         for member in &args.members {
             let name = member.name.trim().to_string();
@@ -380,7 +380,7 @@ impl Tool for TeamTool {
                     format!("{TEAM_TOOL_NAME}: member {name:?} has an empty prompt"),
                 );
             }
-            plan = plan.worker(forge_team::WorkerSpec::new(&name, prompt));
+            plan = plan.worker(hearth_team::WorkerSpec::new(&name, prompt));
             specs.push((name, member.task.trim().to_string()));
         }
 
@@ -388,7 +388,7 @@ impl Tool for TeamTool {
         // has something to claim; a rejected task is a board fact reported here
         // rather than a worker that mysteriously found nothing to do.
         for (name, subject) in &specs {
-            let mut new_task = forge_team::NewTask::new(subject.as_str());
+            let mut new_task = hearth_team::NewTask::new(subject.as_str());
             new_task.description = format!("assigned to {name}");
             if let Err(err) = board.add_task(new_task) {
                 return ToolResult::error(
@@ -400,7 +400,7 @@ impl Tool for TeamTool {
 
         // `run` is the dispatcher function, but `run` is also the module that
         // holds it, so the path has to be spelled out.
-        let report = forge_team::run::run(&plan, &board, self.runner.as_ref());
+        let report = hearth_team::run::run(&plan, &board, self.runner.as_ref());
         let (text, cut) = truncate(&render(&report, &board_root), effective_limits(self.limits));
         let mut out = ToolResult::ok(text);
         out.truncated = cut;
@@ -429,7 +429,7 @@ impl Tool for TeamTool {
 /// `<board root>/workers/<name>.jsonl` — so they are read back here. A report
 /// without the answers would tell the model which workers failed and nothing
 /// about what they said.
-fn render(report: &forge_team::Report, board_root: &Path) -> String {
+fn render(report: &hearth_team::Report, board_root: &Path) -> String {
     let ok = report.workers.iter().filter(|worker| worker.ok).count();
     let mut out = format!(
         "{} worker(s): {ok} ok, {} failed\n",
@@ -461,11 +461,11 @@ fn render(report: &forge_team::Report, board_root: &Path) -> String {
 /// in the answer, not a failed dispatch, so the caller falls back to the report's
 /// note. The file is the dispatcher's own writing, under `<board root>/workers/`.
 fn worker_text(board_root: &Path, name: &str) -> Option<String> {
-    if !forge_team::valid_name(name) {
+    if !hearth_team::valid_name(name) {
         return None;
     }
     let path = board_root
-        .join(forge_team::WORKERS_DIR)
+        .join(hearth_team::WORKERS_DIR)
         .join(format!("{name}.jsonl"));
     let text = std::fs::read_to_string(path).ok()?;
     let mut answer = None;
@@ -508,17 +508,17 @@ fn sanitise(id: &str) -> String {
 
 /// Runs one team worker as a subagent session.
 ///
-/// The worker's transcript is a `forge-team` file, not a session log; the session
+/// The worker's transcript is a `hearth-team` file, not a session log; the session
 /// log belongs to the child subagent. Law 1 ("one writer per log") holds because
 /// the team writes the transcript and the child's `Store` writes the session, and
 /// neither writes the other's file.
 pub struct SubagentWorkers {
-    runner: Arc<forge_subagent::Runner>,
+    runner: Arc<hearth_subagent::Runner>,
     workspace: String,
 }
 
 impl SubagentWorkers {
-    pub fn new(runner: Arc<forge_subagent::Runner>, workspace: impl Into<String>) -> Self {
+    pub fn new(runner: Arc<hearth_subagent::Runner>, workspace: impl Into<String>) -> Self {
         Self {
             runner,
             workspace: workspace.into(),
@@ -526,8 +526,8 @@ impl SubagentWorkers {
     }
 }
 
-impl forge_team::WorkerRunner for SubagentWorkers {
-    fn run(&self, call: &forge_team::Call<'_>) -> forge_core::Result<forge_team::WorkerResult> {
+impl hearth_team::WorkerRunner for SubagentWorkers {
+    fn run(&self, call: &hearth_team::Call<'_>) -> hearth_core::Result<hearth_team::WorkerResult> {
         // Mail that arrived before the run is part of the prompt, which is what
         // makes a worker's starting state reproducible from its transcript.
         let mut prompt = call.prompt().to_string();
@@ -545,19 +545,19 @@ impl forge_team::WorkerRunner for SubagentWorkers {
             }
         }
 
-        let ctx = forge_subagent::CallContext {
-            cancel: forge_agent::Cancel::default(),
+        let ctx = hearth_subagent::CallContext {
+            cancel: hearth_agent::Cancel::default(),
             parent_session_id: String::new(),
             workspace: self.workspace.clone(),
         };
         match self.runner.run(&ctx, &prompt, "", "") {
             Ok(run) => {
                 let mut result = if let Some(err) = &run.error {
-                    forge_team::WorkerResult::failed(err.message().to_string())
+                    hearth_team::WorkerResult::failed(err.message().to_string())
                 } else if run.cancelled {
-                    forge_team::WorkerResult::failed("the child was cancelled")
+                    hearth_team::WorkerResult::failed("the child was cancelled")
                 } else {
-                    forge_team::WorkerResult::ok(format!(
+                    hearth_team::WorkerResult::ok(format!(
                         "{} turn(s), session {}",
                         run.turns, run.id
                     ))
@@ -568,12 +568,12 @@ impl forge_team::WorkerRunner for SubagentWorkers {
             // A setup failure is the runner's problem, not this worker's: the
             // dispatcher records it as a failed worker either way, but the note
             // names who to blame.
-            Err(err) => Ok(forge_team::WorkerResult::failed(err.message().to_string())),
+            Err(err) => Ok(hearth_team::WorkerResult::failed(err.message().to_string())),
         }
     }
 }
 
-/// Path of the board root for a data directory, so `forge team` and the tool
+/// Path of the board root for a data directory, so `hearth team` and the tool
 /// agree on one place.
 pub fn team_root(data_dir: &Path) -> PathBuf {
     data_dir.join("teams")
@@ -581,7 +581,7 @@ pub fn team_root(data_dir: &Path) -> PathBuf {
 
 /// Slug sorted expert names, for the CLI listing and the tests. Not a tool
 /// concern, but it keeps the sort rule in one place.
-pub fn expert_slugs(set: &forge_experts::Set) -> Vec<String> {
+pub fn expert_slugs(set: &hearth_experts::Set) -> Vec<String> {
     let mut names: Vec<String> = set
         .experts()
         .iter()
@@ -593,8 +593,8 @@ pub fn expert_slugs(set: &forge_experts::Set) -> Vec<String> {
     names
 }
 
-/// A `BTreeMap` of plugin → its tool names, for `forge plugin list`.
-pub fn plugin_tool_names(host: &forge_plugin::Host) -> BTreeMap<String, Vec<String>> {
+/// A `BTreeMap` of plugin → its tool names, for `hearth plugin list`.
+pub fn plugin_tool_names(host: &hearth_plugin::Host) -> BTreeMap<String, Vec<String>> {
     let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (plugin, spec) in host.all_tools() {
         out.entry(plugin).or_default().push(spec.name);
@@ -621,38 +621,41 @@ pub fn empty_schema() -> Value {
 /// plugin that claims only `after_tool` contributes no hook (and says so via its
 /// own capability list). A hook that returns the same text is reported as
 /// `Unchanged`, so the log gets no `hook/rewrite` row for a no-op.
-pub fn plugin_hook(host: Arc<forge_plugin::Host>, plugin: impl Into<String>) -> forge_agent::Hook {
+pub fn plugin_hook(
+    host: Arc<hearth_plugin::Host>,
+    plugin: impl Into<String>,
+) -> hearth_agent::Hook {
     let plugin = plugin.into();
     let name = plugin.clone();
-    forge_agent::Hook::new(name, move |call| run_plugin_hook(&host, &plugin, call))
+    hearth_agent::Hook::new(name, move |call| run_plugin_hook(&host, &plugin, call))
 }
 
 fn run_plugin_hook(
-    host: &forge_plugin::Host,
+    host: &hearth_plugin::Host,
     plugin: &str,
-    call: &forge_agent::HookCall<'_>,
-) -> forge_core::Result<forge_agent::HookOutcome> {
+    call: &hearth_agent::HookCall<'_>,
+) -> hearth_core::Result<hearth_agent::HookOutcome> {
     let (turn, step, messages) = match call {
-        forge_agent::HookCall::PreStep {
+        hearth_agent::HookCall::PreStep {
             turn,
             step,
             messages,
         } => (*turn, *step, *messages),
         // A plugin hook has no request-phase surface: it edits the turn's text,
         // not the assembled tool list.
-        forge_agent::HookCall::Request { .. } => return Ok(forge_agent::HookOutcome::Unchanged),
+        hearth_agent::HookCall::Request { .. } => return Ok(hearth_agent::HookOutcome::Unchanged),
         // Nor a retry-decision surface: a plugin asks for retries by failing, not
         // by voting on the harness's transport policy.
-        forge_agent::HookCall::RequestError { .. } => {
-            return Ok(forge_agent::HookOutcome::Unchanged)
+        hearth_agent::HookCall::RequestError { .. } => {
+            return Ok(hearth_agent::HookOutcome::Unchanged)
         }
     };
     let Some(index) = messages
         .iter()
-        .rposition(|m| m.role == forge_llm::Role::User)
+        .rposition(|m| m.role == hearth_llm::Role::User)
     else {
         // No user message to edit: a plugin cannot invent one.
-        return Ok(forge_agent::HookOutcome::Unchanged);
+        return Ok(hearth_agent::HookOutcome::Unchanged);
     };
     let before = messages[index].content.clone();
     let payload = json!({ "turn": turn, "step": step, "text": before });
@@ -660,8 +663,8 @@ fn run_plugin_hook(
         // A host error (dead child, timeout, protocol) is loud: the loop turns
         // this into `hook_failed`, so a broken extension does not look like a
         // clean turn.
-        forge_core::Error::new(
-            forge_core::ErrorKind::Refused,
+        hearth_core::Error::new(
+            hearth_core::ErrorKind::Refused,
             format!("plugin hook {plugin}: {}", e.message()),
         )
     })?;
@@ -669,8 +672,8 @@ fn run_plugin_hook(
         Some(text) if text != before => {
             let mut next = messages.to_vec();
             next[index].content = text.to_string();
-            Ok(forge_agent::HookOutcome::Messages(next))
+            Ok(hearth_agent::HookOutcome::Messages(next))
         }
-        _ => Ok(forge_agent::HookOutcome::Unchanged),
+        _ => Ok(hearth_agent::HookOutcome::Unchanged),
     }
 }

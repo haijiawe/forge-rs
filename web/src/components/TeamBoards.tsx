@@ -1,4 +1,4 @@
-// The team-board view: what `forge team run` left on this machine, as one list.
+// The team-board view: what `hearth team run` left on this machine, as one list.
 //
 // Three things this pane refuses to do, because the API refuses to know them:
 //
@@ -375,7 +375,7 @@ export function TeamBoards({ load }: TeamBoardsProps) {
         </button>
       </div>
       <p className="muted teams-note">
-        boards on this machine, from <code>forge team run</code>; newest first, as the server
+        boards on this machine, from <code>hearth team run</code>; newest first, as the server
         ordered them.
       </p>
 
@@ -385,14 +385,14 @@ export function TeamBoards({ load }: TeamBoardsProps) {
         <p className="banner banner-error" role="alert">
           the team boards could not be read: <code>{error}</code>. no board is shown, so this
           says nothing about whether a team ran. the CLI can still answer:{' '}
-          <code>forge team list</code>.
+          <code>hearth team list</code>.
         </p>
       )}
 
       {!reading && error === null && boards.length === 0 && (
         <p className="empty teams-empty">
           no team has run in this data directory, so there are no boards to show. that is not a
-          failure: the route does not create the directory, and <code>forge team list</code>{' '}
+          failure: the route does not create the directory, and <code>hearth team list</code>{' '}
           reads the same answer.
         </p>
       )}

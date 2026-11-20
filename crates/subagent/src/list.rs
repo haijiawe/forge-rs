@@ -1,14 +1,14 @@
 //! Reading a parent's children back out of its log.
 //!
-//! A read, never a start: `forge subagent list` must not spawn a child, resume a
+//! A read, never a start: `hearth subagent list` must not spawn a child, resume a
 //! child, or open a child log — it answers from the parent's own rows. That is
 //! the whole reason the catalog is on the parent log rather than only in memory.
 
 use std::path::Path;
 
-use forge_core::event::{parse_log, Event, EventType};
-use forge_core::{Error, ErrorKind, Result as CoreResult};
-use forge_session::Store;
+use hearth_core::event::{parse_log, Event, EventType};
+use hearth_core::{Error, ErrorKind, Result as CoreResult};
+use hearth_session::Store;
 
 use crate::catalog::{self, CatalogEntry};
 use crate::child::{child_log_path, is_child_id};
@@ -21,7 +21,7 @@ pub fn read_events(path: &Path) -> CoreResult<Vec<Event>> {
     if !path.exists() {
         return Ok(Vec::new());
     }
-    let store = Store::open(path, forge_session::Options::default())?;
+    let store = Store::open(path, hearth_session::Options::default())?;
     let mut events = Vec::new();
     store.read_from(0, |event| {
         events.push(event.clone());
@@ -45,7 +45,7 @@ pub fn children(store: &Store) -> CoreResult<Vec<CatalogEntry>> {
     Ok(catalog::fold(&events))
 }
 
-/// A one-line-per-child rendering for `forge subagent list`.
+/// A one-line-per-child rendering for `hearth subagent list`.
 pub fn render(entries: &[CatalogEntry]) -> String {
     if entries.is_empty() {
         return "no subagents in this session\n".to_string();
@@ -234,7 +234,7 @@ fn render_node(node: &Node, text: &mut String) {
 /// Read a log without touching the file, or `None` when there is no file.
 ///
 /// Deliberately not [`Store::open`]: opening repairs a torn tail by truncating
-/// it, and a read command may not write to a session log. `forge_core`'s
+/// it, and a read command may not write to a session log. `hearth_core`'s
 /// `parse_log` is the same parser with the two checks one line cannot make
 /// (dense `seq`, unique ids), so a damaged child log is reported, not repaired.
 fn read_log(path: &Path) -> CoreResult<Option<Vec<Event>>> {
@@ -250,7 +250,7 @@ fn read_log(path: &Path) -> CoreResult<Option<Vec<Event>>> {
         )
     })?;
     // A final chunk without its newline is a write that never committed: the
-    // writer died mid-record. `forge_session`'s own recovery drops it too
+    // writer died mid-record. `hearth_session`'s own recovery drops it too
     // (`scan_log`: "A record without a terminating newline is a torn write"),
     // but recovery truncates the file, and a read command may not. So the
     // unfinished line is dropped here, in memory, and only it.
@@ -375,7 +375,7 @@ mod tests {
 
     fn scratch(label: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "forge-subagent-list-{label}-{}",
+            "hearth-subagent-list-{label}-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
@@ -392,7 +392,7 @@ mod tests {
     #[test]
     fn rows_written_to_a_log_read_back() {
         let path = scratch("rows");
-        let store = Store::open(&path, forge_session::Options::default()).expect("open");
+        let store = Store::open(&path, hearth_session::Options::default()).expect("open");
         store
             .append(
                 &CatalogEntry::new("s_a", Mode::Continuable)

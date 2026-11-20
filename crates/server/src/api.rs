@@ -1,4 +1,4 @@
-//! The frozen surface between `forge-server` and whoever runs a turn.
+//! The frozen surface between `hearth-server` and whoever runs a turn.
 //!
 //! Layer L3. The HTTP layer owns sessions, the event log's seq counter and the
 //! WebSocket fan-out; the runner owns a model call and its tool loop. Keeping
@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use forge_core::{Event, Result};
+use hearth_core::{Event, Result};
 
 use crate::ratelimit::RateLimit;
 

@@ -27,7 +27,7 @@ pub fn default_tolerance(name: &str) -> f64 {
 pub const STRICT_SKIP_NOTE: &str = "bench: -strict had no record for this platform, so nothing was gated and the run exits 0 by design; pass -require-baseline to make this an error.";
 
 pub fn record_command() -> String {
-    "bench: record one with: cargo run -q -p forge-bench --offline -- -out scripts/bench/baseline.json -baseline \"\""
+    "bench: record one with: cargo run -q -p hearth-bench --offline -- -out scripts/bench/baseline.json -baseline \"\""
         .to_string()
 }
 
@@ -345,7 +345,7 @@ mod tests {
         assert!(plan
             .notes
             .iter()
-            .any(|n| n.contains("cargo run -q -p forge-bench")));
+            .any(|n| n.contains("cargo run -q -p hearth-bench")));
 
         let required = plan_gate(
             Some(&base),

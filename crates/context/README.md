@@ -3,15 +3,15 @@ dir: crates/context
 layer: L2
 role: compressed blocks that can be named, restored and searched instead of being dropped
 public: [Block, Ledger, Hit, MAX_SUMMARY_BYTES, is_block_id, context_compressed, parse_block, EVENT_TYPE, ERR_BAD_BLOCK, ERR_OVERLAP, ERR_EMPTY_SUMMARY, ERR_BLOCK_TOO_LARGE, is_bad_block, is_overlap, is_empty_summary, is_block_too_large]
-may_import: [forge-core]
+may_import: [hearth-core]
 must_not:
   - read a log, a file or a blob
   - call a model or start a process
   - hide a range that the log has not closed yet
-gate: cargo test -p forge-context --offline
+gate: cargo test -p hearth-context --offline
 ---
 
-# forge-context
+# hearth-context
 
 ## 做什么
 
@@ -30,7 +30,7 @@ gate: cargo test -p forge-context --offline
 
 ## 依赖与边界
 
-只依赖 `forge-core`（事件、错误、id）。不读日志、不读文件、不起进程、不碰模型——把块应用到历史上是调用方的事（CLI 的 `crates/cli/src/bridges.rs` 附近），因为只有调用方手里有日志。
+只依赖 `hearth-core`（事件、错误、id）。不读日志、不读文件、不起进程、不碰模型——把块应用到历史上是调用方的事（CLI 的 `crates/cli/src/bridges.rs` 附近），因为只有调用方手里有日志。
 
 三条规则都是"日志是唯一真相"的推论：
 

@@ -4,11 +4,11 @@
 
 use std::sync::Mutex;
 
-use forge_core::{Error, ErrorKind, Result as CoreResult};
+use hearth_core::{Error, ErrorKind, Result as CoreResult};
 
 use crate::{Enforcer, Support, ERR_CLOSED};
 
-/// The sentence `forge doctor` prints for full-access.
+/// The sentence `hearth doctor` prints for full-access.
 pub(crate) const FULL_ACCESS_DETAIL: &str = "no restrictions installed (full-access): the child runs with the harness's own privileges and may read, write and connect anywhere the harness can";
 
 pub(crate) struct NoopEnforcer {

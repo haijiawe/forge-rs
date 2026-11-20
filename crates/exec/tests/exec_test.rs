@@ -1,6 +1,6 @@
-//! Executable contract tests for `forge-exec`.
+//! Executable contract tests for `hearth-exec`.
 //!
-//! The child is the `forge-exec-helper` binary built from `src/bin/`, so argv,
+//! The child is the `hearth-exec-helper` binary built from `src/bin/`, so argv,
 //! exit codes and environment assertions do not depend on a shell or on
 //! libtest's own argument parsing.
 
@@ -9,17 +9,17 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use forge_core::ErrorKind;
-use forge_exec::{Command, Pipe, Sandbox, ENV_INHERIT};
+use hearth_core::ErrorKind;
+use hearth_exec::{Command, Pipe, Sandbox, ENV_INHERIT};
 
 fn helper(mode: &str) -> Command {
-    Command::new(env!("CARGO_BIN_EXE_forge-exec-helper")).arg(mode)
+    Command::new(env!("CARGO_BIN_EXE_hearth-exec-helper")).arg(mode)
 }
 
 fn temp_dir(label: &str) -> PathBuf {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "forge-exec-test-{}-{}-{}",
+        "hearth-exec-test-{}-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::SeqCst),
         label
@@ -61,12 +61,12 @@ fn empty_path_is_rejected_without_running() {
 #[test]
 fn missing_executable_reports_io_error() {
     let error = Pipe
-        .run(Command::new("definitely-not-a-real-executable-forge"))
+        .run(Command::new("definitely-not-a-real-executable-hearth"))
         .expect_err("missing executable must fail");
     assert_eq!(error.kind(), ErrorKind::Io);
     assert!(error
         .message()
-        .contains("definitely-not-a-real-executable-forge"));
+        .contains("definitely-not-a-real-executable-hearth"));
 }
 
 #[test]
@@ -200,23 +200,23 @@ fn working_directory_is_respected() {
 
 #[test]
 fn default_env_is_the_minimal_whitelist() {
-    std::env::set_var("FORGE_EXEC_LEAK_DEFAULT", "1");
+    std::env::set_var("HEARTH_EXEC_LEAK_DEFAULT", "1");
     let result = Pipe.run(helper("printenv")).unwrap();
     let output = String::from_utf8_lossy(&result.stdout);
     assert!(output.contains("PATH="), "PATH missing:\n{output}");
     assert!(
-        !output.contains("FORGE_EXEC_LEAK_DEFAULT"),
+        !output.contains("HEARTH_EXEC_LEAK_DEFAULT"),
         "default env leaked a parent variable:\n{output}"
     );
 }
 
 #[test]
 fn empty_env_is_loader_minimum_only() {
-    std::env::set_var("FORGE_EXEC_LEAK_EMPTY", "1");
+    std::env::set_var("HEARTH_EXEC_LEAK_EMPTY", "1");
     let result = Pipe.run(helper("printenv").env(Vec::new())).unwrap();
     let output = String::from_utf8_lossy(&result.stdout);
     assert!(
-        !output.contains("FORGE_EXEC_LEAK_EMPTY"),
+        !output.contains("HEARTH_EXEC_LEAK_EMPTY"),
         "empty env leaked a parent variable:\n{output}"
     );
     assert!(
@@ -227,17 +227,17 @@ fn empty_env_is_loader_minimum_only() {
 
 #[test]
 fn explicit_env_is_exactly_that() {
-    std::env::set_var("FORGE_EXEC_LEAK_EXPLICIT", "1");
+    std::env::set_var("HEARTH_EXEC_LEAK_EXPLICIT", "1");
     let result = Pipe
-        .run(helper("printenv").env(vec!["FORGE_ONLY=42".to_string()]))
+        .run(helper("printenv").env(vec!["HEARTH_ONLY=42".to_string()]))
         .unwrap();
     let output = String::from_utf8_lossy(&result.stdout);
     assert!(
-        output.contains("FORGE_ONLY=42"),
+        output.contains("HEARTH_ONLY=42"),
         "explicit var missing:\n{output}"
     );
     assert!(
-        !output.contains("FORGE_EXEC_LEAK_EXPLICIT"),
+        !output.contains("HEARTH_EXEC_LEAK_EXPLICIT"),
         "explicit env leaked a parent variable:\n{output}"
     );
     assert!(
@@ -248,21 +248,21 @@ fn explicit_env_is_exactly_that() {
 
 #[test]
 fn env_inherit_is_the_only_opt_in() {
-    std::env::set_var("FORGE_EXEC_LEAK_INHERIT", "1");
+    std::env::set_var("HEARTH_EXEC_LEAK_INHERIT", "1");
     let result = Pipe
-        .run(helper("printenv").env(vec![ENV_INHERIT.to_string(), "FORGE_ONLY=7".to_string()]))
+        .run(helper("printenv").env(vec![ENV_INHERIT.to_string(), "HEARTH_ONLY=7".to_string()]))
         .unwrap();
     let output = String::from_utf8_lossy(&result.stdout);
     assert!(
-        output.contains("FORGE_EXEC_LEAK_INHERIT"),
+        output.contains("HEARTH_EXEC_LEAK_INHERIT"),
         "EnvInherit did not inherit the parent:\n{output}"
     );
     assert!(
-        output.contains("FORGE_ONLY=7"),
+        output.contains("HEARTH_ONLY=7"),
         "explicit override missing:\n{output}"
     );
     assert!(
-        !output.contains("forge:inherit"),
+        !output.contains("hearth:inherit"),
         "the EnvInherit marker leaked into the child:\n{output}"
     );
 }
@@ -344,7 +344,7 @@ impl Sandbox for FakeSandbox {
         &self.name
     }
 
-    fn apply(&self, command: &mut std::process::Command) -> forge_core::Result<()> {
+    fn apply(&self, command: &mut std::process::Command) -> hearth_core::Result<()> {
         self.applied.fetch_add(1, Ordering::SeqCst);
         *self.seen_program.lock().unwrap() = command.get_program().to_string_lossy().into_owned();
         *self.seen_dir.lock().unwrap() = command
@@ -353,7 +353,7 @@ impl Sandbox for FakeSandbox {
         self.seen_env_count
             .store(command.get_envs().count(), Ordering::SeqCst);
         if let Some(message) = &self.apply_error {
-            return Err(forge_core::Error::new(ErrorKind::Refused, message.clone()));
+            return Err(hearth_core::Error::new(ErrorKind::Refused, message.clone()));
         }
         Ok(())
     }
@@ -362,10 +362,10 @@ impl Sandbox for FakeSandbox {
         self.aborted.fetch_add(1, Ordering::SeqCst);
     }
 
-    fn after_start(&self, _pid: u32) -> forge_core::Result<()> {
+    fn after_start(&self, _pid: u32) -> hearth_core::Result<()> {
         self.started.fetch_add(1, Ordering::SeqCst);
         if let Some(message) = &self.hook_error {
-            return Err(forge_core::Error::new(ErrorKind::Refused, message.clone()));
+            return Err(hearth_core::Error::new(ErrorKind::Refused, message.clone()));
         }
         Ok(())
     }
@@ -375,7 +375,7 @@ impl Sandbox for FakeSandbox {
 fn abort_apply_runs_exactly_once_when_spawn_fails() {
     let sandbox = Arc::new(FakeSandbox::new("fake-abort"));
     let error = Pipe
-        .run(Command::new("definitely-not-a-real-executable-forge").sandbox(sandbox.clone()))
+        .run(Command::new("definitely-not-a-real-executable-hearth").sandbox(sandbox.clone()))
         .expect_err("spawn must fail");
     assert_eq!(error.kind(), ErrorKind::Io);
     assert_eq!(sandbox.applied.load(Ordering::SeqCst), 1);
@@ -402,7 +402,7 @@ fn sandbox_apply_sees_the_configured_command_before_start() {
         .seen_program
         .lock()
         .unwrap()
-        .contains("forge-exec-helper"));
+        .contains("hearth-exec-helper"));
     assert_eq!(
         sandbox.seen_dir.lock().unwrap().as_deref(),
         Some(dir.to_string_lossy().as_ref())

@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use forge_core::{Error, ErrorKind, Result as CoreResult};
+use hearth_core::{Error, ErrorKind, Result as CoreResult};
 
 use crate::{canonical_path, is_filesystem_root, Mode, Spec};
 

@@ -1,4 +1,4 @@
-//! `forge session`: commands that operate on a session log without running a
+//! `hearth session`: commands that operate on a session log without running a
 //! turn. The first one is `fork`, which is a rewrite-free copy and says nothing
 //! about a provider, a model or stdin — so an operator can branch a session
 //! before deciding what to ask it.
@@ -6,8 +6,8 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use forge_core::{Error, ErrorKind};
-use forge_session::{fork, ForkOptions};
+use hearth_core::{Error, ErrorKind};
+use hearth_session::{fork, ForkOptions};
 
 use crate::{one_line, reorder_flags};
 
@@ -15,8 +15,8 @@ const EXIT_OK: i32 = 0;
 const EXIT_FAILURE: i32 = 1;
 const EXIT_USAGE: i32 = 2;
 
-pub const USAGE: &str = "usage: forge session <command> [flags]
-Try 'forge session fork --help' for one command.
+pub const USAGE: &str = "usage: hearth session <command> [flags]
+Try 'hearth session fork --help' for one command.
 
 Commands:
   fork <parentId>     copy a session up to one of its seqs into a new session
@@ -62,7 +62,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
             // guessing which of their words was wrong.
             let _ = writeln!(
                 stderr,
-                "forge session: unknown command {other:?}\n\n{USAGE}"
+                "hearth session: unknown command {other:?}\n\n{USAGE}"
             );
             EXIT_USAGE
         }
@@ -93,7 +93,7 @@ fn run_archive(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) 
                 let Some(value) = args.get(index) else {
                     let _ = writeln!(
                         stderr,
-                        "forge session archive: --reason needs a value\n\n{USAGE}"
+                        "hearth session archive: --reason needs a value\n\n{USAGE}"
                     );
                     return EXIT_USAGE;
                 };
@@ -106,7 +106,7 @@ fn run_archive(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) 
             other if other.starts_with('-') => {
                 let _ = writeln!(
                     stderr,
-                    "forge session archive: unknown flag {other:?}\n\n{USAGE}"
+                    "hearth session archive: unknown flag {other:?}\n\n{USAGE}"
                 );
                 return EXIT_USAGE;
             }
@@ -114,7 +114,7 @@ fn run_archive(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) 
                 if id.is_some() {
                     let _ = writeln!(
                         stderr,
-                        "forge session archive: one session id at a time\n\n{USAGE}"
+                        "hearth session archive: one session id at a time\n\n{USAGE}"
                     );
                     return EXIT_USAGE;
                 }
@@ -125,7 +125,7 @@ fn run_archive(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) 
     let Some(id) = id else {
         let _ = writeln!(
             stderr,
-            "forge session archive: needs a session id\n\n{USAGE}"
+            "hearth session archive: needs a session id\n\n{USAGE}"
         );
         return EXIT_USAGE;
     };
@@ -135,7 +135,7 @@ fn run_archive(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) 
         Err(err) => {
             let _ = writeln!(
                 stderr,
-                "forge session archive: read config: {}",
+                "hearth session archive: read config: {}",
                 one_line(err.message())
             );
             return EXIT_FAILURE;
@@ -147,34 +147,34 @@ fn run_archive(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) 
         // let a typo turn into a confident claim.
         let _ = writeln!(
             stderr,
-            "forge session archive: no such session log: {}",
+            "hearth session archive: no such session log: {}",
             path.display()
         );
         return EXIT_FAILURE;
     }
-    let store = match forge_session::Store::open(&path, forge_session::Options::default()) {
+    let store = match hearth_session::Store::open(&path, hearth_session::Options::default()) {
         Ok(store) => store,
         Err(err) => {
             let _ = writeln!(
                 stderr,
-                "forge session archive: open {}: {}",
+                "hearth session archive: open {}: {}",
                 path.display(),
                 one_line(err.message())
             );
             return EXIT_FAILURE;
         }
     };
-    let already = forge_subagent::archive::is_archived(&data_dir, &id).unwrap_or(false);
+    let already = hearth_subagent::archive::is_archived(&data_dir, &id).unwrap_or(false);
     if !already {
-        let event = forge_core::Event::new(
+        let event = hearth_core::Event::new(
             &id,
-            forge_core::EventType::SESSION_ARCHIVED,
-            Some(forge_subagent::archive::payload(&reason)),
+            hearth_core::EventType::SESSION_ARCHIVED,
+            Some(hearth_subagent::archive::payload(&reason)),
         );
         if let Err(err) = store.append(&event) {
             let _ = writeln!(
                 stderr,
-                "forge session archive: append: {}",
+                "hearth session archive: append: {}",
                 one_line(err.message())
             );
             return EXIT_FAILURE;
@@ -196,7 +196,7 @@ fn run_archive(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) 
             Err(err) => {
                 let _ = writeln!(
                     stderr,
-                    "forge session archive: report: {}",
+                    "hearth session archive: report: {}",
                     one_line(&err.to_string())
                 );
                 EXIT_FAILURE
@@ -207,7 +207,7 @@ fn run_archive(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) 
     if let Err(err) = writeln!(stdout, "archived {id}{note}") {
         let _ = writeln!(
             stderr,
-            "forge session archive: write: {}",
+            "hearth session archive: write: {}",
             one_line(&err.to_string())
         );
         return EXIT_FAILURE;
@@ -216,7 +216,7 @@ fn run_archive(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) 
 }
 
 /// Copies a parent log into a new session id and prints that id, so a shell can
-/// do `child=$(forge session fork "$parent")`. Every diagnostic, including the
+/// do `child=$(hearth session fork "$parent")`. Every diagnostic, including the
 /// summary of what was copied, goes to stderr.
 fn run_fork(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     if crate::wants_help(args) {
@@ -232,7 +232,7 @@ fn run_fork(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
         match crate::new_session_id() {
             Ok(id) => id,
             Err(err) => {
-                let _ = writeln!(stderr, "forge session fork: {}", one_line(err.message()));
+                let _ = writeln!(stderr, "hearth session fork: {}", one_line(err.message()));
                 return EXIT_FAILURE;
             }
         }
@@ -245,7 +245,7 @@ fn run_fork(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
         Err(err) => {
             let _ = writeln!(
                 stderr,
-                "forge session fork: read config: {}",
+                "hearth session fork: read config: {}",
                 one_line(err.message())
             );
             return EXIT_FAILURE;
@@ -266,7 +266,7 @@ fn run_fork(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
         Ok(result) => result,
         Err(err) => {
             let message = describe_fork_error(&err, &parent, &new_id);
-            let _ = writeln!(stderr, "forge session fork: {}", one_line(&message));
+            let _ = writeln!(stderr, "hearth session fork: {}", one_line(&message));
             // A missing parent or a bad cut is the caller's mistake, not a
             // runtime failure: exit 2 tells a script not to retry it as-is.
             return if is_usage_error(&err) {
@@ -293,7 +293,7 @@ fn run_fork(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
             Err(err) => {
                 let _ = writeln!(
                     stderr,
-                    "forge session fork: report: {}",
+                    "hearth session fork: report: {}",
                     one_line(&err.to_string())
                 );
                 EXIT_FAILURE
@@ -304,7 +304,7 @@ fn run_fork(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
     if let Err(err) = writeln!(stdout, "{}", result.session_id) {
         let _ = writeln!(
             stderr,
-            "forge session fork: write session id: {}",
+            "hearth session fork: write session id: {}",
             one_line(&err.to_string())
         );
         return EXIT_FAILURE;
@@ -314,7 +314,7 @@ fn run_fork(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
     // that makes the fork reproducible.
     let _ = writeln!(
         stderr,
-        "forge session fork: forked {} at seq {} into {} ({} events, {} bytes)",
+        "hearth session fork: forked {} at seq {} into {} ({} events, {} bytes)",
         result.parent_id, result.forked_at_seq, result.session_id, result.events, result.bytes
     );
     EXIT_OK
@@ -357,7 +357,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> Result<(Options, String), i
                         None => {
                             let _ = writeln!(
                                 stderr,
-                                "forge session fork: {name} needs a value\n\n{USAGE}"
+                                "hearth session fork: {name} needs a value\n\n{USAGE}"
                             );
                             return Err(EXIT_USAGE);
                         }
@@ -372,7 +372,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> Result<(Options, String), i
                         Err(_) => {
                             let _ = writeln!(
                                 stderr,
-                                "forge session fork: --at {value:?} is not a record number\n"
+                                "hearth session fork: --at {value:?} is not a record number\n"
                             );
                             return Err(EXIT_USAGE);
                         }
@@ -384,7 +384,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> Result<(Options, String), i
             other => {
                 let _ = writeln!(
                     stderr,
-                    "forge session fork: unknown flag {other:?}\n\n{USAGE}"
+                    "hearth session fork: unknown flag {other:?}\n\n{USAGE}"
                 );
                 return Err(EXIT_USAGE);
             }
@@ -397,14 +397,14 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> Result<(Options, String), i
     if opt.at_set && opt.at == 0 {
         let _ = writeln!(
             stderr,
-            "forge session fork: --at 0 names no record: seqs are dense from 1\n"
+            "hearth session fork: --at 0 names no record: seqs are dense from 1\n"
         );
         return Err(EXIT_USAGE);
     }
     if !opt.new_id.trim().is_empty() && !valid_session_id(opt.new_id.trim()) {
         let _ = writeln!(
             stderr,
-            "forge session fork: --id {:?} is not a usable session id\n",
+            "hearth session fork: --id {:?} is not a usable session id\n",
             opt.new_id.trim()
         );
         return Err(EXIT_USAGE);
@@ -414,7 +414,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> Result<(Options, String), i
         many => {
             let _ = writeln!(
                 stderr,
-                "forge session fork: expected exactly one parent session id, got {many}\n\n{USAGE}"
+                "hearth session fork: expected exactly one parent session id, got {many}\n\n{USAGE}"
             );
             Err(EXIT_USAGE)
         }
@@ -438,7 +438,7 @@ fn valid_session_id(value: &str) -> bool {
 /// "not found" is never ambiguous about *what* was not found.
 fn describe_fork_error(err: &Error, parent: &str, new_id: &str) -> String {
     let text = err.message();
-    // `forge_session::fork` reports a missing parent as "fork parent log does not
+    // `hearth_session::fork` reports a missing parent as "fork parent log does not
     // exist"; naming the id turns that into something an operator can act on.
     if text.contains("does not exist") || text.contains("no session log at") {
         return format!("no session {parent} in this data directory ({text})");
@@ -495,7 +495,7 @@ mod tests {
         let mut out = Vec::new();
         let mut err = Vec::new();
         assert_eq!(run(&args(&["--help"]), &mut out, &mut err), EXIT_OK);
-        assert!(String::from_utf8_lossy(&out).contains("forge session <command>"));
+        assert!(String::from_utf8_lossy(&out).contains("hearth session <command>"));
         assert!(err.is_empty());
     }
 
@@ -590,7 +590,7 @@ mod tests {
 
     #[test]
     fn a_missing_parent_is_a_usage_error() {
-        let dir = std::env::temp_dir().join(format!("forge-fork-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hearth-fork-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sessions")).expect("temp dir");
         let sessions = dir.join("sessions");

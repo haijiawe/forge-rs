@@ -18,7 +18,7 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use forge_core::{Error, ErrorKind, Result};
+use hearth_core::{Error, ErrorKind, Result};
 use serde::{Deserialize, Serialize};
 
 /// Sandbox modes, ordered from most to least restrictive.
@@ -36,10 +36,10 @@ pub const MCP_TRANSPORT_HTTP: &str = "http";
 /// Unusable `mcp.servers` entries, reported by [`Config::validate`] as a
 /// distinct type.
 ///
-/// The distinction is load-bearing: `forge doctor` must fail on a typo in an
+/// The distinction is load-bearing: `hearth doctor` must fail on a typo in an
 /// MCP server so the operator sees it, while the runtime starts anyway and
 /// drops exactly those servers. A caller that cannot tell this error apart
-/// would turn one typo into "forge does not start".
+/// would turn one typo into "hearth does not start".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MCPConfigError {
     /// One operator-facing line per bad entry, in declaration order.
@@ -233,7 +233,7 @@ pub struct TeamConfig {
     pub max_parallel: i32,
 }
 
-/// User-level configuration stored in `$FORGE_HOME/config.json`.
+/// User-level configuration stored in `$HEARTH_HOME/config.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
@@ -774,13 +774,13 @@ pub fn load(path: &Path) -> Result<Config> {
     Config::load(path)
 }
 
-/// `$FORGE_HOME` when set, else `~/.forge`.
+/// `$HEARTH_HOME` when set, else `~/.hearth`.
 pub fn home_dir() -> Result<PathBuf> {
-    if let Some(value) = nonempty_var("FORGE_HOME") {
+    if let Some(value) = nonempty_var("HEARTH_HOME") {
         return Ok(PathBuf::from(value));
     }
     match user_home_dir() {
-        Some(home) => Ok(home.join(".forge")),
+        Some(home) => Ok(home.join(".hearth")),
         None => Err(Error::new(
             ErrorKind::NotFound,
             "config: locate home directory: no home directory in the environment",
@@ -788,11 +788,11 @@ pub fn home_dir() -> Result<PathBuf> {
     }
 }
 
-/// The operating system's user home, independent of `FORGE_HOME`.
+/// The operating system's user home, independent of `HEARTH_HOME`.
 ///
 /// `~` in a skill root means the user's home as the shell means it; using
-/// `home_dir()` there would expand it to `$FORGE_HOME`, which is a different
-/// directory when an operator points Forge at a custom home.
+/// `home_dir()` there would expand it to `$HEARTH_HOME`, which is a different
+/// directory when an operator points Hearth at a custom home.
 fn user_home_dir() -> Option<PathBuf> {
     if cfg!(windows) {
         nonempty_var("USERPROFILE").map(PathBuf::from).or_else(|| {

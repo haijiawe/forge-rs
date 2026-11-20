@@ -1,4 +1,4 @@
-//! `forge expert`: list the operators' expert roster and print one brief.
+//! `hearth expert`: list the operators' expert roster and print one brief.
 //!
 //! A roster is documentation, not code: `scan` reads Markdown with frontmatter
 //! and validates the whole tree together. This command lists what the same
@@ -14,7 +14,7 @@ const EXIT_OK: i32 = 0;
 const EXIT_FAILURE: i32 = 1;
 const EXIT_USAGE: i32 = 2;
 
-pub const USAGE: &str = "usage: forge expert <command> [flags]
+pub const USAGE: &str = "usage: hearth expert <command> [flags]
 
 Inspect the expert roster: Markdown files with frontmatter that describe a persona
 (an expert), or a team of personas. The same scanner the `expert` tool uses runs
@@ -26,7 +26,7 @@ commands:
 
 flags:
   --json               machine-readable output
-  --data-dir <dir>     data directory (default: the forge home's configured dataDir)
+  --data-dir <dir>     data directory (default: the hearth home's configured dataDir)
   --root <dir>         roster root; may be repeated (default: the configured
                        expert roots, then <dataDir>/experts)
   -h, --help           this message
@@ -67,10 +67,10 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     // lookup walks them in the order the operator listed them.
     let mut sets = Vec::new();
     for root in &roots {
-        match forge_experts::scan(root) {
+        match hearth_experts::scan(root) {
             Ok(set) => sets.push(set),
             Err(err) => {
-                let _ = writeln!(stderr, "forge expert: {}: {err}", root.display());
+                let _ = writeln!(stderr, "hearth expert: {}: {err}", root.display());
                 return EXIT_FAILURE;
             }
         }
@@ -80,7 +80,10 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         "list" => list(&sets, &roots, opt.json, stdout, stderr),
         "show" => show(&sets, &reordered, stdout, stderr),
         other => {
-            let _ = writeln!(stderr, "forge expert: unknown command {other:?}\n\n{USAGE}");
+            let _ = writeln!(
+                stderr,
+                "hearth expert: unknown command {other:?}\n\n{USAGE}"
+            );
             EXIT_USAGE
         }
     }
@@ -91,7 +94,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
-        // Positionals belong to the dispatch arm, not here: `forge expert show
+        // Positionals belong to the dispatch arm, not here: `hearth expert show
         // <slug>` passes a bare word, and reading it as a flag produced "unknown
         // flag --<slug>" for the most ordinary invocation.
         if !arg.starts_with('-') {
@@ -111,7 +114,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
                     match args.get(*index) {
                         Some(value) => Ok(value.clone()),
                         None => {
-                            let _ = writeln!(stderr, "forge expert: --{name} needs a value");
+                            let _ = writeln!(stderr, "hearth expert: --{name} needs a value");
                             Err(EXIT_USAGE)
                         }
                     }
@@ -124,7 +127,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
             "root" => opt.roots.push(take(&mut i)?),
             "" => {}
             other => {
-                let _ = writeln!(stderr, "forge expert: unknown flag --{other}");
+                let _ = writeln!(stderr, "hearth expert: unknown flag --{other}");
                 return Err(EXIT_USAGE);
             }
         }
@@ -146,9 +149,9 @@ fn resolve_roots(opt: &Options) -> Vec<PathBuf> {
     } else {
         PathBuf::from(opt.data_dir.trim())
     };
-    let cfg = forge_config::default_path()
+    let cfg = hearth_config::default_path()
         .ok()
-        .and_then(|path| forge_config::Config::load(&path).ok())
+        .and_then(|path| hearth_config::Config::load(&path).ok())
         .unwrap_or_default();
     let configured: Vec<PathBuf> = cfg
         .expert_roots()
@@ -163,14 +166,14 @@ fn resolve_roots(opt: &Options) -> Vec<PathBuf> {
 }
 
 fn list(
-    sets: &[forge_experts::Set],
+    sets: &[hearth_experts::Set],
     roots: &[PathBuf],
     json: bool,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> i32 {
-    let experts: Vec<&forge_experts::Expert> = sets.iter().flat_map(|set| set.experts()).collect();
-    let teams: Vec<&forge_experts::Team> = sets.iter().flat_map(|set| set.teams()).collect();
+    let experts: Vec<&hearth_experts::Expert> = sets.iter().flat_map(|set| set.experts()).collect();
+    let teams: Vec<&hearth_experts::Team> = sets.iter().flat_map(|set| set.teams()).collect();
 
     if json {
         let expert_entries: Vec<serde_json::Value> = experts
@@ -262,7 +265,7 @@ fn list(
 }
 
 fn show(
-    sets: &[forge_experts::Set],
+    sets: &[hearth_experts::Set],
     args: &[String],
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -274,13 +277,13 @@ fn show(
     // Experts first: a roster where a slug names both is a defect the scanner
     // refuses, so the order only decides which lookup reports a miss.
     for set in sets {
-        if let Some(brief) = forge_experts::prompt_for(set, slug) {
+        if let Some(brief) = hearth_experts::prompt_for(set, slug) {
             let _ = writeln!(stdout, "{brief}");
             return EXIT_OK;
         }
     }
     for set in sets {
-        if let Some(brief) = forge_experts::team_prompt(set, slug) {
+        if let Some(brief) = hearth_experts::team_prompt(set, slug) {
             let _ = writeln!(stdout, "{brief}");
             return EXIT_OK;
         }
@@ -291,7 +294,7 @@ fn show(
         if let Some(expert) = set.expert(slug) {
             let _ = writeln!(
                 stderr,
-                "forge expert: {slug:?} is disabled (enabled: false in {})",
+                "hearth expert: {slug:?} is disabled (enabled: false in {})",
                 expert.path.display()
             );
             return EXIT_FAILURE;
@@ -299,7 +302,7 @@ fn show(
     }
     let _ = writeln!(
         stderr,
-        "forge expert: no expert or team named {slug:?}; known: {}",
+        "hearth expert: no expert or team named {slug:?}; known: {}",
         known(sets)
     );
     EXIT_FAILURE
@@ -341,7 +344,7 @@ fn positional<'a>(args: &'a [String], command: &str) -> Vec<&'a str> {
     out
 }
 
-fn known(sets: &[forge_experts::Set]) -> String {
+fn known(sets: &[hearth_experts::Set]) -> String {
     let mut names: Vec<String> = sets
         .iter()
         .flat_map(|set| {
@@ -359,7 +362,7 @@ fn known(sets: &[forge_experts::Set]) -> String {
 }
 
 fn usage(stderr: &mut dyn Write, message: &str) -> i32 {
-    let _ = writeln!(stderr, "forge expert: {message}\n\n{USAGE}");
+    let _ = writeln!(stderr, "hearth expert: {message}\n\n{USAGE}");
     EXIT_USAGE
 }
 
@@ -389,7 +392,7 @@ mod tests {
 
     #[test]
     fn a_slug_is_not_a_flag() {
-        // `forge expert show <slug>` is the ordinary invocation; the slug is a bare
+        // `hearth expert show <slug>` is the ordinary invocation; the slug is a bare
         // word, and reading it as a flag turned it into "unknown flag --<slug>".
         let mut err = Vec::new();
         let outcome = parse(&args(&["show", "rust-reviewer"]), &mut err);
@@ -398,7 +401,7 @@ mod tests {
 
     #[test]
     fn an_explicit_root_that_does_not_exist_lists_nothing() {
-        let dir = std::env::temp_dir().join("forge-expert-cmd-empty");
+        let dir = std::env::temp_dir().join("hearth-expert-cmd-empty");
         let mut out = Vec::new();
         let mut err = Vec::new();
         let code = run(
@@ -414,7 +417,7 @@ mod tests {
     fn show_without_a_slug_is_a_usage_error() {
         let mut out = Vec::new();
         let mut err = Vec::new();
-        let dir = std::env::temp_dir().join("forge-expert-cmd-none");
+        let dir = std::env::temp_dir().join("hearth-expert-cmd-none");
         let code = run(
             &args(&["show", "--root", &dir.to_string_lossy(), "--json"]),
             &mut out,

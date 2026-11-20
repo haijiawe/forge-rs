@@ -3,16 +3,16 @@ dir: crates/sandbox
 layer: L1
 role: containment enforcers for job objects plus AppContainers, Landlock, and sandbox-exec
 public: [Mode, Spec, Support, Enforcer, Logger, NoopLogger, UnavailableError, new, available, appcontainer_available, prune_appcontainer_profiles, maybe_exec_helper, mode_from_str]
-may_import: [forge-core]
-must_not: [forge-exec, forge-session, forge-llm, forge-tool, forge-protocol, forge-server, forge-cli]
+may_import: [hearth-core]
+must_not: [hearth-exec, hearth-session, hearth-llm, hearth-tool, hearth-protocol, hearth-server, hearth-cli]
 gate: make arch
 ---
 
-# forge-sandbox
+# hearth-sandbox
 
 ## 做什么
 
-`forge-sandbox` 决定“这台机器能限制什么”，并安装对应的执行器。它有三种模式：
+`hearth-sandbox` 决定“这台机器能限制什么”，并安装对应的执行器。它有三种模式：
 `read-only`、`workspace-write`、`full-access`。`full-access` 是一个明确声明的
 空操作（`enforced=false`）；其余模式必须真的执行，做不到就拒绝，绝不静默降级。
 
@@ -41,7 +41,7 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
   `crates/sandbox/tests/linux.rs` 的五个用例（workspace 内外写、read-only、
   `extra_write`、网络两向），macOS 由 `sandbox macos-latest` job 跑
   `crates/sandbox/tests/macos.rs` 的五个同形用例。`wrapper` 是“`main`
-  第一句调用 `maybe_exec_helper` 的可执行文件”，默认 `None` 表示本进程（`forge`
+  第一句调用 `maybe_exec_helper` 的可执行文件”，默认 `None` 表示本进程（`hearth`
   自己）；把本 crate 当库嵌进别的宿主才需要设置它。`extra_read` 是“workspace 之外
   仍可读”的路径，只对默认拒绝读的平台有意义（Windows 的 AppContainer 从零可读开始；
   Linux 的 Landlock 策略只管写、macOS 的 profile 已经 `allow file-read*`，所以那两个
@@ -68,7 +68,7 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
 - `maybe_exec_helper()`：wrapper 子进程入口（Linux Landlock、Windows AppContainer），
   `main` 必须最先调用；其他平台为空操作。
 - `prune_appcontainer_profiles() -> Result<PruneReport>`（Windows）：删掉本工具在该
-  用户下创建的 `forge.sandbox.*` 包身份，返回 `{found, removed, failed, stopped_early}`。
+  用户下创建的 `hearth.sandbox.*` 包身份，返回 `{found, removed, failed, stopped_early}`。
   profile 服务没有枚举 API，所以索引就是 `%LOCALAPPDATA%\Packages` 里的目录名。这是
   维护而不是打扫：攒到约九十个身份后，服务会成段时间拒绝新名字——**删除撞的是同一个
   限流**（实测同一命令半小时后 57 个全 `0x80070005`，而当时新建也全线失败）。所以它
@@ -77,10 +77,10 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
 
 ## 依赖与边界
 
-只依赖 `forge-core` 和标准库；wrapper payload 用 workspace 的 serde/serde_json。
-不得依赖 `forge-exec`：`apply` 接收的是 `std::process::Command`，由 exec 调用。
+只依赖 `hearth-core` 和标准库；wrapper payload 用 workspace 的 serde/serde_json。
+不得依赖 `hearth-exec`：`apply` 接收的是 `std::process::Command`，由 exec 调用。
 不得知道会话、LLM、工具或 HTTP。本 crate 只负责“安装限制”，进程树的日常终止
-仍然由 `forge-exec` 负责；Windows 的 job object 与 AppContainer 是额外两层限制。
+仍然由 `hearth-exec` 负责；Windows 的 job object 与 AppContainer 是额外两层限制。
 
 ## 不要做
 
@@ -97,9 +97,9 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
   创建过**的名字给出的 SID：前者与并发踩，后者让 `CreateProcessW` 报 2 或 87。
 - 不要在 profile 已存在时重新创建它：先看
   `%LOCALAPPDATA%\Packages\<name>` 是否存在，存在就 `Derive…` 采纳。profile 服务
-  会成段时间拒绝新名字（本机攒到约九十个 `forge.sandbox.*` 后出现过），而采纳一个
+  会成段时间拒绝新名字（本机攒到约九十个 `hearth.sandbox.*` 后出现过），而采纳一个
   已存在的身份从不受影响；只有真的需要新身份时才付那 8 秒退避重试，最后才退到
-  全用户共享的 `forge.sandbox`（共享身份不再隔离两个 workspace，必须在文档里说）。
+  全用户共享的 `hearth.sandbox`（共享身份不再隔离两个 workspace，必须在文档里说）。
 - 不要把 macOS 说成 `unverified on this host`：`sandbox macos-latest` job 每次 push
   都在真实内核上跑 `crates/sandbox/tests/macos.rs` 的五个用例（模式矩阵、workspace
   内外写、read-only、`extra_write`、网络两向）。也不要走向另一个极端说"所有 macOS
@@ -108,7 +108,7 @@ Linux 用 Landlock（必要时把 harness 自己 re-exec 成限制器）；macOS
   “父进程级别”和“自身镜像标签”中较低的那个：镜像放在打了 `Low` 标签的目录里
   （浏览器解压的下载常见），进程就以 Low 运行，而 Low 进程**写不了 `%LOCALAPPDATA%`**，
   profile 服务因此每次拒绝，连读 Medium 对象的 DACL 都会拒。本机栽过：项目树带
-  `Low` 标签，于是 `bin\forge.exe` 全部失败而 `%TEMP%` 下的同一份二进制正常，还
+  `Low` 标签，于是 `bin\hearth.exe` 全部失败而 `%TEMP%` 下的同一份二进制正常，还
   被误诊成“中文路径”。`integrity_rid()` 现在把这种情况写进拒绝文案并给出
   `icacls <dir> /setintegritylevel (OI)(CI)M /T /C`；`available()` 在这种进程里
   直接返回 false，不让严格模式声称它做不到的遏制。

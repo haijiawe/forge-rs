@@ -6,11 +6,11 @@ crates implement, and the language-neutral conformance corpora under
 tests/conformance/cases/ are what proves it. Read Go signatures as history:
 the Rust signatures live in the crates' README.md files.
 -->
-# forge event format, version 1
+# hearth event format, version 1
 
 Status: **normative for the v1 on-disk format.** This document is written so that
 a reimplementation in any language (Rust, TypeScript, Go, ...) can read and write
-`forge` session logs without looking at Go source. Where this document and the Go
+`hearth` session logs without looking at Go source. Where this document and the Go
 code disagree, the code and `tests/conformance/` are the truth and this document
 is the bug.
 
@@ -143,7 +143,7 @@ the condition, and the substring above is what the conformance suite asserts.
 
 ## 4. Event types
 
-The v1 type catalogue is **open**. These thirty-one types have producers in `forge` today:
+The v1 type catalogue is **open**. These thirty-one types have producers in `hearth` today:
 
 | `type` | Emitted when | Payload members in current producers |
 | --- | --- | --- |
@@ -209,7 +209,7 @@ away" has lost the only thing it was for.
 
 **`turn/start` has more than one producer, on purpose.** Whichever surface owns the turn intake writes it: the agent loop for a CLI turn, the HTTP layer for an API turn (which must open the turn before the runner is asked to run it, so `POST /api/sessions/{id}/messages` can answer with the prompt's `seq` synchronously). Readers must not assume which surface wrote a given `turn/start`, and must not infer CLI-versus-API from it.
 
-**`session/end` belongs to terminal sessions only.** A resumable session file is **resumable**: `forge chat --session X` appends turn 2 to the same log, and a later process may append turn 3. So "the session ended" is not a fact the harness can observe for those — the process exiting is an operator event, not a domain event. Writing `session/end` when a process detaches would be a lie the next process has to contradict. Readers must therefore treat absence of `session/end` as normal, and must not use it to decide whether a resumable session is complete.
+**`session/end` belongs to terminal sessions only.** A resumable session file is **resumable**: `hearth chat --session X` appends turn 2 to the same log, and a later process may append turn 3. So "the session ended" is not a fact the harness can observe for those — the process exiting is an operator event, not a domain event. Writing `session/end` when a process detaches would be a lie the next process has to contradict. Readers must therefore treat absence of `session/end` as normal, and must not use it to decide whether a resumable session is complete.
 
 A process that dies **inside** a turn leaves a `turn/start` with no `turn/end`. That is not corruption: it is the honest record of a turn that never finished, and the reader's own projection sees a `running` turn. The next process to resume the log closes it by **appending** a `turn/end` with `reason="cancelled"` and `cancelledBy="cli:recovery"` (§5 forbids the rewrite that would otherwise be tempting), and then continues with the following turn number. Nothing is invented to fill the gap: an unanswered `step/start` stays unanswered, because "this step was abandoned" is already what an open step means.
 
@@ -220,7 +220,7 @@ operator decided this session starts no new work; it does not say the session is
 finished, unreadable, or deletable. Three consequences follow, and all three are
 deliberate:
 
-- **At most once, and idempotent.** The only writer is `forge session archive`,
+- **At most once, and idempotent.** The only writer is `hearth session archive`,
   which reads the log first and writes nothing if the record is already there. A
   second run reports `already archived` rather than appending a duplicate, so a
   reader never has to decide which of two records wins.
@@ -541,7 +541,7 @@ Every member is a scalar or a digest:
 `session/start`; copying it per step would make this row the largest in the log
 for the smallest amount of new information. The fingerprint is a change detector,
 not a security boundary: an adversary who can choose the prompt already writes
-the log. Its definition is frozen (`forge_core::digest::fingerprint`) because
+the log. Its definition is frozen (`hearth_core::digest::fingerprint`) because
 these values are written down and compared later — a digest that moved with a
 compiler upgrade would make every stored fingerprint a lie.
 
@@ -549,7 +549,7 @@ Two rows together are the difference between "the answer changed" and "the
 request changed", which is what a comparison between two runs needs.
 ### 4.1 Forked logs
 
-A fork (`forge chat --fork`, `forge session fork`) creates a **new** session whose
+A fork (`hearth chat --fork`, `hearth session fork`) creates a **new** session whose
 log is a copy of a prefix of another session's log. A forked log is an ordinary
 v1 log: it satisfies every invariant in §3, its `seq` runs densely from `1`, and
 every record carries the child's session id. A reader needs no fork awareness to
@@ -657,7 +657,7 @@ Both rows are log-only. Neither ever enters model history: the queues decide
    last complete record during recovery (§8). That deletes no complete record.
 
 Writers MUST `fsync` before reporting success, or document the durability window
-they accept. `forge` defaults to `fsync` on every append, with an opt-out
+they accept. `hearth` defaults to `fsync` on every append, with an opt-out
 (`SyncEvery`, `NoFsync`) used only by benchmarks and tests.
 
 ### 5.1 Compaction (`compaction/summary`)
@@ -756,7 +756,7 @@ members are not an error, because dropping them is allowed.
 - Event **types** are versioned by their `namespace` (`tool/call` in v1 stays
   compatible forever; a redesigned variant is `tool/call2` or lives behind a `v`
   bump).
-- `forge` itself is pre-1.0 (`0.0.0-dev`); **the event format is not** — v1 is
+- `hearth` itself is pre-1.0 (`0.0.0-dev`); **the event format is not** — v1 is
   frozen as of the M0 conformance suite, and format changes after that follow the
   rules above.
 

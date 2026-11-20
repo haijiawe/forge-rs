@@ -103,288 +103,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
-name = "forge-agent"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "forge-llm",
- "forge-session",
- "serde_json",
-]
-
-[[package]]
-name = "forge-bench"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "forge-session",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-cli"
-version = "0.1.0"
-dependencies = [
- "ctrlc",
- "forge-agent",
- "forge-config",
- "forge-context",
- "forge-core",
- "forge-experts",
- "forge-goal",
- "forge-import",
- "forge-llm",
- "forge-market",
- "forge-mcp",
- "forge-net",
- "forge-plugin",
- "forge-protocol",
- "forge-sandbox",
- "forge-schedule",
- "forge-server",
- "forge-session",
- "forge-skill",
- "forge-store",
- "forge-subagent",
- "forge-team",
- "forge-tool",
- "getrandom 0.3.4",
- "rustls",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "webpki-roots",
- "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "forge-config"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-context"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-core"
-version = "0.1.0"
-dependencies = [
- "getrandom 0.3.4",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-e2e"
-version = "0.1.0"
-dependencies = [
- "serde_json",
-]
-
-[[package]]
-name = "forge-exec"
-version = "0.1.0"
-dependencies = [
- "forge-core",
-]
-
-[[package]]
-name = "forge-experts"
-version = "0.1.0"
-
-[[package]]
-name = "forge-goal"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-import"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "forge-session",
- "ring",
- "serde_json",
-]
-
-[[package]]
-name = "forge-llm"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "rustls",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "webpki-roots",
-]
-
-[[package]]
-name = "forge-market"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "forge-net",
- "ring",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-mcp"
-version = "0.1.0"
-dependencies = [
- "rustls",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "webpki-roots",
-]
-
-[[package]]
-name = "forge-net"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "rustls",
- "rustls-pki-types",
- "webpki-roots",
-]
-
-[[package]]
-name = "forge-plugin"
-version = "0.1.0"
-dependencies = [
- "forge-mcp",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-protocol"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-sandbox"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-schedule"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-server"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "forge-goal",
- "forge-protocol",
- "forge-session",
- "forge-subagent",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-session"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-skill"
-version = "0.1.0"
-
-[[package]]
-name = "forge-store"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "forge-protocol",
- "forge-session",
- "rusqlite",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-subagent"
-version = "0.1.0"
-dependencies = [
- "forge-agent",
- "forge-core",
- "forge-llm",
- "forge-session",
- "forge-tool",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-team"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "forge-exec",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-tool"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "forge-exec",
- "forge-llm",
- "forge-net",
- "regex",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "forge-ws"
-version = "0.1.0"
-dependencies = [
- "forge-core",
- "forge-server",
- "serde_json",
-]
-
-[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -423,6 +141,288 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a596f1b20ed2cc5ecac41a164aaebc7258057060f06c0cf7a2ba3991ee7990fb"
 dependencies = [
  "hashbrown",
+]
+
+[[package]]
+name = "hearth-agent"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "hearth-llm",
+ "hearth-session",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-bench"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "hearth-session",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-cli"
+version = "0.1.0"
+dependencies = [
+ "ctrlc",
+ "getrandom 0.3.4",
+ "hearth-agent",
+ "hearth-config",
+ "hearth-context",
+ "hearth-core",
+ "hearth-experts",
+ "hearth-goal",
+ "hearth-import",
+ "hearth-llm",
+ "hearth-market",
+ "hearth-mcp",
+ "hearth-net",
+ "hearth-plugin",
+ "hearth-protocol",
+ "hearth-sandbox",
+ "hearth-schedule",
+ "hearth-server",
+ "hearth-session",
+ "hearth-skill",
+ "hearth-store",
+ "hearth-subagent",
+ "hearth-team",
+ "hearth-tool",
+ "rustls",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "webpki-roots",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "hearth-config"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-context"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-core"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-e2e"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-exec"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+]
+
+[[package]]
+name = "hearth-experts"
+version = "0.1.0"
+
+[[package]]
+name = "hearth-goal"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-import"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "hearth-session",
+ "ring",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-llm"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "rustls",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "webpki-roots",
+]
+
+[[package]]
+name = "hearth-market"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "hearth-net",
+ "ring",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-mcp"
+version = "0.1.0"
+dependencies = [
+ "rustls",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "webpki-roots",
+]
+
+[[package]]
+name = "hearth-net"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "rustls",
+ "rustls-pki-types",
+ "webpki-roots",
+]
+
+[[package]]
+name = "hearth-plugin"
+version = "0.1.0"
+dependencies = [
+ "hearth-mcp",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-sandbox"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-schedule"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-server"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "hearth-goal",
+ "hearth-protocol",
+ "hearth-session",
+ "hearth-subagent",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-session"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-skill"
+version = "0.1.0"
+
+[[package]]
+name = "hearth-store"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "hearth-protocol",
+ "hearth-session",
+ "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-subagent"
+version = "0.1.0"
+dependencies = [
+ "hearth-agent",
+ "hearth-core",
+ "hearth-llm",
+ "hearth-session",
+ "hearth-tool",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-team"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "hearth-exec",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-tool"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "hearth-exec",
+ "hearth-llm",
+ "hearth-net",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hearth-ws"
+version = "0.1.0"
+dependencies = [
+ "hearth-core",
+ "hearth-server",
+ "serde_json",
 ]
 
 [[package]]

@@ -19,7 +19,7 @@
 
 use std::path::Path;
 
-use forge_core::Result;
+use hearth_core::Result;
 
 use crate::board::{Board, Status, Task};
 use crate::journal::Journal;
@@ -209,7 +209,7 @@ mod tests {
 
     fn scratch(label: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir()
-            .join("forge-team-view")
+            .join("hearth-team-view")
             .join(format!("{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch");

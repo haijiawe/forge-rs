@@ -2,13 +2,13 @@
 //! final answer back out of the log.
 //!
 //! A subagent child is a NEW session with a FRESH id. It never borrows event
-//! ids from its parent (that rule belongs to `forge_session::fork`, not here).
+//! ids from its parent (that rule belongs to `hearth_session::fork`, not here).
 //! The only parent link is the `parent` member of `session/start`.
 
 use std::path::PathBuf;
 
-use forge_core::{new_id, Error, ErrorKind, Event, EventType, Result};
-use forge_session::Store;
+use hearth_core::{new_id, Error, ErrorKind, Event, EventType, Result};
+use hearth_session::Store;
 use serde_json::{json, Map, Value};
 
 use crate::descriptor::{Descriptor, Mode};
@@ -30,7 +30,7 @@ pub struct ChildRun {
     pub structured: Option<Value>,
     /// Set when the agent loop started and then failed. Setup failures are
     /// returned as `Err` from `Runner::run` instead.
-    pub error: Option<forge_core::Error>,
+    pub error: Option<hearth_core::Error>,
     pub cancelled: bool,
     /// The sibling name reserved in the parent catalog, when there was a parent
     /// log to reserve it against.
@@ -114,8 +114,8 @@ pub(crate) fn open_child_log(
 ) -> Result<(ChildRun, Store)> {
     let sessions = opt.data_dir.join("sessions");
     std::fs::create_dir_all(&sessions).map_err(|e| {
-        forge_core::Error::new(
-            forge_core::ErrorKind::Io,
+        hearth_core::Error::new(
+            hearth_core::ErrorKind::Io,
             format!(
                 "subagent: cannot create sessions dir {}: {e}",
                 sessions.display()
@@ -128,17 +128,17 @@ pub(crate) fn open_child_log(
         let id = new_child_id((opt.now)())?;
         let path = child_log_path(&opt.data_dir, &id);
         if path.exists() {
-            last = Some(forge_core::Error::new(
-                forge_core::ErrorKind::Conflict,
+            last = Some(hearth_core::Error::new(
+                hearth_core::ErrorKind::Conflict,
                 format!("subagent: child log id collision: {id}"),
             ));
             continue;
         }
-        let store = forge_session::Store::open(
+        let store = hearth_session::Store::open(
             &path,
-            forge_session::Options {
+            hearth_session::Options {
                 no_fsync: true,
-                ..forge_session::Options::default()
+                ..hearth_session::Options::default()
             },
         )?;
         write_head(&store, &id, workspace, model, system, parent, depth)?;
@@ -164,8 +164,8 @@ pub(crate) fn open_child_log(
         ));
     }
     Err(last.unwrap_or_else(|| {
-        forge_core::Error::new(
-            forge_core::ErrorKind::Io,
+        hearth_core::Error::new(
+            hearth_core::ErrorKind::Io,
             "subagent: could not mint a unique child id",
         )
     }))
@@ -196,7 +196,7 @@ pub(crate) fn write_head(
         payload.insert("parent".into(), json!(parent));
     }
     if !system.is_empty() {
-        let (kept, truncated) = forge_agent::clip_system(system, forge_agent::MAX_SYSTEM_BYTES);
+        let (kept, truncated) = hearth_agent::clip_system(system, hearth_agent::MAX_SYSTEM_BYTES);
         payload.insert("system".into(), json!(kept));
         if truncated {
             payload.insert("systemTruncated".into(), json!(true));
@@ -280,9 +280,9 @@ pub(crate) fn reopen_child_log(opt: &Options, child_id: &str) -> Result<(ChildRu
     }
     let store = Store::open(
         &path,
-        forge_session::Options {
+        hearth_session::Options {
             no_fsync: true,
-            ..forge_session::Options::default()
+            ..hearth_session::Options::default()
         },
     )?;
 

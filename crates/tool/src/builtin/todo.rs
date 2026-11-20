@@ -48,8 +48,8 @@ impl Default for TodoWriteTool {
 }
 
 impl Tool for TodoWriteTool {
-    fn spec(&self) -> forge_llm::ToolSpec {
-        forge_llm::ToolSpec {
+    fn spec(&self) -> hearth_llm::ToolSpec {
+        hearth_llm::ToolSpec {
             name: "todo_write".into(),
             description: "State the plan for a multi-step task and show the user where you are in it.\n\nWhen to use: the task needs three or more distinct steps, the user asked for a plan, or you are handing the same job back and forth between sub-tasks and need to say what is left. Skip it for a single obvious step — a one-item list is noise.\n\nHow to use it: send the whole list on every call; this call replaces the plan, it does not append to it. Keep exactly one item in_progress while you work on it, and mark an item completed as soon as it is done rather than in a batch at the end. An item that turned out to be unnecessary is still worth marking completed with the reason in its text.\n\nStorage: this tool persists nothing. The harness records the call and this result in the session log, which is the only source of truth, and the plan is carried forward in the conversation. Nothing here survives outside that.\n\nAn empty list is rejected, and so is an unknown status. Statuses are pending, in_progress and completed. The output repeats the counts so you can keep your place.\n\nExample arguments:\n{\"items\":[{\"text\":\"Read internal/tool/contract.go\",\"status\":\"completed\"},{\"text\":\"Implement the shell tool\",\"status\":\"in_progress\"},{\"text\":\"Run go test ./internal/tool\",\"status\":\"pending\"}]}".into(),
             schema: json!({

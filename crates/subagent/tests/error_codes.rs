@@ -10,13 +10,13 @@ mod common;
 use std::sync::Arc;
 
 use common::{ScriptedProvider, TempDir};
-use forge_core::{Error, ErrorKind};
-use forge_subagent::error_code::{from_error, from_kind, Code, ALL};
-use forge_subagent::{
+use hearth_core::{Error, ErrorKind};
+use hearth_subagent::error_code::{from_error, from_kind, Code, ALL};
+use hearth_subagent::{
     Backend, BackendOutcome, BackendRequest, Options, Runner, CODE_BAD_OUTPUT, CODE_DEPTH_EXCEEDED,
     CODE_FAILED, CODE_TERMINATED,
 };
-use forge_tool::Call;
+use hearth_tool::Call;
 use serde_json::json;
 
 #[test]
@@ -214,7 +214,7 @@ impl Backend for OneModelRouter {
         "one-model"
     }
 
-    fn call(&self, request: &BackendRequest) -> forge_core::Result<BackendOutcome> {
+    fn call(&self, request: &BackendRequest) -> hearth_core::Result<BackendOutcome> {
         let model = request.model.as_deref().unwrap_or("");
         if model == KNOWN_MODEL {
             return Ok(BackendOutcome::success(

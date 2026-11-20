@@ -110,9 +110,9 @@ func (s *Store) Rebuild(ctx context.Context, dataDir string) (int, error)
 - `Rebuild` 必须能在 1,000 个会话 / 100,000 事件上于 10 s 内完成（给实测数字）。
 
 命令行（装配由集成者做，单元提供函数）：
-`forge index [--rebuild] [--stats] [--search TEXT] [--json]`。
+`hearth index [--rebuild] [--stats] [--search TEXT] [--json]`。
 
-## 3. U2：`internal/import`（旧 forge 会话只读导入）
+## 3. U2：`internal/import`（旧 hearth 会话只读导入）
 
 D3 已定：只读导入，不做双向兼容。
 
@@ -122,7 +122,7 @@ package import // 包名 importold？见下
 // Source 是一个旧会话目录的探测结果。
 type Source struct {
 	Dir       string
-	Format    string // "forge-session-v1" 等，未知则 "unknown"
+	Format    string // "hearth-session-v1" 等，未知则 "unknown"
 	Sessions  int
 	Events    int
 	Warnings  []string
@@ -147,13 +147,13 @@ func Write(ctx context.Context, src Source, plan Plan, dataDir string) (string, 
 ```
 
 约束：
-- 旧格式的真相在 `D:\魔改版Agent框架\forge\packages\session-format\**` 与 `forge\snapshots\`、
-  `forge\projects\` 的真实数据里。**先读代码与真实样本再写映射**，不要凭猜。
-- 导入产物必须能被 `session.Project` 与 `forge` 的读路径完整消费（写测试证明）。
+- 旧格式的真相在 `D:\魔改版Agent框架\hearth\packages\session-format\**` 与 `hearth\snapshots\`、
+  `hearth\projects\` 的真实数据里。**先读代码与真实样本再写映射**，不要凭猜。
+- 导入产物必须能被 `session.Project` 与 `hearth` 的读路径完整消费（写测试证明）。
 - 无法映射的记录进 `Dropped` 而不是静默丢弃；命令行必须把它们打印出来。
 - 包名不能用 `import`（关键字）：用 `internal/import` 目录 + `package importold`。
 
-命令行：`forge import <旧目录> [--dry-run] [--json]`；`--dry-run` 只打印 Plan。
+命令行：`hearth import <旧目录> [--dry-run] [--json]`；`--dry-run` 只打印 Plan。
 
 ## 4. U3：真实摘要器（替换 `TruncatingSummarizer` 作为默认）
 
@@ -183,4 +183,4 @@ type ProviderSummarizer struct {
 - 各目录 `README.md` 的 `may_import`（archcheck R3 会逼你加）。
 - `architecture.yaml`：新增 `internal/store`、`internal/import` 的层。
 - `docs/deps.md`：`modernc.org/sqlite` 一行（版本、理由、替代方案、实测构建时间）。
-- `docs/contracts/cli.md`：`forge index`、`forge import` 两节。
+- `docs/contracts/cli.md`：`hearth index`、`hearth import` 两节。

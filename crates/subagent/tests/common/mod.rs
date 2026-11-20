@@ -10,10 +10,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
-use forge_core::{Error, Event};
-use forge_llm::{Delta, Provider, Request, Stream, ToolCallDelta, ToolSpec};
-use forge_session::{Options as StoreOptions, Store};
-use forge_tool::{ApprovalRequest, Approver, Call, Decision, Policy};
+use hearth_core::{Error, Event};
+use hearth_llm::{Delta, Provider, Request, Stream, ToolCallDelta, ToolSpec};
+use hearth_session::{Options as StoreOptions, Store};
+use hearth_tool::{ApprovalRequest, Approver, Call, Decision, Policy};
 use serde_json::{json, Value};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -27,11 +27,11 @@ impl TempDir {
     pub fn new(name: &str) -> Self {
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
         let path = std::env::temp_dir().join(format!(
-            "forge-subagent-{}-{}-{}-{}",
+            "hearth-subagent-{}-{}-{}-{}",
             name,
             std::process::id(),
             n,
-            forge_core::new_id().unwrap_or_else(|_| "noid".into())
+            hearth_core::new_id().unwrap_or_else(|_| "noid".into())
         ));
         if let Err(e) = std::fs::create_dir_all(&path) {
             panic!("create temp dir {}: {e}", path.display());
@@ -122,7 +122,7 @@ impl ScriptedProvider {
 }
 
 impl Provider for ScriptedProvider {
-    fn stream(&self, req: &Request) -> forge_core::Result<Box<dyn Stream>> {
+    fn stream(&self, req: &Request) -> hearth_core::Result<Box<dyn Stream>> {
         self.requests
             .lock()
             .expect("requests lock")
@@ -134,7 +134,10 @@ impl Provider for ScriptedProvider {
             .expect("responses lock")
             .pop_front()
             .ok_or_else(|| {
-                forge_core::Error::new(forge_core::ErrorKind::Invalid, "no more scripted responses")
+                hearth_core::Error::new(
+                    hearth_core::ErrorKind::Invalid,
+                    "no more scripted responses",
+                )
             })?;
         match response {
             Response::Deltas(deltas) => Ok(Box::new(ScriptedStream {
@@ -171,7 +174,7 @@ struct ScriptedStream {
 }
 
 impl Stream for ScriptedStream {
-    fn recv(&mut self) -> forge_core::Result<Option<Delta>> {
+    fn recv(&mut self) -> hearth_core::Result<Option<Delta>> {
         Ok(self.deltas.pop_front())
     }
 
@@ -187,7 +190,7 @@ struct BlockingStream {
 }
 
 impl Stream for BlockingStream {
-    fn recv(&mut self) -> forge_core::Result<Option<Delta>> {
+    fn recv(&mut self) -> hearth_core::Result<Option<Delta>> {
         self.gate.wait();
         Ok(self.deltas.pop_front())
     }
@@ -200,7 +203,7 @@ impl Stream for BlockingStream {
 /// A parent tool runner with configurable specs and recorded calls.
 pub struct RecordingTools {
     specs: Vec<ToolSpec>,
-    calls: Mutex<Vec<forge_llm::ToolCall>>,
+    calls: Mutex<Vec<hearth_llm::ToolCall>>,
     output: String,
 }
 
@@ -222,19 +225,19 @@ impl RecordingTools {
         self.calls.lock().expect("calls lock").len()
     }
 
-    pub fn calls(&self) -> Vec<forge_llm::ToolCall> {
+    pub fn calls(&self) -> Vec<hearth_llm::ToolCall> {
         self.calls.lock().expect("calls lock").clone()
     }
 }
 
-impl forge_agent::ToolRunner for RecordingTools {
+impl hearth_agent::ToolRunner for RecordingTools {
     fn specs(&self) -> Vec<ToolSpec> {
         self.specs.clone()
     }
 
-    fn run(&self, call: forge_llm::ToolCall) -> forge_core::Result<forge_agent::ToolResult> {
+    fn run(&self, call: hearth_llm::ToolCall) -> hearth_core::Result<hearth_agent::ToolResult> {
         self.calls.lock().expect("calls lock").push(call);
-        Ok(forge_agent::ToolResult {
+        Ok(hearth_agent::ToolResult {
             output: self.output.clone(),
             ..Default::default()
         })

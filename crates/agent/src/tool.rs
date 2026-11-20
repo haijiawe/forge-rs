@@ -1,4 +1,4 @@
-//! Consumer-owned hooks the agent loop needs, kept here so `forge-agent` never
+//! Consumer-owned hooks the agent loop needs, kept here so `hearth-agent` never
 //! depends on the tool crate (which lands in a later wave).
 //!
 //! The W3 tool crate will implement [`ToolRunner`]; until then a test fake or
@@ -6,8 +6,8 @@
 //! session store the loop writes through — the log stays the single source of
 //! truth (invariant I1) because history is always re-projected from it.
 
-use forge_core::Event;
-use forge_llm::{ContentPart, ToolCall, ToolSpec};
+use hearth_core::Event;
+use hearth_llm::{ContentPart, ToolCall, ToolSpec};
 
 /// One tool invocation's outcome, in the loop's own vocabulary.
 #[derive(Debug, Clone, Default)]
@@ -32,28 +32,28 @@ pub struct ToolResult {
 /// crate; owned here so the agent crate has no upward dependency.
 pub trait ToolRunner: Send + Sync {
     fn specs(&self) -> Vec<ToolSpec>;
-    fn run(&self, call: ToolCall) -> forge_core::Result<ToolResult>;
+    fn run(&self, call: ToolCall) -> hearth_core::Result<ToolResult>;
 }
 
 /// The slice of a session store the agent appends events to and reads identity
-/// from. The real `forge_session::Store` satisfies it; tests use the same type
+/// from. The real `hearth_session::Store` satisfies it; tests use the same type
 /// so the loop is exercised against a real append-only log.
 pub trait EventLog: Send + Sync {
-    fn append(&self, event: &Event) -> forge_core::Result<u64>;
+    fn append(&self, event: &Event) -> hearth_core::Result<u64>;
     fn last_seq(&self) -> u64;
     /// Read every event back, so history can be re-projected from the log
     /// every turn (invariant I1) without opening a second file handle.
-    fn read_all(&self) -> forge_core::Result<Vec<Event>>;
+    fn read_all(&self) -> hearth_core::Result<Vec<Event>>;
 }
 
-impl EventLog for forge_session::Store {
-    fn append(&self, event: &Event) -> forge_core::Result<u64> {
-        forge_session::Store::append(self, event)
+impl EventLog for hearth_session::Store {
+    fn append(&self, event: &Event) -> hearth_core::Result<u64> {
+        hearth_session::Store::append(self, event)
     }
     fn last_seq(&self) -> u64 {
-        forge_session::Store::last_seq(self)
+        hearth_session::Store::last_seq(self)
     }
-    fn read_all(&self) -> forge_core::Result<Vec<Event>> {
+    fn read_all(&self) -> hearth_core::Result<Vec<Event>> {
         let mut events = Vec::new();
         self.read_from(0, |e| {
             events.push(e.clone());

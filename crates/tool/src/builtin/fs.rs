@@ -82,8 +82,8 @@ struct GrepArgs {
 }
 
 impl Tool for FsRead {
-    fn spec(&self) -> forge_llm::ToolSpec {
-        forge_llm::ToolSpec {
+    fn spec(&self) -> hearth_llm::ToolSpec {
+        hearth_llm::ToolSpec {
             name: "fs_read".into(),
             description: "Read a text file from the workspace and return its raw contents. offset and limit are 1-based inclusive line numbers. Binary files are refused. Example: {\"path\":\"src/main.rs\",\"offset\":200,\"limit\":60}".into(),
             schema: json!({
@@ -186,8 +186,8 @@ impl Tool for FsRead {
 }
 
 impl Tool for FsWrite {
-    fn spec(&self) -> forge_llm::ToolSpec {
-        forge_llm::ToolSpec {
+    fn spec(&self) -> hearth_llm::ToolSpec {
+        hearth_llm::ToolSpec {
             name: "fs_write".into(),
             description: "Create or overwrite a file with exactly the content given. Parent directories are created. Use fs_edit for a small change. Example: {\"path\":\"notes/todo.md\",\"content\":\"# TODO\\n\"}".into(),
             schema: json!({
@@ -241,8 +241,8 @@ impl Tool for FsWrite {
 }
 
 impl Tool for FsEdit {
-    fn spec(&self) -> forge_llm::ToolSpec {
-        forge_llm::ToolSpec {
+    fn spec(&self) -> hearth_llm::ToolSpec {
+        hearth_llm::ToolSpec {
             name: "fs_edit".into(),
             description: "Replace exact text inside an existing file. old is byte-for-byte; pass replaceAll:true when it occurs more than once. Example: {\"path\":\"src/main.rs\",\"old\":\"return nil\",\"new\":\"return Ok(())\"}".into(),
             schema: json!({
@@ -327,8 +327,8 @@ impl Tool for FsEdit {
 }
 
 impl Tool for FsGlob {
-    fn spec(&self) -> forge_llm::ToolSpec {
-        forge_llm::ToolSpec {
+    fn spec(&self) -> hearth_llm::ToolSpec {
+        hearth_llm::ToolSpec {
             name: "fs_glob".into(),
             description: "Find files by name or path pattern. A pattern with no slash matches base names at any depth; ** crosses directories. Sorted, at most 500 matches. Example: {\"pattern\":\"**/*_test.go\",\"path\":\"src\"}".into(),
             schema: json!({
@@ -411,8 +411,8 @@ impl Tool for FsGlob {
 }
 
 impl Tool for FsGrep {
-    fn spec(&self) -> forge_llm::ToolSpec {
-        forge_llm::ToolSpec {
+    fn spec(&self) -> hearth_llm::ToolSpec {
+        hearth_llm::ToolSpec {
             name: "fs_grep".into(),
             description: "Search file contents line by line and return matches as path:line: text. RE2 syntax is supported (no lookaround or backreferences). Binary files and files over 2 MB are skipped. Example: {\"pattern\":\"func Test\",\"include\":\"*_test.go\"}".into(),
             schema: json!({

@@ -8,8 +8,8 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use forge_core::ErrorKind;
-use forge_team::{Journal, JOURNAL_DIR};
+use hearth_core::ErrorKind;
+use hearth_team::{Journal, JOURNAL_DIR};
 
 fn temp_dir(label: &str) -> PathBuf {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -18,7 +18,7 @@ fn temp_dir(label: &str) -> PathBuf {
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
     let dir = std::env::temp_dir().join(format!(
-        "forge-team-journal-{}-{}-{}-{}",
+        "hearth-team-journal-{}-{}-{}-{}",
         std::process::id(),
         stamp,
         NEXT.fetch_add(1, Ordering::SeqCst),
@@ -128,9 +128,9 @@ fn a_transaction_writes_all_entries_or_none() {
     );
 
     // Aborted transaction: the staged entry is discarded, nothing is appended.
-    let refused: forge_core::Result<()> = journal.transact("lead-t", |txn| {
+    let refused: hearth_core::Result<()> = journal.transact("lead-t", |txn| {
         txn.record("should-not-land", "")?;
-        Err(forge_core::Error::new(ErrorKind::Refused, "abort"))
+        Err(hearth_core::Error::new(ErrorKind::Refused, "abort"))
     });
     assert!(refused.is_err());
     assert_eq!(

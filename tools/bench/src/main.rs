@@ -1,13 +1,13 @@
 use std::path::Path;
 use std::process::exit;
 
-use forge_bench::args;
-use forge_bench::baseline::{self, Report};
-use forge_bench::gate::{self, CompareResult};
-use forge_bench::metrics;
-use forge_bench::platform;
-use forge_bench::stats::fmt_num;
-use forge_bench::time;
+use hearth_bench::args;
+use hearth_bench::baseline::{self, Report};
+use hearth_bench::gate::{self, CompareResult};
+use hearth_bench::metrics;
+use hearth_bench::platform;
+use hearth_bench::stats::fmt_num;
+use hearth_bench::time;
 
 fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();

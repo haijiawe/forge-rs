@@ -28,7 +28,7 @@
 //! which is why a reader does not need to know which verb the writer had in
 //! mind.
 
-use forge_core::{new_id, Event, EventType, Result};
+use hearth_core::{new_id, Event, EventType, Result};
 use serde_json::{json, Value};
 
 /// Which queue a message goes into.
@@ -66,7 +66,7 @@ pub struct Msg {
 }
 
 impl Msg {
-    /// A new message. The id comes from `forge_core::new_id`, which can fail if
+    /// A new message. The id comes from `hearth_core::new_id`, which can fail if
     /// the platform entropy source does, so this returns a `Result` rather than
     /// inventing an id: two prompts with the same words must stay distinct rows.
     pub fn new(text: impl Into<String>) -> Result<Msg> {
@@ -212,7 +212,7 @@ pub fn fold(events: &[Event]) -> Inbox {
 /// Fold from a store, for callers that only have the log.
 pub fn fold_store(
     events: impl IntoIterator<Item = Result<Event>>,
-) -> (Inbox, Option<forge_core::Error>) {
+) -> (Inbox, Option<hearth_core::Error>) {
     let mut inbox = Inbox::default();
     for row in events {
         match row {

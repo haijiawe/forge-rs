@@ -1,5 +1,5 @@
 [package]
-name = "forge-team"
+name = "hearth-team"
 description = "parallel workers, one shared task board, one mailbox per worker"
 version.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-forge-core = { path = "../core" }
-forge-exec = { path = "../exec" }
+hearth-core = { path = "../core" }
+hearth-exec = { path = "../exec" }
 serde.workspace = true
 serde_json.workspace = true
