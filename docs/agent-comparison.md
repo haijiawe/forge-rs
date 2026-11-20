@@ -168,7 +168,7 @@ forge-rs 的取消是二值的，够用但不表达"谁、为什么停"。
 
 ---
 
-## 7. 子代理：ActivationPool vs 单槽 Semaphore
+## 7. 子代理：ActivationPool vs 有界池（2026-11-20 已补齐，见本节末的「补齐后」）
 
 **DSH**（`packages/subagent/subagent/src/activation.ts`，184 行及同目录 25 文件）：
 `ActivationPool.reserve(capacity)` 用 `Set<symbol>` 占位，超限抛
@@ -188,9 +188,30 @@ open_child_log → child_tools（父工具按名包成 `AdaptedTool`，并在 de
 从子日志派生 turns/text → write_end(reason=completed|aborted)。工具在 depth 上限时返回
 `DepthExceeded` 错误码，且**永不注销**。子代理是独立 session log，结果从日志派生。
 
-**后果**：DSH 的子代理是一个可容纳多种后端、能观察失败、能串行同 child 操作的子系统；
-forge-rs 是一个刻意最小的递归装置——单并发槽、depth 链、结果落日志。能力的差距正是
-"一个子系统"与"一个工具"的差距。
+**后果（写作时的判断）**：DSH 的子代理是一个可容纳多种后端、能观察失败、能串行同 child 操作的
+子系统；当时 forge-rs 是一个刻意最小的递归装置——单并发槽、depth 链、结果落日志。
+
+### 补齐后（2026-11-20，S1–S5 + G6/G7 之后）
+
+上面的对比是本文件写作时的快照，已被后续八项补齐改变。现在 `crates/subagent/src` 是
+**15 个文件 3,726 行**（`backend/cancel_file/catalog/child/continuation/descriptor/lib/list/lock/
+names/options/providers/runner/structured/tool`），DSH 是 22 个文件 4,784 行——**源行数 0.78×**，
+不是当年那个数量级差。逐项对应：
+
+| DSH | forge-rs |
+|---|---|
+| `ActivationPool.reserve(capacity)` 超限抛 `ACTIVATION_LIMIT_REACHED` | `Semaphore{capacity,free}` + `Options.max_active`，超限**排队**（同步模型下排队比拒绝更诚实） |
+| `manager.registerProvider` + 4 种后端 | `backend.rs` `Backend` trait + `ProcessBackend`、`providers.rs` `Providers` 注册表、配置 `subagent.providers[]` + `subagent.backend` |
+| `catalog.ts` 父目录投影 / `descriptor.ts` 子身份 | `catalog.rs` + `descriptor.rs`（版本 3，descriptor first-wins） |
+| `ChildLock.run` 每 child 串行 | `lock.rs` `ChildLock::run` |
+| 冷恢复 `create`/`resume` | `child.rs reopen_child_log` + `runner.rs resume`（跨进程读日志） |
+| `subagent.prompt`(queue/steer) / `subagent.interrupt` | `resume` 参数 + `forge subagent prompt`；进程内 `runner.interrupt` + 跨进程 `cancel_file` 标记 |
+| `lifecycle.ts` 生命周期通知 | `Runner::spawn` + `leave_settlement` 把结算写进父的 `next-turn` 队列 |
+
+**仍然没有（2026-11-20 复核）**：`listDescendants` 树遍历与诊断行、`resolveAgentPath`
+（`lead/agent-1/agent-2` 反查 session id）、`archive-admission`、`subagentTiming` 时间投影、
+约 35 个具名 `SubagentErrorCode`（我们只有 4 个 `CODE_*`）、`interrupt` 的祖先权限校验。
+详见 [agent-gaps.md](agent-gaps.md) 的 E 表末尾六行与「复核」节。
 
 ---
 

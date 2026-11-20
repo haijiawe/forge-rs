@@ -13,14 +13,16 @@
 > **状态四态**：已实现 / 部分实现 / 未实现 / 刻意不做（最后一态列出代价，但不当缺陷算）。
 > 每条都指到 DSH 的源文件符号与 forge-rs 的 crate·文件；从 README/注释推断而未逐行验证的，标注「据注释，未逐行验证」。
 >
-> **交付记录（2026-11-20）**：P0/P1/P2 项已按波次补齐——C waterfall = `69aa3c9`(W5) + D 波 `01fd95b`（第三相位 `request-error` 决定是否重试）、F revision/CAS = `d6c98b2`(W3)、G 依赖图+journal = `fedd8fe`(W6)、H surfaceOp+pruner = `6150b27`(W4)、E 子代理 = S1–S5(`47118db`/`cec20ec`/`a42df34`/`ea42128`/`cae8d74`) + W1(`5343e28`) + S2/S3/S4 收尾（`maxActive` 配置、`ChildLock`、`Providers` 注册表、`Delivery`/`interrupt`/`deliver`、`continuation` 消息、`delegationDepth` header 权威）。仍欠：F 的 steer（同步 CLI 无异步注入通道，以 pause→cancel 表达）、H 的 image-offload（此设计下无对象可卸，非缺口）；C 的通用 `emit`/`serial` 监听器分发已补（G2 的 `Dispatch`）；F 的 race fence 已补（`forge_goal::fence` + `goalfence::hook`，每步重校验）；H 的三事件事务/孤儿检测/summary-error 已补（C 波）；`interrupt` 已提供**进程内**版本（按 child id 取消已注册的 token）与**跨进程**版本（`forge subagent interrupt` 标记文件，长驻 Runner 轮询后 trip 同一 token）；一次性 worker 进程不受跨进程中断影响；A 常驻 phase 机 = G3/G4（`49ab189`，`phase`/`kick`/`when_idle`/`run_maintenance` + 双持久队列 `agent/inbox`）、D attempt 记账 = G1（`09c255e`，`request/header` + `assistant/attempt`）、F steer = G5（`ded692a`，每步先认领 `next-step` 队列）、E 子代理异步 settled 通知 = G6（`Runner::spawn` → 父队列 `next-turn`，工具 `background:true`）。**四项「刻意不做」与四项「部分实现」已全部补齐。**
+> **交付记录（2026-11-20）**：P0/P1/P2 项已按波次补齐——C waterfall = `69aa3c9`(W5) + D 波 `01fd95b`（第三相位 `request-error` 决定是否重试）、F revision/CAS = `d6c98b2`(W3)、G 依赖图+journal = `fedd8fe`(W6)、H surfaceOp+pruner = `6150b27`(W4)、E 子代理 = S1–S5(`47118db`/`cec20ec`/`a42df34`/`ea42128`/`cae8d74`) + W1(`5343e28`) + S2/S3/S4 收尾（`maxActive` 配置、`ChildLock`、`Providers` 注册表、`Delivery`/`interrupt`/`deliver`、`continuation` 消息、`delegationDepth` header 权威）。仍欠：F 的 steer（同步 CLI 无异步注入通道，以 pause→cancel 表达）、H 的 image-offload（此设计下无对象可卸，非缺口）；C 的通用 `emit`/`serial` 监听器分发已补（G2 的 `Dispatch`）；F 的 race fence 已补（`forge_goal::fence` + `goalfence::hook`，每步重校验）；H 的三事件事务/孤儿检测/summary-error 已补（C 波）；`interrupt` 已提供**进程内**版本（按 child id 取消已注册的 token）与**跨进程**版本（`forge subagent interrupt` 标记文件，长驻 Runner 轮询后 trip 同一 token）；一次性 worker 进程不受跨进程中断影响；A 常驻 phase 机 = G3/G4（`49ab189`，`phase`/`kick`/`when_idle`/`run_maintenance` + 双持久队列 `agent/inbox`）、D attempt 记账 = G1（`09c255e`，`request/header` + `assistant/attempt`）、F steer = G5（`ded692a`，每步先认领 `next-step` 队列）、E 子代理异步 settled 通知 = G6（`Runner::spawn` → 父队列 `next-turn`，工具 `background:true`）。**八项（四项「刻意不做」+ 四项「部分实现」）已全部补齐。**
+>
+> **2026-11-20 逐符号复核**：补齐的是这八项。对着 DSH 继续逐文件比，**仍有 6 项未实现**（子代理树遍历 `listDescendants`、按名字解析 `resolveAgentPath`、`archive-admission`、`subagentTiming` 时间投影、错误码词表深度、`interrupt` 祖先权限校验），见文末「复核」节与 E 表末尾六行。**不要用「全部补齐」概括整个 agent 层。**
 
 规模对照（源码实测，排 tests/node_modules）：
 
 | 子系统 | DSH 源文件数 | forge-rs 源文件数 |
 |---|---|---|
 | agent 核心 | `core/agent` 9 + `core/agent-loop` 7 | `crates/agent/src` 8 |
-| 子代理 | `subagent/subagent` **22** | `crates/subagent/src` **11**（S1–S5 前为 5） |
+| 子代理 | `subagent/subagent` **22**（4,784 行） | `crates/subagent/src` **15**（3,726 行；S1–S5 前为 5） |
 | 目标 | `goal/goal` 7 + `goal/goal-round-driver` 3 | `crates/goal/src` 1（280 行） |
 | 团队 | `team/agent-team` 10 | `crates/team/src` 5 |
 | 压缩 | `compaction/` 5 个包 | `crates/context/src` 4 |
@@ -97,8 +99,8 @@ ADR-0004），其余 agent 行为仍须改代码重编译。换来的是「没�
 
 ## E. 子代理（缺口最大的一节）
 
-DSH 的 `subagent/subagent` 有 22 个源文件；forge-rs 的 `crates/subagent/src` 现有 **11** 个
-（`backend/catalog/child/descriptor/lib/list/names/options/runner/structured/tool`）——S1–S5 + W1 之后从 5 个长到 11 个。
+DSH 的 `subagent/subagent` 有 22 个源文件；forge-rs 的 `crates/subagent/src` 现有 **15** 个
+（`backend/cancel_file/catalog/child/continuation/descriptor/lib/list/lock/names/options/providers/runner/structured/tool`）——S1–S5 + W1 之后从 5 个长到 15 个。
 
 | 能力 | DSH 在哪 | forge-rs 现状 | 状态 |
 |---|---|---|---|
@@ -112,6 +114,12 @@ DSH 的 `subagent/subagent` 有 22 个源文件；forge-rs 的 `crates/subagent/
 | 冷恢复 cold resume | `subagent/src/manager.ts` | `child.rs reopen_child_log` + `runner.resume`（跨进程靠日志，descriptor 必须 continuable） | 已实现（S3 `a42df34`） |
 | 每 child 串行锁 `ChildLock.run` | `subagent/src/activation.ts` | `lock.rs` 的 `ChildLock.run(child_id, op)`（同一 child 的 resume 串行，避免 turn/start 与 turn/end 交错） | 已实现（S3 补齐） |
 | 4 种后端（本地/外部产品委派等） | `subagent/src/`（provider 抽象） | `Providers` 注册表（注册/按名解析，重名 `Conflict`、空名 `Invalid`）+ `Backend` trait（唯一 `ProcessBackend`）；`backend_name` 未注册报 `NotFound` | 已实现（S2/S5） |
+| 子代理树遍历 `listDescendants`（任意层，带 corrupt/unsupported/unavailable 诊断） | `subagent/src/list-children.ts` `listDescendants` | `crates/subagent/src/list.rs` 只读**直接子级**（`children_in_log` / `children(store)`），没有递归、没有诊断行 | 未实现（2026-11-20 复核补记） |
+| 按名字解析到会话 `resolveAgentPath`（`lead/agent-1/agent-2`） | `subagent/src/list-children.ts` `resolveAgentPath`、`names.ts` `agentAddress` | `names.rs` 只有 `is_agent_name`/`reserve`/`join_agent_path`/`parent_agent_path`，**没有从路径反查 session id**；`forge subagent list` 只按 session id 列直接子级 | 未实现（2026-11-20 复核补记） |
+| 归档祖先拒收 `archive-admission` | `subagent/src/archive-admission.ts` | forge-rs 没有 workspace/session-activity 事件面，也没有「归档」概念，无从拒绝 | 刻意不做（缺依赖面，不是漏做） |
+| `subagentTiming` 投影（`settledMs`/`active`/`lastTurnCompleted`） | `subagent/src/projection.ts` `subagentTimingProjectionDefinition` | 有 catalog 行，但没有时间投影；`settledMs` 在 server/web 里零命中 | 未实现（2026-11-20 复核补记） |
+| `SubagentErrorCode` 词表（约 35 个具名错误码） | `subagent/src/error.ts` | `crates/subagent/src` 只有 4 个 `CODE_*` 常量（`already_terminated`/`subagent_failed`/`depth_exceeded`/`bad_output`）+ `forge_core::ErrorKind` 的粗分类 | 部分实现 |
+| `interrupt` 的祖先权限校验（只允许 user 或同树 live ancestor） | `subagent/src/manager.ts` `interrupt(target, authority)` | 跨进程中断只校验「id 形如 child id」，任何能写 `<dataDir>/sessions/*.cancel` 的进程都能停任何 child | 部分实现（有意简化，代价在此写明） |
 
 **代价**：DSH 的子代理是一个能容纳多种后端、能观察失败、能按 schema 交付、能被外部 steer/
 interrupt、能冷恢复的子系统；forge-rs 是一个刻意最小的递归装置——单并发、depth 链、结果从
@@ -193,3 +201,36 @@ waterfall 插件式恢复（forge 是内建策略，不是可插拔监听器，�
 - 没把「刻意不做」（A 节、D 节的冻结、F 节的 steer）写成缺陷——那些是设计选择，写了代价供
   决策，不做冤枉账。
 - DSH 侧部分行为从 README/注释推断，已逐条标注；未逐行验证的没有当作已确认事实。
+
+---
+
+## 复核（2026-11-20，逐符号验证）
+
+方法：对本文声明的每一项，在 `crates/**/src` 里找出**承载它的符号**（不靠提交信息或文档自述），
+再用 `cargo test --workspace` + `check.ps1` 证明它还能跑；找不到符号的一律记为未实现。
+
+**事件类型**：`EventType::ALL` 现有 29 项，其中 `request/header`、`assistant/attempt`（G1）、
+`agent/inbox`、`agent/status`（G3/G4）、`subagent/catalog`、`subagent/descriptor`（S1）、
+`compaction/start|end|summary-error`（C 波）、`hook/rewrite`（W5）、`context/compressed`（W4）均在册。
+
+| 本文声明 | 承载符号 | 结论 |
+|---|---|---|
+| 容量池可配 | `runner.rs` `Semaphore{capacity,free}`、`Options.max_active`、配置 `subagent.maxActive` | 存在 |
+| 进程外后端可配多份 | `backend.rs` `ProcessBackend`、`providers.rs` `Providers`、配置 `subagent.providers[]` | 存在 |
+| 结构化输出 | `structured.rs` `STRUCTURED_OUTPUT_TOOL`、`GuardedTool` | 存在 |
+| 深度 header 权威 | `child.rs` 写/读 `delegationDepth`、`runner.rs` `child_tools(child_depth)` | 存在 |
+| 异步 settled | `runner.rs` `spawn` + `leave_settlement`、`continuation.rs` `settlement_notice` | 存在 |
+| 冷恢复 | `child.rs` `reopen_child_log`、`runner.rs` `resume` | 存在 |
+| per-child 串行 | `lock.rs` `ChildLock::run` | 存在 |
+| 跨进程中断 | `cancel_file.rs` `request`、`runner.rs` `watch_cancel`、CLI `forge subagent interrupt` | 存在 |
+| 常驻 phase 机 | `agent.rs` `PHASE_IDLE/RUNNING/MAINTENANCE`、`kick`、`when_idle`、`run_maintenance` | 存在 |
+| 持久双队列 | `inbox.rs` `Target::{NextTurn,NextStep}`、`splice/claim/fold` | 存在 |
+| 通用监听面 | `dispatch.rs` `Dispatch::{emit,serial}` + `catch_unwind` | 存在 |
+| steer | `agent.rs` `steps()` 每步前 claim `NextStep` | 存在 |
+| 目标 revision + 每步 fence | `goal/src/lib.rs` `RoundIdentity`/`CasOutcome`、`goalfence` | 存在 |
+| 压缩事务 | `session/src/compact.rs` 三事件 + `open_compaction`、`context/src/wire.rs` `surfaceOp`、`prune.rs` | 存在 |
+| 团队依赖图 / journal / 投影 | `team/src/{task-graph,journal,view}.rs` | 存在 |
+
+**结论**：G1–G8、S1–S5、W1–W6、A–E 各波声明的东西都能指名到符号。
+但「与 DSH 结构等价」只对那八项成立；E 表末尾六行是本次复核新记的真缺口，
+其中 1 项是刻意不做（`archive-admission` 缺依赖面），5 项是可做但还没做。
