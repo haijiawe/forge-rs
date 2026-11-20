@@ -19,7 +19,8 @@ in before the Go tree was deleted on 2026-11-17.
 | [09 tier](09-platform-tier.md) | what is still missing — next-wave planner | partially delivered |
 | [bench](bench.md) | is the build slower than the baseline — perf owner | delivered |
 | [ci](ci.md) | what CI runs, and what was only rehearsed — workflow editor | delivered |
-| [dsh](dsh-comparison.md) | how this compares with original DSH — speed claims | delivered |
+| [dsh](dsh-comparison.md) | how this compares with original DSH — speed claims, rc.1 install | delivered |
+| [dsh vs forge](dsh-vs-forge.md) | how the two codebases actually differ — source-level, rc.5, all layers | delivered |
 | [release](release.md) | what an artifact does and does not claim — release builder | delivered |
 | [web ui](web-ui.md) | does a 10k-event transcript hold 60 fps — transcript owner | delivered |
 | [office](office-run.md) | does the Office skill actually produce documents — skill editor | delivered |
@@ -48,8 +49,10 @@ only becomes worth writing if a single-binary install is ever required.
 now describe runs that actually happened, on hosted runners, with the run ids.
 [office](office-run.md) is the same kind of record for the Office skill: what the
 shipped instructions produced, what was missing, and what was never verified.
-Where this table and a document disagree, the document is the source of truth and
-the table is the bug.
+[dsh vs forge](dsh-vs-forge.md) states its version boundary up front — it reads
+rc.5 source but reuses rc.1 performance numbers, and says so before drawing any
+conclusion. Where this table and a document disagree, the document is the source
+of truth and the table is the bug.
 
 ## Keeping this index from rotting
 
