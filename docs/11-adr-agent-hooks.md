@@ -2,7 +2,8 @@
 
 - **Status:** accepted (2026-11-20) by the user ("w5可以搞"). This is a **position
   change**, not a gap fill: it introduces the one rewrite point the tree
-  deliberately did not have. Implementation is planned in
+  deliberately did not have. Implementation was delivered in W5 (`69aa3c9`) and
+  extended with a third, decision-only `request-error` phase in `01fd95b`; see
   [10-agent-parity.md](10-agent-parity.md) §W5.
 - **Decision owner:** the user.
 - **Supersedes part of** the "no hidden rewriter" claim in

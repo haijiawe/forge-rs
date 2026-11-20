@@ -23,7 +23,7 @@ in before the Go tree was deleted on 2026-11-17.
 | [dsh vs forge](dsh-vs-forge.md) | how the two codebases actually differ — source-level, rc.5, all layers | delivered |
 | [agent comparison](agent-comparison.md) | how the two agent loops differ — two independently evolved designs (DSH→forge-go→forge-rs), rc.5 | delivered |
 | [agent gaps](agent-gaps.md) | what DSH has that forge-rs lacks, and how to close it — the next-wave backlog | delivered |
-| [agent parity](10-agent-parity.md) | the execution roadmap for closing those gaps: waves, language, acceptance | planned, not built |
+| [agent parity](10-agent-parity.md) | the execution roadmap for closing those gaps: waves, language, acceptance | delivered (W1–W6, S1–S5, A–E) |
 | [agent hooks](11-adr-agent-hooks.md) | ADR-0004: the two rewrite seams and the `hook/rewrite` audit row | delivered (W5) |
 | [subagent port](12-subagent-port.md) | what the deep subagent port delivered (S1–S5), including the out-of-process worker backend | delivered (S1–S5) |
 | [release](release.md) | what an artifact does and does not claim — release builder | delivered |
@@ -68,7 +68,8 @@ and a document disagree, the document is the source of truth and the table is th
 bug. [agent parity](10-agent-parity.md) is the execution roadmap that follows the
 gap ledger: it fixes the language choice (single Rust kernel, plugin bodies in any
 language, TypeScript front-end), splits the work into waves W1–W6, and states each
-wave's contract changes, tests and acceptance — **it is planned, not built**.
+wave's contract changes, tests and acceptance — **every wave it names is now built**
+(W2 turned out to be satisfied by the frozen contract already, so it needed no code).
 
 ## Keeping this index from rotting
 

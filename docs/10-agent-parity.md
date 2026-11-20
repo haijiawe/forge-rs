@@ -184,8 +184,9 @@ checkpoint 重校验的 race fence**（`goal-round-driver/src/index.ts` `validRe
   "replace"（用摘要 user 消息替换选中范围，保持 tool 配对闭合）。
 - `crates/context`：新增 `pruner` 能力——按阈值裁剪旧 `tool/result` 的 output，保留 call/result
   配对（与 tool-pairing 同源保证）。
-- 事务性（三事件锁）**作为可选加强**：先做 replace 语义，三事件锁列为 W4 的"若崩溃可检测性
-  被要求再补"。
+- 事务性（三事件锁）**已实现**（C 波 `e5c0b98`）：`compaction/start`→`summary`→`compaction/end`
+  事务化，摘要空/失败写 `compaction/summary-error` + `end{ok:false}` 且**什么都不隐藏**，
+  `open_compaction()` 能检出崩溃留下的孤儿 start。
 
 **契约变更**：`context/compressed` 增 `surfaceOp`（新形状=新类型名或可选字段，同 W3 的二选一
 纪律）；`events-v1.md` 补表；conformance 用例。
@@ -272,10 +273,10 @@ mailbox + permits，但缺依赖图校验与 journal。
 
 | 项 | 归类 | 说明 |
 |---|---|---|
-| W5 waterfall | **需用户拍板** | 与"无隐藏改写者"原则冲突；做=定位变更，需先改 ADR |
+| W5 waterfall | **已交付** | ADR-0004 记录了这次定位变更：`pre-step`/`request` 两个改写相位 + `request-error` 一个"是否重试"的决定相位（D 波 `01fd95b`）；见 [11-adr-agent-hooks.md](11-adr-agent-hooks.md) |
 | 常驻 phase 机（A 节） | 刻意不做 | 代价：回合间无维护通道；续跑/定时另起 `run()` |
 | attempt 级流记账（D 节） | 刻意不做 | 代价：拿不到 attempt 级重放；换来日志更小更确定 |
-| 三事件锁孤儿检测（H 节） | 先做 replace，锁列可选 | 单事件无事务需求，缺可检测性是代价 |
+| 三事件锁孤儿检测（H 节） | **已交付** | C 波 `e5c0b98`：start/summary/end 事务 + `summary-error` + `open_compaction()` 孤儿检测 |
 | Windows 完整性标签 | 用户已说"留着" | 不在本路线图内 |
 | 工期 | 不给 | 只给顺序与验收；不承诺"DSP 完全等价" |
 
