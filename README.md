@@ -101,15 +101,15 @@ checks a tree other than the one above the working directory.
 
 ## Commands
 
-Fifteen spellings; the first nine are the ones the Go oracle froze in
+Sixteen spellings; the first nine are the ones the Go oracle froze in
 `docs/contracts/cli.md`, `goal`/`schedule` are the P2 additions, and
-`plugin`/`expert`/`team`/`market` are the P3 additions:
+`plugin`/`expert`/`team`/`market`/`skill` are the P3 and Office additions:
 
 | Command | What it does |
 | --- | --- |
 | `forge --version` | prints the version without reading config |
 | `forge help` | the usage block |
-| `forge doctor [--json]` | ten read-only checks, in a fixed order |
+| `forge doctor [--json]` | eleven read-only checks, in a fixed order |
 | `forge chat [flags] [prompt]` | one turn against the model, streaming to stdout |
 | `forge web [flags]` | the local browser UI on loopback |
 | `forge index [--rebuild] [--stats] [--search TEXT]` | query or rebuild the SQLite index |
@@ -119,6 +119,7 @@ Fifteen spellings; the first nine are the ones the Go oracle froze in
 | `forge schedule add\|list\|remove\|next\|run` | recurring prompts, and the tick that opens them |
 | `forge plugin list\|start\|stop\|call\|doctor` | inspect and drive out-of-process plugins |
 | `forge expert list\|show` | the Markdown expert and team roster |
+| `forge skill list\|show` | list or show the skills the model was offered |
 | `forge team list\|run` | run a roster team over a shared task board |
 | `forge market list\|search\|install\|remove\|verify` | install plugin bundles, verified by SHA-256 |
 | `forge "<prompt>"` | a bare prompt is shorthand for `forge chat "<prompt>"` |
