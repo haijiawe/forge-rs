@@ -72,10 +72,15 @@ Two environment facts, both measured, both non-negotiable:
 instead. One command does the whole loop:
 
 ```powershell
-node scripts/sync.cjs "commit message"   # commit, push, align
-node scripts/sync.cjs --no-commit        # push and align the current HEAD
-node scripts/sync.cjs --dry "message"    # say what would happen, write nothing
+node scripts/sync.cjs "commit message"            # commit, push, align
+node scripts/sync.cjs --message-file note.txt     # commit a multi-paragraph message
+node scripts/sync.cjs --no-commit                 # push and align the current HEAD
+node scripts/sync.cjs --dry "message"             # say what would happen, write nothing
 ```
+
+Use `--message-file` for anything longer than a subject line: backticks, quotes
+and blank lines survive a file, and none of them survive every shell on the way
+here.
 
 The third step matters: a commit created through the API is a new object, so its
 SHA differs from the local one even though the tree is identical. `sync.cjs`
