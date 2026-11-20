@@ -1079,6 +1079,31 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
         // Zero means "the package default" (one, serial). A higher number lets the
         // model fan out; excess children queue on the runner's pool.
         sub.max_active = options.cfg.subagent.max_active.max(0) as usize;
+        // Named out-of-process backends. Registering one is the operator saying
+        // "this child leaves the process"; not naming a default keeps the
+        // in-process path, so nothing is rerouted by accident.
+        for entry in &options.cfg.subagent.providers {
+            let mut backend =
+                forge_subagent::ProcessBackend::new(&entry.program, entry.args.clone());
+            if entry.timeout_secs > 0 {
+                backend =
+                    backend.with_timeout(std::time::Duration::from_secs(entry.timeout_secs as u64));
+            }
+            match sub
+                .providers
+                .register_named(entry.name.trim(), Arc::new(backend))
+            {
+                Ok(()) => notes.push(format!("subagent provider {:?} registered", entry.name)),
+                Err(err) => notes.push(format!(
+                    "subagent provider {:?} skipped: {}",
+                    entry.name,
+                    err.message()
+                )),
+            }
+        }
+        if !options.cfg.subagent.backend.trim().is_empty() {
+            sub.backend_name = Some(options.cfg.subagent.backend.trim().to_string());
+        }
         sub.parent_session_id = options.parent_session.clone();
         if !options.parent_session.is_empty() {
             // The parent log, so the runner can reserve a sibling name and hand

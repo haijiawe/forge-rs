@@ -6,7 +6,7 @@ mod common;
 
 use std::sync::Arc;
 
-use forge_agent::{Agent, Options, TURN_CANCELLED, TURN_COMPLETED, TURN_ERROR};
+use forge_agent::{Agent, Options, Target, TURN_CANCELLED, TURN_COMPLETED, TURN_ERROR};
 use forge_llm::{Delta, ToolCallDelta, Usage};
 use serde_json::json;
 
@@ -155,6 +155,9 @@ fn one_step_event_order_and_payloads() {
             ("turn/start", 1, 0),
             ("user/message", 1, 0),
             ("step/start", 1, 1),
+            // G1: the request is named before it goes out, so a reader can tell
+            // why a fresh request existed without diffing message bodies.
+            ("request/header", 1, 1),
             ("llm/call", 1, 1),
             ("assistant/message", 1, 1),
             ("step/end", 1, 1),
@@ -170,7 +173,7 @@ fn one_step_event_order_and_payloads() {
         step_start.payload.clone().unwrap()
     );
     // usage payload has exactly the two nonzero members, camelCase.
-    let reply = &events[5];
+    let reply = &events[6];
     let payload = reply.payload.as_ref().unwrap();
     assert_eq!(
         payload["usage"],
@@ -817,4 +820,407 @@ fn hiding_a_tool_call_takes_its_result_with_it() {
         .map(|m| m.tool_calls.len())
         .sum::<usize>();
     assert_eq!(calls, 0, "the hidden call still asked for a result");
+}
+
+/// G1: a retried attempt is on the record. Before `assistant/attempt` existed a
+/// turn that failed twice and then succeeded looked exactly like one clean call,
+/// which is the difference between "the provider was fine" and "the provider was
+/// fine on the third try".
+#[test]
+fn a_retried_attempt_is_recorded_before_the_answer() {
+    let path = temp_log("attempt-retry");
+    let store = open_store(&path);
+    let provider = Arc::new(ScriptedProvider::new(vec![
+        Response::StartErr(retryable_error("connection reset", "io")),
+        Response::Deltas(final_step("recovered")),
+    ]));
+    let mut opt = Options::new(provider.clone(), Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.system = SYSTEM.into();
+    opt.clock = fixed_clock();
+    opt.max_retries = 2;
+    let agent = Agent::new(opt).expect("new agent");
+
+    let (result, error) = agent.run("ping");
+    assert!(error.is_none(), "turn failed: {:?}", error);
+    assert_eq!(result.text, "recovered");
+    assert_eq!(provider.requests().len(), 2, "the loop must have retried");
+
+    let events = read_all(&open_store(&path));
+    let attempt = events
+        .iter()
+        .find(|e| e.typ == "assistant/attempt")
+        .expect("a failed attempt must leave a row");
+    let payload = attempt.payload.as_ref().expect("payload");
+    assert_eq!(payload["attempt"], json!(0));
+    assert_eq!(payload["outcome"], json!("retry"));
+    assert_eq!(payload["retryable"], json!(true));
+    assert_eq!(payload["code"], json!("io"));
+
+    // Exactly one attempt row, and exactly one visible answer.
+    let attempts = events
+        .iter()
+        .filter(|e| e.typ == "assistant/attempt")
+        .count();
+    let answers = events
+        .iter()
+        .filter(|e| e.typ == "assistant/message")
+        .count();
+    assert_eq!(attempts, 1, "one failed attempt, one row");
+    assert_eq!(answers, 1, "the successful attempt is the only answer");
+}
+
+/// G1: the header says why a request exists. The first one of a turn is
+/// `initial`; the one after a tool result is the next of the same `series`.
+#[test]
+fn the_request_header_names_why_the_request_exists() {
+    let path = temp_log("request-reason");
+    let store = open_store(&path);
+    let provider = Arc::new(ScriptedProvider::new(vec![
+        Response::Deltas(tool_call_step()),
+        Response::Deltas(final_step("done")),
+    ]));
+    let mut opt = Options::new(provider.clone(), Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.system = SYSTEM.into();
+    opt.clock = fixed_clock();
+    opt.tools = Some(Arc::new(EchoTool::new()));
+    let agent = Agent::new(opt).expect("new agent");
+
+    let (result, error) = agent.run("ping");
+    assert!(error.is_none(), "turn failed: {:?}", error);
+    assert_eq!(result.text, "done");
+
+    let events = read_all(&open_store(&path));
+    let reasons: Vec<String> = events
+        .iter()
+        .filter(|e| e.typ == "request/header")
+        .map(|e| {
+            e.payload
+                .as_ref()
+                .and_then(|p| p["reason"].as_str())
+                .unwrap_or("")
+                .to_string()
+        })
+        .collect();
+    assert_eq!(reasons, vec!["initial", "series"]);
+}
+
+/// G2: observers see the loop's events, and a bad observer cannot stop the
+/// turn. `emit` is called for every appended row; `serial` runs once, at the
+/// boundary between the last step and the turn's own close.
+#[test]
+fn dispatch_observes_every_event_and_survives_a_panicking_listener() {
+    use std::sync::Mutex;
+
+    let path = temp_log("dispatch-observe");
+    let store = open_store(&path);
+    let provider = Arc::new(ScriptedProvider::new(vec![Response::Deltas(final_step(
+        "pong",
+    ))]));
+    let mut opt = Options::new(provider.clone(), Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.system = SYSTEM.into();
+    opt.clock = fixed_clock();
+
+    let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    let serial_hits: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let serial_sink = Arc::clone(&serial_hits);
+
+    opt.dispatch = forge_agent::Dispatch::none()
+        // Registration order matters: the panicking listener goes first, so a
+        // loop that let one throw end the chain would never reach the recorder.
+        .on_emit(Arc::new(|_: &forge_agent::EventView<'_>| {
+            panic!("observer blew up")
+        }))
+        .on_emit(Arc::new(move |view: &forge_agent::EventView<'_>| {
+            sink.lock().unwrap().push(view.typ.to_string());
+        }))
+        .on_serial(Arc::new(move |view: &forge_agent::EventView<'_>| {
+            serial_sink.lock().unwrap().push(view.typ.to_string());
+        }));
+
+    let agent = Agent::new(opt).expect("new agent");
+    let (result, error) = agent.run("ping");
+    assert!(error.is_none(), "turn failed: {:?}", error);
+    assert_eq!(result.text, "pong");
+
+    let observed = seen.lock().unwrap().clone();
+    assert!(
+        observed.contains(&"session/start".to_string()),
+        "the recorder never ran: {observed:?}"
+    );
+    assert!(observed.contains(&"llm/call".to_string()), "{observed:?}");
+    assert!(
+        observed.contains(&"assistant/message".to_string()),
+        "{observed:?}"
+    );
+    assert!(observed.contains(&"turn/end".to_string()), "{observed:?}");
+    assert_eq!(
+        *serial_hits.lock().unwrap(),
+        vec!["turn/end".to_string()],
+        "the serial surface runs once, at the turn boundary"
+    );
+}
+
+/// G2: with no listeners the loop is inert — same events, same bytes.
+#[test]
+fn an_empty_dispatch_changes_nothing() {
+    let path = temp_log("dispatch-inert");
+    let store = open_store(&path);
+    let provider = Arc::new(ScriptedProvider::new(vec![Response::Deltas(final_step(
+        "pong",
+    ))]));
+    let mut opt = Options::new(provider, Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.system = SYSTEM.into();
+    opt.clock = fixed_clock();
+    assert!(opt.dispatch.is_empty());
+
+    let agent = Agent::new(opt).expect("new agent");
+    let (result, error) = agent.run("ping");
+    assert!(error.is_none(), "turn failed: {:?}", error);
+    assert_eq!(result.text, "pong");
+
+    let events = read_all(&open_store(&path));
+    let types: Vec<&str> = events.iter().map(|e| e.typ.as_str()).collect();
+    assert_eq!(
+        types,
+        vec![
+            "session/start",
+            "turn/start",
+            "user/message",
+            "step/start",
+            "request/header",
+            "llm/call",
+            "assistant/message",
+            "step/end",
+            "turn/end",
+        ]
+    );
+}
+
+// ---- the resident surface (G3/G4) -----------------------------------------
+//
+// The queue lives in the log, so these tests deliberately do not use any
+// in-memory handle: one test builds a second `Agent` over the same file to
+// prove the pending work is visible to a process that never saw it queued.
+
+#[test]
+fn a_queued_turn_survives_in_the_log_until_kick_runs_it() {
+    let path = temp_log("inbox-kick");
+    let store = open_store(&path);
+    let provider = Arc::new(ScriptedProvider::new(vec![
+        Response::Deltas(final_step("first answer")),
+        Response::Deltas(final_step("second answer")),
+    ]));
+    let mut opt = Options::new(provider.clone(), Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.system = SYSTEM.into();
+    opt.max_steps = 2;
+    let agent = Agent::new(opt).expect("new agent");
+
+    assert!(agent.when_idle(), "nothing has run yet");
+    assert_eq!(agent.phase(), "idle");
+    assert!(agent.pending().expect("pending").is_empty());
+
+    agent
+        .enqueue("first prompt", Target::NextTurn)
+        .expect("queue the first");
+    agent
+        .enqueue("second prompt", Target::NextTurn)
+        .expect("queue the second");
+    assert_eq!(
+        agent.pending().expect("pending").next_turn.len(),
+        2,
+        "two prompts are waiting, and no turn has started"
+    );
+
+    let (results, error) = agent.kick();
+    assert!(error.is_none(), "kick failed: {error:?}");
+    assert_eq!(results.len(), 2, "one turn per queued message");
+    assert_eq!(results[0].text, "first answer");
+    assert_eq!(results[1].text, "second answer");
+    assert_eq!(results[0].turn, 1);
+    assert_eq!(results[1].turn, 2);
+
+    assert!(
+        agent.pending().expect("pending").is_empty(),
+        "kick must claim what it ran, in the log and not just in memory"
+    );
+    assert!(agent.when_idle());
+
+    let events = read_all(&open_store(&path));
+    let queued = events.iter().filter(|e| e.typ == "agent/inbox").count();
+    assert_eq!(queued, 4, "two enqueues plus two claims are four rows");
+    let turns = events.iter().filter(|e| e.typ == "turn/start").count();
+    assert_eq!(turns, 2);
+}
+
+#[test]
+fn a_prompt_queued_in_one_process_is_pending_in_the_next() {
+    let path = temp_log("inbox-second-process");
+    {
+        let provider = Arc::new(ScriptedProvider::new(Vec::new()));
+        let mut opt = Options::new(
+            provider,
+            Arc::new(open_store(&path)),
+            MODEL,
+            SESSION,
+            WORKSPACE,
+        );
+        opt.system = SYSTEM.into();
+        let first = Agent::new(opt).expect("new agent");
+        first
+            .enqueue("work that outlives me", Target::NextTurn)
+            .expect("queue");
+    }
+
+    // A completely fresh agent over the same file. Nothing was handed over in
+    // memory, so anything it sees came from the log.
+    let provider = Arc::new(ScriptedProvider::new(vec![Response::Deltas(final_step(
+        "picked up",
+    ))]));
+    let mut opt = Options::new(
+        provider,
+        Arc::new(open_store(&path)),
+        MODEL,
+        SESSION,
+        WORKSPACE,
+    );
+    opt.system = SYSTEM.into();
+    let second = Agent::new(opt).expect("new agent");
+
+    let pending = second.pending().expect("pending");
+    assert_eq!(pending.next_turn.len(), 1);
+    assert_eq!(pending.next_turn[0].text, "work that outlives me");
+
+    let (results, error) = second.kick();
+    assert!(error.is_none(), "kick failed: {error:?}");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].text, "picked up");
+}
+
+#[test]
+fn a_next_step_message_is_taken_before_a_next_turn_one() {
+    let path = temp_log("inbox-order");
+    let provider = Arc::new(ScriptedProvider::new(vec![
+        Response::Deltas(final_step("answered the step")),
+        Response::Deltas(final_step("answered the turn")),
+    ]));
+    let mut opt = Options::new(
+        provider,
+        Arc::new(open_store(&path)),
+        MODEL,
+        SESSION,
+        WORKSPACE,
+    );
+    opt.system = SYSTEM.into();
+    let agent = Agent::new(opt).expect("new agent");
+
+    // Queued in the order a slow caller would: the turn message first.
+    agent
+        .enqueue("for the next turn", Target::NextTurn)
+        .expect("queue turn");
+    agent
+        .enqueue("for the next step", Target::NextStep)
+        .expect("queue step");
+
+    let (results, error) = agent.kick();
+    assert!(error.is_none(), "kick failed: {error:?}");
+    assert_eq!(results.len(), 2);
+    assert_eq!(
+        results[0].text, "answered the step",
+        "next-step is the more urgent of the two and drains first"
+    );
+    assert_eq!(results[1].text, "answered the turn");
+}
+
+#[test]
+fn a_maintenance_window_is_on_the_record_but_a_turn_is_not() {
+    let path = temp_log("inbox-maintenance");
+    let store = open_store(&path);
+    let provider = Arc::new(ScriptedProvider::new(vec![Response::Deltas(final_step(
+        "done",
+    ))]));
+    let mut opt = Options::new(provider, Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.system = SYSTEM.into();
+    let agent = Agent::new(opt).expect("new agent");
+
+    let (_, error) = agent.run("ping");
+    assert!(error.is_none(), "turn failed: {error:?}");
+    let status_rows = |path: &std::path::PathBuf| {
+        read_all(&open_store(path))
+            .iter()
+            .filter(|e| e.typ == "agent/status")
+            .count()
+    };
+    assert_eq!(
+        status_rows(&path),
+        0,
+        "an ordinary turn records no phase: it would be a diagnostic in every log"
+    );
+
+    agent
+        .run_maintenance(|| Ok(()))
+        .expect("maintenance window");
+    assert_eq!(
+        status_rows(&path),
+        2,
+        "entering and leaving maintenance are both recorded"
+    );
+    assert_eq!(agent.phase(), "idle");
+}
+
+#[test]
+fn a_steer_queued_for_the_next_step_is_recorded_and_reaches_the_model() {
+    let path = temp_log("inbox-steer");
+    let provider = Arc::new(ScriptedProvider::new(vec![
+        Response::Deltas(tool_call_step()),
+        Response::Deltas(final_step("steered and done")),
+    ]));
+    let tools = Arc::new(EchoTool::new());
+    let mut opt = Options::new(
+        provider.clone(),
+        Arc::new(open_store(&path)),
+        MODEL,
+        SESSION,
+        WORKSPACE,
+    );
+    opt.system = SYSTEM.into();
+    opt.tools = Some(tools.clone());
+    let agent = Agent::new(opt).expect("new agent");
+
+    // Queued before the turn starts, the way another process would leave it.
+    agent
+        .enqueue("actually check the second file", Target::NextStep)
+        .expect("queue the steer");
+
+    let (result, error) = agent.run("look at the first file");
+    assert!(error.is_none(), "turn failed: {error:?}");
+    assert_eq!(result.steps, 2);
+
+    // The steer was recorded, so the log says what the model was told.
+    let events = read_all(&open_store(&path));
+    let steered: Vec<&serde_json::Value> = events
+        .iter()
+        .filter(|e| e.typ == "user/message")
+        .filter_map(|e| e.payload.as_ref())
+        .filter(|p| p.get("steering").and_then(|v| v.as_bool()) == Some(true))
+        .collect();
+    assert_eq!(steered.len(), 1, "one steered prompt, one row");
+    assert_eq!(
+        steered[0].get("text").and_then(|v| v.as_str()),
+        Some("actually check the second file")
+    );
+
+    // And the second request actually carried it.
+    let reqs = provider.requests();
+    assert_eq!(reqs.len(), 2);
+    let last = reqs.last().expect("a second request");
+    assert!(
+        last.messages
+            .iter()
+            .any(|m| m.content.contains("actually check the second file")),
+        "the steer must be in the request, not merely in the log"
+    );
+
+    // The queue is drained in the log, not only in this process.
+    assert!(agent.pending().expect("pending").next_step.is_empty());
 }

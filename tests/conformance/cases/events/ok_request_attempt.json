@@ -1,0 +1,97 @@
+{
+  "name": "ok_request_attempt",
+  "description": "The two event types that make a turn's provider traffic auditable at attempt level: request/header (one row per request built, naming why a fresh request exists and for which model) and assistant/attempt (one row per attempt that did NOT become the visible answer, with its retryable flag). Additive — no envelope change, no version bump (AGENTS.md rule 2). The successful attempt still lands as exactly one assistant/message, so a reader that folds only assistant/message sees the same answer it saw before these rows existed.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "d1c2d3e4f5a60718293a4b5c6d7e8fd1",
+      "ts": 1794787200200,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "request/header",
+      "payload": {
+        "reason": "initial",
+        "model": "deepseek-chat",
+        "messages": 2,
+        "tools": ["fs_read", "shell"]
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "d1c2d3e4f5a60718293a4b5c6d7e8fd2",
+      "ts": 1794787200201,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "assistant/attempt",
+      "payload": {
+        "attempt": 0,
+        "outcome": "retry",
+        "retryable": true,
+        "message": "connection reset by peer",
+        "code": "io"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "id": "d1c2d3e4f5a60718293a4b5c6d7e8fd3",
+      "ts": 1794787200202,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "assistant/attempt",
+      "payload": {
+        "attempt": 1,
+        "outcome": "error",
+        "retryable": false,
+        "message": "the provider refused the request",
+        "code": "refused"
+      }
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "d1c2d3e4f5a60718293a4b5c6d7e8fd1",
+      "ts": 1794787200200,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "request/header",
+      "payload": {
+        "reason": "initial",
+        "model": "deepseek-chat",
+        "messages": 2,
+        "tools": ["fs_read", "shell"]
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "d1c2d3e4f5a60718293a4b5c6d7e8fd2",
+      "ts": 1794787200201,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "assistant/attempt",
+      "payload": {
+        "attempt": 0,
+        "outcome": "retry",
+        "retryable": true,
+        "message": "connection reset by peer",
+        "code": "io"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "id": "d1c2d3e4f5a60718293a4b5c6d7e8fd3",
+      "ts": 1794787200202,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "assistant/attempt",
+      "payload": {
+        "attempt": 1,
+        "outcome": "error",
+        "retryable": false,
+        "message": "the provider refused the request",
+        "code": "refused"
+      }
+    }
+  ]
+}

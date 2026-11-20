@@ -70,8 +70,8 @@ a bug, not contract. `forge` does not use exit code `1` for "unknown command".
 | `forge plugin <command>` | — | a generated skeleton, a manifest listing, a handshake, tool output or a doctor report on stdout | `0`, `1` or `2` |
 | `forge expert <command>` | — | a roster table, one prompt, or JSON on stdout | `0`, `1` or `2` |
 | `forge skill <command>` | — | a skill table, one skill body, or JSON on stdout | `0`, `1` or `2` |
-| `forge subagent <command>` | — | children of a session, resume one, interrupt one, or run the worker | `0`, `1` or `2` |
-| `forge team <command>` | — | team listings or a worker report on stdout | `0`, `1` or `2` |
+| `forge subagent <command>` | — | children of a session, resume one, interrupt one, list backends, or run the worker | `0`, `1` or `2` |
+| `forge team <command>` | — | team listings, a worker report, or a board description on stdout | `0`, `1` or `2` |
 | `forge market <command>` | — | installed bundles, search hits, an install result or drift on stdout | `0`, `1` or `2` |
 | `forge help` | `-h`, `--help`, no arguments at all | usage text on stdout | `0` |
 | `forge doctor` | — | human-readable check report on stdout | `0` or `1` |
@@ -1344,13 +1344,15 @@ $ echo $?
 usage: forge subagent <command> [flags]
 ```
 
-`forge subagent` has four commands. `list` reads the **direct children** a
+`forge subagent` has five commands. `list` reads the **direct children** a
 session started, from the `subagent/catalog` events on that session's log
 (events-v1 §4.0.5) — the durable identity a later turn would use to name the
 same child again. `prompt` appends a turn to a `continuable` child. `interrupt`
-asks a *running* child to stop from a different process. `worker` is
-the other end of the out-of-process backend: it reads one request line on stdin
-and writes one response line on stdout, running that child in *this* process.
+asks a *running* child to stop from a different process. `providers` lists the
+named out-of-process backends from config and says whether each program can be
+found. `worker` is the other end of the process backend: it reads one request
+line on stdin and writes one response line on stdout, running that child in
+*this* process.
 `list` never starts anything; `prompt` resumes only a child that already exists;
 `interrupt` writes a marker file that a `Runner` running that child honours;
 `worker` is normally spawned by the harness, not typed by a person.
@@ -1394,6 +1396,23 @@ in-process interrupt takes — then removes the marker, so it cannot cancel a la
 run of the same child. The command prints the marker path and exits 0. It cannot
 reach a child running in a `worker` process (that process is short-lived); it is
 for a long-lived local `Runner`, such as the one a `forge chat` turn drives.
+
+### `forge subagent providers`
+
+Lists `subagent.providers` from `config.json` — the named backends a child can be
+sent to — plus which one `subagent.backend` selects by default, and whether each
+`program` resolves on `PATH`. The last column is the point: a program that is not
+installed looks exactly like one that is until the first delegation fails.
+
+```text
+name	program	found	default
+sandboxed	forge	yes	yes
+default backend: sandboxed
+```
+
+With no providers configured it prints one line saying every child runs in this
+process and exits 0: an empty list is a configuration, not an error. Nothing is
+started, so the command is safe to run at any time.
 
 ### `forge subagent worker`
 

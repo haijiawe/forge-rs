@@ -25,6 +25,7 @@ results are one report rather than N transcripts.
 commands:
   list                 every team in the roster, with its members
   run <slug>           dispatch the named team over a fresh board
+  view <board>         describe an existing board directory and its journal
 
 flags:
   --json               machine-readable output
@@ -65,6 +66,13 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         Ok(opt) => opt,
         Err(code) => return code,
     };
+    // A board projection needs no roster: it describes files that already
+    // exist. Handling it before the scan means a broken roster cannot stop an
+    // operator from looking at a board.
+    if command == "view" {
+        return view(&opt, &reordered, stdout, stderr);
+    }
+
     let roots = resolve_roots(&opt);
     let sets = match scan_roots(&roots, stderr) {
         Ok(sets) => sets,
@@ -201,6 +209,64 @@ fn scan_roots(
         }
     }
     Ok(sets)
+}
+
+/// Describe an existing board directory: its tasks, which are ready, what each
+/// is waiting on, and what the leads journalled. This is the reader that turns
+/// the board and journal files into something a person can look at.
+fn view(opt: &Options, args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
+    let positionals = positional(args, "view");
+    let Some(dir) = positionals.first().copied() else {
+        let _ = writeln!(stderr, "forge team: view needs a board directory");
+        return EXIT_USAGE;
+    };
+    let path = std::path::Path::new(dir);
+    if !path.is_dir() {
+        let _ = writeln!(stderr, "forge team: no such board directory: {dir}");
+        return EXIT_FAILURE;
+    }
+    let view = match forge_team::project(path) {
+        Ok(view) => view,
+        Err(err) => {
+            let _ = writeln!(stderr, "forge team: {}", err.message());
+            return EXIT_FAILURE;
+        }
+    };
+    if opt.json {
+        let tasks: Vec<serde_json::Value> = view
+            .tasks
+            .iter()
+            .map(|task| {
+                serde_json::json!({
+                    "id": task.id,
+                    "subject": task.subject,
+                    "status": task.status.as_str(),
+                    "owner": task.owner,
+                    "revision": task.revision,
+                    "ready": task.is_ready(),
+                    "waitingOn": task.waiting_on,
+                    "missing": task.missing,
+                })
+            })
+            .collect();
+        let payload = serde_json::json!({
+            "board": view.board,
+            "revision": view.revision,
+            "counts": {
+                "total": view.counts.total(),
+                "pending": view.counts.pending,
+                "inProgress": view.counts.in_progress,
+                "completed": view.counts.completed,
+            },
+            "tasks": tasks,
+            "leads": view.leads.iter().map(|(lead, count)| serde_json::json!({"lead": lead, "entries": count})).collect::<Vec<_>>(),
+            "problems": view.problems,
+        });
+        let _ = writeln!(stdout, "{payload}");
+        return EXIT_OK;
+    }
+    let _ = write!(stdout, "{}", view.render());
+    EXIT_OK
 }
 
 fn list(
@@ -595,4 +661,54 @@ mod tests {
         assert_eq!(code, EXIT_OK);
         assert!(String::from_utf8_lossy(&out).contains("no teams under"));
     }
+}
+
+#[test]
+fn view_needs_a_board_directory() {
+    let opt = Options::default();
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let code = view(&opt, &["view".to_string()], &mut out, &mut err);
+    assert_eq!(code, EXIT_USAGE);
+    assert!(String::from_utf8_lossy(&err).contains("board directory"));
+}
+
+#[test]
+fn view_of_a_directory_that_does_not_exist_is_a_failure() {
+    let opt = Options::default();
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let code = view(
+        &opt,
+        &["view".to_string(), "no-such-board-dir-xyz".to_string()],
+        &mut out,
+        &mut err,
+    );
+    assert_eq!(code, EXIT_FAILURE);
+    assert!(String::from_utf8_lossy(&err).contains("no such board directory"));
+}
+
+#[test]
+fn view_describes_an_empty_board() {
+    let dir = std::env::temp_dir().join(format!("forge-team-view-cli-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create");
+    let opt = Options::default();
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let code = view(
+        &opt,
+        &["view".to_string(), dir.to_string_lossy().into_owned()],
+        &mut out,
+        &mut err,
+    );
+    assert_eq!(code, EXIT_OK, "stderr: {}", String::from_utf8_lossy(&err));
+    let text = String::from_utf8_lossy(&out);
+    assert!(text.contains("0 task(s)"), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_usage_names_view() {
+    assert!(USAGE.contains("view <board>"), "usage must mention view");
 }

@@ -32,6 +32,8 @@ gate: cargo test -p forge-team --offline
 
 ## 公开面
 
+`view::project(root) -> View` 把 board 与 journal 折成一份只读投影：任务按 id 排序（同一块板两次读必须是同样的字节），每任务带 `waiting_on`（未完成的阻塞者）、`missing`（阻塞者根本不在板上）与 `is_ready()`；`Counts` 给三态计数；`leads` 给每个 Lead 的条目数。`View::render()` 是稳定文本，`forge team view <board>` 直接打印它。
+
 - 任务板：`Board`（`open`/`add_task`/`task`/`tasks`/`revision`/`claim`/`try_claim`/`complete`/`reopen`/`edit`/`set_dependencies`/`reassign`/`ready`/`in_progress`/`warned_scopes`/`board_problems`），`NewTask`、`TaskPatch`、`Task`、`Status`（`pending`/`in_progress`/`completed`）、`Problem`/`ProblemKind`（`dangling_dependency`/`self_dependency`/`dependency_cycle`）、`ScopeWarning`，常量 `BOARD_FILE`、`BOARD_VERSION`。
 - 邮箱：`Mailbox`（`open`/`send`/`drain`/`drain_from`/`path`），`Message { from, to, text, ts }`，`Drain { messages, cursor, skipped, torn_tail }`，常量 `INBOX_DIR`。
 - 调度：`run`、`Plan`（`worker`/`member`/`max_parallel`/`mailbox`/`parallelism`）、`WorkerSpec`（`new`/`task`/`validate`）、`Report { tasks, workers, scopes, problems }`、`TaskCounts { claimed, completed, failed }`、`WorkerReport { name, ok, exit, note }`，常量 `WORKERS_DIR`、`DEFAULT_MAX_PARALLEL`。

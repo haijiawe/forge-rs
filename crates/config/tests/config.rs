@@ -397,3 +397,114 @@ fn a_negative_subagent_max_active_is_a_typed_error() {
         err.message()
     );
 }
+
+/// A named backend is the operator saying "this child leaves the process". The
+/// entry has to survive a write/read cycle with its arguments intact, or a
+/// provider would be spawned with the wrong command line.
+#[test]
+fn subagent_providers_round_trip_with_their_arguments() {
+    let dir = TempDir::new("subagent-providers");
+    let path = dir.file(
+        "config.json",
+        r#"{
+            "subagent": {
+                "backend": "sandboxed",
+                "providers": [
+                    {"name": "sandboxed", "program": "forge", "args": ["subagent", "worker"], "timeoutSecs": 900}
+                ]
+            }
+        }"#,
+    );
+    let cfg = load(&path);
+    assert_eq!(cfg.subagent.backend, "sandboxed");
+    assert_eq!(cfg.subagent.providers.len(), 1);
+    let entry = &cfg.subagent.providers[0];
+    assert_eq!(entry.name, "sandboxed");
+    assert_eq!(entry.program, "forge");
+    assert_eq!(
+        entry.args,
+        vec!["subagent".to_string(), "worker".to_string()]
+    );
+    assert_eq!(entry.timeout_secs, 900);
+
+    // The names on disk are the Go-shaped ones, because that is what an operator
+    // editing the file sees.
+    let json = serde_json::to_value(&cfg).expect("serialises");
+    let provider = &json["subagent"]["providers"][0];
+    assert_eq!(provider["name"], "sandboxed");
+    assert_eq!(provider["timeoutSecs"], 900);
+}
+
+/// A default backend that names nothing registered would route every child to a
+/// name that no one answers. Refusing at load time means the operator finds out
+/// before the first delegation, not after.
+#[test]
+fn a_default_backend_that_is_not_registered_is_refused() {
+    let dir = TempDir::new("subagent-backend-missing");
+    let path = dir.file("config.json", r#"{"subagent": {"backend": "ghost"}}"#);
+    let cfg = load(&path);
+    let err = cfg
+        .validate()
+        .expect_err("an unregistered default is a config error");
+    assert!(
+        err.message().contains("not in subagent.providers"),
+        "{}",
+        err.message()
+    );
+}
+
+/// Two providers with one name make "which one ran my child" depend on
+/// registration order, which is not a property anyone can debug.
+#[test]
+fn duplicate_provider_names_are_refused() {
+    let dir = TempDir::new("subagent-providers-dup");
+    let path = dir.file(
+        "config.json",
+        r#"{"subagent": {"providers": [
+            {"name": "a", "program": "forge"},
+            {"name": "a", "program": "other"}
+        ]}}"#,
+    );
+    let cfg = load(&path);
+    let err = cfg
+        .validate()
+        .expect_err("a duplicate name is a config error");
+    assert!(err.message().contains("twice"), "{}", err.message());
+}
+
+/// An entry with a name but no program is a typo that would otherwise read as
+/// "configured" while nothing is.
+#[test]
+fn a_provider_without_a_program_is_refused() {
+    let dir = TempDir::new("subagent-providers-empty");
+    let path = dir.file(
+        "config.json",
+        r#"{"subagent": {"providers": [{"name": "a"}]}}"#,
+    );
+    let cfg = load(&path);
+    let err = cfg
+        .validate()
+        .expect_err("a nameless program is a config error");
+    assert!(
+        err.message().contains("name and program"),
+        "{}",
+        err.message()
+    );
+}
+
+/// Absent providers and an absent default mean the in-process path, and neither
+/// is written back into a config file that did not have them.
+#[test]
+fn no_providers_configured_stays_off_the_disk() {
+    let dir = TempDir::new("subagent-providers-absent");
+    let path = dir.file("config.json", r#"{"model": "m"}"#);
+    let cfg = load(&path);
+    assert!(cfg.subagent.providers.is_empty());
+    assert_eq!(cfg.subagent.backend, "");
+    let json = serde_json::to_value(&cfg).expect("serialises");
+    assert!(
+        json["subagent"].get("providers").is_none(),
+        "an unset list must not be written back: {json}"
+    );
+    assert!(json["subagent"].get("backend").is_none());
+}

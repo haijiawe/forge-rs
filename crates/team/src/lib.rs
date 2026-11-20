@@ -51,6 +51,7 @@ pub mod mailbox;
 pub mod run;
 #[path = "task-graph.rs"]
 pub mod task_graph;
+pub mod view;
 pub mod worker;
 
 pub use board::{
@@ -63,6 +64,7 @@ pub use run::{Plan, Report, TaskCounts, WorkerReport, DEFAULT_MAX_PARALLEL, WORK
 pub use task_graph::{
     validate_board, validate_plan, validate_tasks, TeamTaskGraphError, TeamTaskGraphViolation,
 };
+pub use view::{project, Counts, TaskView, View};
 pub use worker::{Call, CommandRunner, RecordingRunner, WorkerResult, WorkerRunner, WorkerSpec};
 
 use std::sync::atomic::{AtomicU64, Ordering};

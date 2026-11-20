@@ -28,6 +28,7 @@ commands:
   prompt <child>       append a turn to a continuable child
   interrupt <child>    request that a running child stop (drops a marker file
                        that a Runner running that child honours)
+  providers            the out-of-process backends named in config
   worker               run one child request read from stdin (used by the
                        process backend; not normally typed by hand)
 
@@ -74,6 +75,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
     match command.as_str() {
         "list" => list(&opt, stdout, stderr),
         "prompt" => prompt(&opt, &rest, stdout, stderr),
+        "providers" => providers(&opt, stdout),
         "interrupt" => interrupt(&opt, &rest, stdout, stderr),
         "worker" => worker(stdout),
         other => {
@@ -145,6 +147,98 @@ fn resolve_data_dir(opt: &Options) -> std::result::Result<PathBuf, i32> {
 fn load_config() -> Option<forge_config::Config> {
     let path = forge_config::default_path().ok()?;
     forge_config::Config::load(&path).ok()
+}
+
+/// The named backends from config, and whether each program can be found. The
+/// question this answers is "which of these will actually run", which a config
+/// file on its own cannot: a program that is not on PATH looks exactly like one
+/// that is until the first delegation fails.
+fn providers(_opt: &Options, stdout: &mut dyn Write) -> i32 {
+    let Some(cfg) = load_config() else {
+        let _ = writeln!(stdout, "no config found; every child runs in this process");
+        return EXIT_OK;
+    };
+    let entries = &cfg.subagent.providers;
+    let default = cfg.subagent.backend.trim();
+    if entries.is_empty() {
+        // A default that names nothing is a broken configuration, and saying
+        // "everything runs in this process" without mentioning it would hide the
+        // one thing the operator asked about.
+        if !default.is_empty() {
+            let _ = writeln!(
+                stdout,
+                "subagent.backend names {default:?} but no providers are configured; every child runs in this process"
+            );
+            return EXIT_FAILURE;
+        }
+        let _ = writeln!(
+            stdout,
+            "no subagent providers configured; every child runs in this process"
+        );
+        return EXIT_OK;
+    }
+    let _ = writeln!(stdout, "name\tprogram\tfound\tdefault");
+    for entry in entries {
+        let found = if which(&entry.program).is_some() {
+            "yes"
+        } else {
+            "no"
+        };
+        let is_default = if entry.name.trim() == default {
+            "yes"
+        } else {
+            ""
+        };
+        let _ = writeln!(
+            stdout,
+            "{}\t{}\t{}\t{}",
+            entry.name.trim(),
+            entry.program.trim(),
+            found,
+            is_default
+        );
+    }
+    if !default.is_empty() {
+        let _ = writeln!(stdout, "default backend: {default}");
+    }
+    EXIT_OK
+}
+
+/// Resolve a program the way the spawner will: an explicit path is used as
+/// given, a bare name is looked up on PATH.
+fn which(program: &str) -> Option<PathBuf> {
+    let program = program.trim();
+    if program.is_empty() {
+        return None;
+    }
+    let path = std::path::Path::new(program);
+    if path.components().count() > 1 {
+        return path.is_file().then(|| path.to_path_buf());
+    }
+    let exts: Vec<String> = if cfg!(windows) {
+        std::env::var("PATHEXT")
+            .unwrap_or_else(|_| ".EXE;.CMD;.BAT".to_string())
+            .split(';')
+            .map(|e| e.to_ascii_lowercase())
+            .collect()
+    } else {
+        vec![String::new()]
+    };
+    let dirs = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&dirs) {
+        for ext in &exts {
+            let candidate = dir.join(format!("{program}{ext}"));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        // On Windows a program may be written without its extension.
+        let bare = dir.join(program);
+        if bare.is_file() {
+            return Some(bare);
+        }
+    }
+    None
 }
 
 fn list(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
@@ -432,7 +526,7 @@ mod tests {
 
     #[test]
     fn the_usage_names_every_command() {
-        for cmd in ["list", "prompt", "interrupt", "worker"] {
+        for cmd in ["list", "prompt", "interrupt", "providers", "worker"] {
             assert!(USAGE.contains(cmd), "usage must mention {cmd}");
         }
     }

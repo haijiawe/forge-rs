@@ -512,6 +512,7 @@ fn assert_plain_turn(events: &[Value], prompt: &str, answer: &str, model: &str) 
             "turn/start",
             "user/message",
             "step/start",
+            "request/header",
             "llm/call",
             "assistant/message",
             "step/end",
@@ -1133,6 +1134,7 @@ fn http_surface_matches_oracle_protocol_and_event_contract() {
             "turn/start",
             "user/message",
             "step/start",
+            "request/header",
             "llm/call",
             "assistant/message",
             "step/end",
@@ -1154,7 +1156,13 @@ fn http_surface_matches_oracle_protocol_and_event_contract() {
         );
     }
     assert_eq!(page["lastSeq"].as_u64(), Some(events.len() as u64));
-    assert_eq!(str_field(&events[5]["payload"], "text"), HTTP_ANSWER);
+    // Read the answer by type, not by position: the loop's step now names the
+    // request (`request/header`) before it goes out, so any index-based read
+    // would silently point at the wrong row the next time a row is added.
+    assert_eq!(
+        str_field(payload(one_event(events, "assistant/message")), "text"),
+        HTTP_ANSWER
+    );
     assert_eq!(str_field(&events[2]["payload"], "text"), "hello over http");
 
     let replay = http(

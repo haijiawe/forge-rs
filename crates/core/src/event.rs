@@ -70,6 +70,27 @@ impl EventType {
     /// A summary that could not be produced (provider error, or empty output).
     /// The history stays visible: a failure to summarize must never hide events.
     pub const COMPACTION_SUMMARY_ERROR: EventType = EventType("compaction/summary-error");
+    /// One row per request the loop built, before it is sent: `reason` says why a
+    /// fresh request was made (`initial`, `series`, `change`, `resume`) and the
+    /// model it was built for. Log-only; it names what was asked for without
+    /// copying the message bodies (those are already on earlier rows).
+    pub const REQUEST_HEADER: EventType = EventType("request/header");
+    /// One row per provider attempt that did **not** become the visible answer:
+    /// a failed or cancelled attempt, with its reason and whether it was
+    /// retryable. Never in model history; the successful attempt still lands as
+    /// exactly one `assistant/message`. This is the attempt-level record whose
+    /// absence made a retried turn look like a single call.
+    pub const ASSISTANT_ATTEMPT: EventType = EventType("assistant/attempt");
+    /// One row per change to the durable input queues (`next-turn`/`next-step`).
+    /// The payload is a splice — `{target,start,removed,inserted}` — so
+    /// appending, claiming the head and clearing all use one shape. The queue is
+    /// a fold of these rows, which is what lets a second process see pending
+    /// work and a crash lose nothing already accepted.
+    pub const AGENT_INBOX: EventType = EventType("agent/inbox");
+    /// One row per phase change of a resident loop (`idle`, `running`,
+    /// `maintenance`). Log-only: it describes the agent's own liveness, not
+    /// anything the model said, so it never enters model history.
+    pub const AGENT_STATUS: EventType = EventType("agent/status");
 
     /// Every type this build knows. A test asserts it matches the contract
     /// document, and the reader uses it to decide what it can fold.
@@ -99,6 +120,10 @@ impl EventType {
         EventType::COMPACTION_START,
         EventType::COMPACTION_END,
         EventType::COMPACTION_SUMMARY_ERROR,
+        EventType::REQUEST_HEADER,
+        EventType::ASSISTANT_ATTEMPT,
+        EventType::AGENT_INBOX,
+        EventType::AGENT_STATUS,
     ];
 
     pub fn as_str(self) -> &'static str {

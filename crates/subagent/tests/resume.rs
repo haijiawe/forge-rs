@@ -245,3 +245,210 @@ fn deliver_appends_a_turn_like_resume() {
     assert_eq!(second.turns, 2);
     assert_eq!(second.text, "second answer");
 }
+
+/// The asynchronous shape: `spawn` returns immediately and the settlement
+/// arrives later as a `next-turn` message on the parent log. Nothing is handed
+/// back through memory, so a parent that was restarted in between still finds
+/// the notice -- which is the whole point of putting it in the queue.
+#[test]
+fn a_spawned_child_leaves_its_settlement_in_the_parent_queue() {
+    let dir = TempDir::new("spawn-settle");
+    std::fs::create_dir_all(dir.sessions()).expect("sessions dir");
+    let parent_log = dir.sessions().join("parent.jsonl");
+    {
+        // Give the parent log a header, the way a real session has one.
+        let mut opt = Options::new(
+            std::sync::Arc::new(ScriptedProvider::new(Vec::new())),
+            dir.path(),
+            dir.path().join("workspace").to_string_lossy().into_owned(),
+            "test-model".to_string(),
+        );
+        opt.parent_session_id = "parent".into();
+        opt.parent_log = Some(parent_log.clone());
+        let runner = std::sync::Arc::new(Runner::new(opt).expect("runner"));
+        let ctx = CallContext {
+            workspace: dir.path().join("workspace").to_string_lossy().into_owned(),
+            parent_session_id: "parent".into(),
+            ..CallContext::default()
+        };
+
+        let provider = std::sync::Arc::new(ScriptedProvider::new(vec![Response::Deltas(vec![
+            forge_llm::Delta {
+                text: "the child is done".into(),
+                stop_reason: Some("stop".into()),
+                ..Default::default()
+            },
+        ])]));
+        let mut child_opt = Options::new(
+            provider,
+            dir.path(),
+            dir.path().join("workspace").to_string_lossy().into_owned(),
+            "test-model".to_string(),
+        );
+        child_opt.parent_session_id = "parent".into();
+        child_opt.parent_log = Some(parent_log.clone());
+        let child_runner = std::sync::Arc::new(Runner::new(child_opt).expect("runner"));
+
+        child_runner
+            .spawn(ctx, "do the thing", Some("agent-1".into()))
+            .expect("spawn");
+        drop(runner);
+
+        // Wait for the background thread to leave its notice. Bounded, because
+        // a test that hangs forever is worse than one that fails.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let store = forge_session::Store::open(&parent_log, forge_session::Options::default())
+                .expect("parent store");
+            let mut events = Vec::new();
+            store
+                .read_from(0, |ev| {
+                    events.push(ev.clone());
+                    Ok(())
+                })
+                .expect("read parent log");
+            let inbox = forge_agent::inbox::fold(&events);
+            if let Some(msg) = inbox.next_turn.first() {
+                assert!(
+                    msg.text.contains("the child is done"),
+                    "the notice quotes what the child said: {}",
+                    msg.text
+                );
+                assert!(
+                    msg.text.contains("agent-1"),
+                    "and it names the child: {}",
+                    msg.text
+                );
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "no settlement arrived within the deadline"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+}
+
+/// A runner that cannot deliver must say so instead of spawning a thread whose
+/// only outcome is a lost result.
+#[test]
+fn spawn_without_a_parent_log_is_refused() {
+    let dir = TempDir::new("spawn-nolog");
+    std::fs::create_dir_all(dir.sessions()).expect("sessions dir");
+    let mut opt = Options::new(
+        std::sync::Arc::new(ScriptedProvider::new(Vec::new())),
+        dir.path(),
+        dir.path().join("workspace").to_string_lossy().into_owned(),
+        "test-model".to_string(),
+    );
+    opt.parent_session_id = "parent".into();
+    let runner = std::sync::Arc::new(Runner::new(opt).expect("runner"));
+    let err = runner
+        .spawn(CallContext::default(), "anything", None)
+        .expect_err("a runner with no parent log cannot deliver");
+    assert!(
+        err.message().contains("parent log"),
+        "the refusal has to name the reason: {}",
+        err.message()
+    );
+}
+
+/// The tool-level shape of a background delegation: the call returns at once
+/// with no answer, and the answer shows up later on the parent log as an
+/// inbox message. A schema is refused because a background child has nowhere
+/// to put a structured result.
+#[test]
+fn a_background_delegation_answers_later_through_the_queue() {
+    let dir = TempDir::new("spawn-tool");
+    std::fs::create_dir_all(dir.sessions()).expect("sessions dir");
+    let parent_log = dir.sessions().join("parent.jsonl");
+    {
+        let store = forge_session::Store::open(&parent_log, forge_session::Options::default())
+            .expect("parent store");
+        store
+            .append(&forge_core::Event::new(
+                "parent",
+                forge_core::EventType::SESSION_START,
+                Some(serde_json::json!({"workspace": "w", "model": "test-model", "startedBy": "cli"})),
+            ))
+            .expect("append");
+    }
+
+    let provider = Arc::new(ScriptedProvider::new(vec![Response::Deltas(vec![
+        forge_llm::Delta {
+            text: "background answer".into(),
+            stop_reason: Some("stop".into()),
+            ..Default::default()
+        },
+    ])]));
+    let mut opt = Options::new(
+        provider,
+        dir.path(),
+        dir.path().join("workspace").to_string_lossy().into_owned(),
+        "test-model".to_string(),
+    );
+    opt.parent_session_id = "parent".into();
+    opt.parent_log = Some(parent_log.clone());
+    let runner = Arc::new(Runner::new(opt).expect("runner"));
+    let tool = runner.tool();
+
+    let call = Call::new(
+        "c1",
+        "subagent",
+        serde_json::json!({"prompt": "do it in the background", "background": true}),
+        dir.path().join("workspace").to_string_lossy().into_owned(),
+    );
+    let out = tool.call(call);
+    assert!(
+        !out.is_error,
+        "starting a background child is not a failure: {}",
+        out.output
+    );
+    assert!(
+        out.output.contains("background"),
+        "the caller is told it is running in the background: {}",
+        out.output
+    );
+    assert!(
+        out.meta.get("background").is_some(),
+        "the result is marked so a reader can tell it did not wait"
+    );
+
+    // A schema has no path back: the answer arrives as prose, not as a tool
+    // result, so promising structured output would be a lie.
+    let bad = tool.call(Call::new(
+        "c2",
+        "subagent",
+        serde_json::json!({"prompt": "x", "background": true, "schema": {"type": "object"}}),
+        dir.path().join("workspace").to_string_lossy().into_owned(),
+    ));
+    assert!(bad.is_error);
+    assert!(bad
+        .output
+        .contains("background child cannot report a schema"));
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let store = forge_session::Store::open(&parent_log, forge_session::Options::default())
+            .expect("parent store");
+        let mut events = Vec::new();
+        store
+            .read_from(0, |ev| {
+                events.push(ev.clone());
+                Ok(())
+            })
+            .expect("read");
+        let inbox = forge_agent::inbox::fold(&events);
+        if let Some(msg) = inbox.next_turn.first() {
+            assert!(
+                msg.text.contains("background answer"),
+                "the notice quotes the child: {}",
+                msg.text
+            );
+            return;
+        }
+        assert!(std::time::Instant::now() < deadline, "no notice arrived");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}

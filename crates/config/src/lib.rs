@@ -88,6 +88,12 @@ fn is_zero_i32(v: &i32) -> bool {
     *v == 0
 }
 
+/// Serde helper: an absent number and a zero mean the same thing here, so a
+/// zero is not written back out.
+fn is_zero_i64(v: &i64) -> bool {
+    *v == 0
+}
+
 /// The `"mcp"` object.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -108,6 +114,35 @@ pub struct SkillsConfig {
     pub roots: Vec<String>,
 }
 
+/// One named subagent backend: a program that speaks the child protocol on
+/// stdin/stdout (one request line in, one response line out).
+///
+/// The point of naming them is that "which backend ran my child" must never be a
+/// guess. A default of none means the built-in in-process path runs the child;
+/// registering a provider is the operator saying "this one leaves the process".
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SubagentProviderConfig {
+    /// The name the model and the CLI use to refer to this backend.
+    pub name: String,
+    /// The program to spawn.
+    pub program: String,
+    /// Arguments passed before the request is written.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+    /// How long to wait for the answer, in seconds. Zero means the package
+    /// default.
+    #[serde(skip_serializing_if = "is_zero_i64")]
+    pub timeout_secs: i64,
+}
+
+impl SubagentProviderConfig {
+    /// Whether this entry is usable: both halves have to be there.
+    pub fn is_complete(&self) -> bool {
+        !self.name.trim().is_empty() && !self.program.trim().is_empty()
+    }
+}
+
 /// The `"subagent"` object.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -121,6 +156,15 @@ pub struct SubagentConfig {
     /// model fan out. Excess children queue rather than fail.
     #[serde(skip_serializing_if = "is_zero_i32")]
     pub max_active: i32,
+    /// Named out-of-process backends. Empty means every child runs in this
+    /// process, which is the historical behaviour.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub providers: Vec<SubagentProviderConfig>,
+    /// Which provider to use when the caller does not name one. Empty means the
+    /// in-process path, so an unset value cannot silently route children
+    /// somewhere else.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub backend: String,
 }
 
 /// The `"sandboxAccess"` object: what the sandboxed child may touch outside its
@@ -360,6 +404,12 @@ impl Config {
             if let Some(max_active) = subagent.max_active {
                 self.subagent.max_active = max_active;
             }
+            if let Some(providers) = subagent.providers {
+                self.subagent.providers = providers;
+            }
+            if let Some(backend) = subagent.backend {
+                self.subagent.backend = backend;
+            }
         }
         if let Some(access) = raw.sandbox_access {
             if access.read.is_some() {
@@ -438,6 +488,49 @@ impl Config {
                 format!(
                     "config: subagent.maxActive {} is negative (0 means the subagent package default)",
                     self.subagent.max_active
+                ),
+            ));
+        }
+        // A provider entry that names nothing is a typo that would otherwise
+        // read as "no backends configured" and silently run in-process.
+        for provider in &self.subagent.providers {
+            if provider.name.trim().is_empty() || provider.program.trim().is_empty() {
+                return Err(Error::new(
+                    ErrorKind::Invalid,
+                    "config: subagent.providers entries need both name and program",
+                ));
+            }
+            if provider.timeout_secs < 0 {
+                return Err(Error::new(
+                    ErrorKind::Invalid,
+                    format!(
+                        "config: subagent.providers[{}].timeoutSecs {} is negative",
+                        provider.name, provider.timeout_secs
+                    ),
+                ));
+            }
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for provider in &self.subagent.providers {
+            if !seen.insert(provider.name.clone()) {
+                return Err(Error::new(
+                    ErrorKind::Invalid,
+                    format!(
+                        "config: subagent.providers names {} twice; which one ran a child would depend on order",
+                        provider.name
+                    ),
+                ));
+            }
+        }
+        // A default backend that is not registered would route every child to a
+        // name nothing answers to. Refusing here means the operator finds out at
+        // load time rather than the first delegation.
+        if !self.subagent.backend.trim().is_empty() && !seen.contains(&self.subagent.backend) {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                format!(
+                    "config: subagent.backend names {:?}, which is not in subagent.providers",
+                    self.subagent.backend
                 ),
             ));
         }
@@ -772,6 +865,11 @@ struct RawSkillsConfig {
 struct RawSubagentConfig {
     max_depth: Option<i32>,
     max_active: Option<i32>,
+    /// Absent means "no out-of-process backends", which is the in-process path.
+    providers: Option<Vec<SubagentProviderConfig>>,
+    /// Absent means "use the in-process path". The distinction between absent
+    /// and empty matters: an empty name is a typo, not a request to fall back.
+    backend: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

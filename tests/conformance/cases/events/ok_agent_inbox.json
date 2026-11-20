@@ -1,0 +1,113 @@
+{
+  "name": "ok_agent_inbox",
+  "description": "The durable input queues: one message queued for the next turn, one queued for the next step, then the step message claimed. Payload is a splice ({target,start,removed,inserted}) so append, claim and clear share one shape; the queue is a fold of these rows, which is what lets a second process see the same pending work. Additive: no envelope change, no version bump (AGENTS.md rule 2).",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "b1b2c3d4e5f60718293a4b5c6d7e8fb1",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "agent/inbox",
+      "payload": {
+        "target": "next-turn",
+        "start": 0,
+        "removed": 0,
+        "inserted": [
+          {
+            "id": "c1c2c3d4e5f60718293a4b5c6d7e8fc1",
+            "text": "also check the changelog"
+          }
+        ]
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "b2b2c3d4e5f60718293a4b5c6d7e8fb2",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "agent/inbox",
+      "payload": {
+        "target": "next-step",
+        "start": 0,
+        "removed": 0,
+        "inserted": [
+          {
+            "id": "c2c2c3d4e5f60718293a4b5c6d7e8fc2",
+            "text": "stop after this file"
+          }
+        ]
+      }
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "id": "b3b2c3d4e5f60718293a4b5c6d7e8fb3",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "agent/inbox",
+      "payload": {
+        "target": "next-step",
+        "start": 0,
+        "removed": 1,
+        "inserted": []
+      }
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "b1b2c3d4e5f60718293a4b5c6d7e8fb1",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "agent/inbox",
+      "payload": {
+        "target": "next-turn",
+        "start": 0,
+        "removed": 0,
+        "inserted": [
+          {
+            "id": "c1c2c3d4e5f60718293a4b5c6d7e8fc1",
+            "text": "also check the changelog"
+          }
+        ]
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "b2b2c3d4e5f60718293a4b5c6d7e8fb2",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "agent/inbox",
+      "payload": {
+        "target": "next-step",
+        "start": 0,
+        "removed": 0,
+        "inserted": [
+          {
+            "id": "c2c2c3d4e5f60718293a4b5c6d7e8fc2",
+            "text": "stop after this file"
+          }
+        ]
+      }
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "id": "b3b2c3d4e5f60718293a4b5c6d7e8fb3",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "agent/inbox",
+      "payload": {
+        "target": "next-step",
+        "start": 0,
+        "removed": 1,
+        "inserted": []
+      }
+    }
+  ]
+}

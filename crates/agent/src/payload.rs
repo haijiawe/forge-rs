@@ -120,6 +120,50 @@ pub fn step_end(index: u32, reason: &str) -> (EventType, Value) {
     )
 }
 
+/// One row per request the loop builds, before it is sent. `reason` says why a
+/// fresh request exists: `initial` (the first of a turn), `resume` (adopting a
+/// turn the HTTP layer already recorded), `change` (the tool set differs from
+/// the previous request), or `series` (a continuation of the same series).
+///
+/// The message bodies are deliberately absent: they are already on earlier rows,
+/// and copying them would make this row as large as the request itself.
+pub fn request_header(
+    reason: &str,
+    model: &str,
+    messages: usize,
+    tools: &[String],
+) -> (EventType, Value) {
+    (
+        EventType::REQUEST_HEADER,
+        json!({"reason": reason, "model": model, "messages": messages, "tools": tools}),
+    )
+}
+
+/// One row per provider attempt that did **not** become the visible answer.
+///
+/// The successful attempt still lands as exactly one `assistant/message`; this
+/// row exists so a retried or abandoned attempt is on the record instead of
+/// leaving a turn that looks like a single call.
+pub fn assistant_attempt(
+    attempt: u32,
+    outcome: &str,
+    message: &str,
+    code: &str,
+    retryable: bool,
+) -> (EventType, Value) {
+    let mut m = Map::new();
+    m.insert("attempt".into(), json!(attempt));
+    m.insert("outcome".into(), json!(outcome));
+    m.insert("retryable".into(), json!(retryable));
+    if !message.is_empty() {
+        m.insert("message".into(), json!(message));
+    }
+    if !code.is_empty() {
+        m.insert("code".into(), json!(code));
+    }
+    (EventType::ASSISTANT_ATTEMPT, Value::Object(m))
+}
+
 pub fn error_event(message: &str, code: &str, retryable: bool) -> (EventType, Value) {
     let mut m = Map::new();
     m.insert("message".into(), json!(message));

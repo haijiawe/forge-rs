@@ -143,7 +143,7 @@ the condition, and the substring above is what the conformance suite asserts.
 
 ## 4. Event types
 
-The v1 type catalogue is **open**. These twenty-five types have producers in `forge` today:
+The v1 type catalogue is **open**. These twenty-nine types have producers in `forge` today:
 
 | `type` | Emitted when | Payload members in current producers |
 | --- | --- | --- |
@@ -172,6 +172,10 @@ The v1 type catalogue is **open**. These twenty-five types have producers in `fo
 | `compaction/start` | a compaction transaction opens, before the summarizer runs (§4.0.6) | `from`, `to` (the seq range the transaction intends to fold) |
 | `compaction/end` | the transaction closes | `ok` (bool), optional `reason` (`empty` \| `error` \| `already-compacted`) |
 | `compaction/summary-error` | a summary could not be produced, so the history stays visible (§4.0.6) | `reason` (`empty` \| `error`), `message` |
+| `request/header` | the loop names a request it is about to send (§4.0.7) | `reason` (`initial` \| `series` \| `change` \| `resume`), `model`, `messages` (count), `tools` (names) |
+| `assistant/attempt` | a provider attempt that did **not** become the visible answer (§4.0.7) | `attempt` (0-based), `outcome` (`retry` \| `error` \| `cancelled`), `retryable` (bool), optional `message`, optional `code` |
+| `agent/inbox` | one change to the durable input queues (§4.0.8) | `target` (`next-turn` \| `next-step`), `start`, `removed`, `inserted` (`[{id,text}]`) |
+| `agent/status` | a resident loop entered or left a phase (§4.0.8) | `phase` (`running` \| `maintenance` \| `idle`) |
 
 The optional `revision` on the three `goal/*` payloads is the version a
 multi-writer continuation uses to decide, *before it writes*, whether it is still
@@ -446,6 +450,35 @@ would otherwise become the permanent record of what those events said.
 its seq. A reader that trusts a half-written range would treat a partial summary
 as the whole story, so the bracket exists precisely to make that state visible.
 
+### 4.0.7 `request/header` and `assistant/attempt`
+
+A turn's provider traffic has two shapes a reader needs and that the answer alone
+does not carry: *why* a request exists, and *which attempts failed on the way*.
+Two additive rows record them.
+
+- `request/header{reason,model,messages,tools}` is written once per request the
+  loop builds, **before** `llm/call`. `reason` is `initial` for the first request
+  of a turn, `resume` when the loop adopts a turn the HTTP layer already recorded,
+  `change` when the tool set differs from the previous request, `series` for every
+  later step of the same run. The message bodies are deliberately absent: they are
+  already on earlier rows, and copying them would make this row as large as the
+  request itself.
+- `assistant/attempt{attempt,outcome,retryable,message?,code?}` is written for
+  every provider attempt that did **not** become the visible answer. `outcome` is
+  `retry` (the loop will try again), `error` (it will not), or `cancelled`.
+  `attempt` is 0-based within the step.
+
+**The successful attempt writes no `assistant/attempt` row.** It is the single
+`assistant/message` the step already records, so a reader that folds only
+`assistant/message` sees exactly the answer it saw before these rows existed —
+these two types are diagnostics, not history. That is also why neither is ever
+fed back to the provider.
+
+Before `assistant/attempt` existed, a turn that failed twice and succeeded on the
+third try looked identical to one clean call. That is the difference between "the
+provider was fine" and "the provider was fine on the third try", and it was not
+recoverable from the log.
+
 ### 4.1 Forked logs
 
 A fork (`forge chat --fork`, `forge session fork`) creates a **new** session whose
@@ -494,6 +527,53 @@ log is opened read-only for the whole operation: its bytes do not change, and a
 torn tail in the parent is neither read as an event nor truncated.
 
 ---
+
+### 4.0.8 `agent/inbox` and `agent/status`
+
+Two rows let a session carry work that has not been answered yet, and let a
+reader see a loop that was between turns.
+
+`agent/inbox{target,start,removed,inserted}` is one change to the durable input
+queues. The payload is a **splice**: `start` and `removed` address the slice
+taken out of the existing queue, and `inserted` is what replaces it. One shape
+covers every operation, so a reader never has to know which verb the writer had
+in mind:
+
+| operation | row |
+| --- | --- |
+| append | `{target, start: len, removed: 0, inserted: [{id, text}]}` |
+| claim the head | `{target, start: 0, removed: 1, inserted: []}` |
+| clear | `{target, start: 0, removed: len, inserted: []}` |
+
+`target` is `next-turn` (deliver as the prompt of a fresh turn) or `next-step`
+(deliver before the agent's next model call). Both queues are folded out of
+these rows, which is the point: an in-process deque would be a second copy of
+the truth, and a message that was accepted would die with the process. The
+envelope carries `turn = 0` and `step = 0` because a queued message belongs to
+no turn yet.
+
+A splice that does not fit the queue it names (`start` past the end, or
+`removed` reaching past the end) is **skipped, not clamped**. Clamping would
+silently delete a message the writer did not mean to delete, and a reader that
+loses prompts is worse than one that misses an update. An unknown `target` is
+skipped for the same reason: putting a message in the other queue changes when
+the model sees it, which is not a decision a reader gets to make.
+
+`agent/status{phase}` records a resident loop entering or leaving a phase:
+`running`, `maintenance` or `idle`. It is written **only** for a maintenance
+window, not for ordinary turns. A turn already says everything about itself; two
+extra rows per turn would be a diagnostic in every log for no reader's benefit.
+A maintenance window is the opposite case: without these rows an unexplained gap
+between two turns is indistinguishable from a slow provider.
+
+A background child reports through the same queues: when it settles, its notice
+is appended as a `next-turn` message, so a parent that was restarted between
+delegating and settling still finds the answer. The notice is prose, not a tool
+result, which is why a background delegation cannot also ask for a schema.
+
+Both rows are log-only. Neither ever enters model history: the queues decide
+*when* a message reaches the model, and the message itself is still a
+`user/message` row.
 
 ## 5. Append-only, never rewrite
 

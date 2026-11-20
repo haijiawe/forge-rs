@@ -81,13 +81,17 @@ fn every_case_file_is_present() {
     // the fourth: S1 added `subagent/catalog` and `subagent/descriptor`, and two
     // new types need a case naming both. The compaction-transaction case is the
     // fifth: C-wave added `compaction/start`, `compaction/end` and
-    // `compaction/summary-error`, three more additive types. A file that silently
-    // disappears would otherwise show up as "everything passes".
+    // `compaction/summary-error`, three more additive types. The request/attempt
+    // case is the sixth: G1 added `request/header` and `assistant/attempt`, the
+    // attempt-level record that makes a retried turn readable. The agent-inbox
+    // case is the seventh: G3/G4 added `agent/inbox` (a splice-shaped durable
+    // queue row) and `agent/status`; a file that silently disappears would
+    // otherwise show up as "everything passes".
     let found = cases();
     assert_eq!(
         found.len(),
-        27,
-        "expected 27 conformance cases, found {}: {:?}",
+        29,
+        "expected 29 conformance cases, found {}: {:?}",
         found.len(),
         found.iter().map(|c| c.name.as_str()).collect::<Vec<_>>()
     );

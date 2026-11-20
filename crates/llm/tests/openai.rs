@@ -784,18 +784,33 @@ fn retry_after_header_on_429_is_retryable() {
 
 #[test]
 fn transport_error_on_closed_port() {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let url = format!("http://{}/v1", listener.local_addr().unwrap());
-    drop(listener);
-    let client = client(&url);
-    let err = client
-        .stream(&request("gpt-4o"))
-        .err()
-        .expect("expected error");
-    let pe = provider_error(&err);
-    assert_eq!(pe.code, CODE_TRANSPORT);
-    assert!(pe.retryable);
-    assert_eq!(pe.status, 0);
+    // A freed port is not a private resource. Another test binding `:0` at the
+    // same moment can be handed the number this test just released, and then
+    // "the connection must fail" is simply not true. Retry with a fresh port
+    // rather than pretending the race does not exist: what is being asserted is
+    // the *shape* of the error, not the state of one particular port.
+    for _ in 0..5 {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/v1", listener.local_addr().unwrap());
+        drop(listener);
+        let client = client(&url);
+        match client.stream(&request("gpt-4o")) {
+            // Somebody else took the port in between; the next iteration gets a
+            // different one.
+            Ok(stream) => {
+                drop(stream);
+                continue;
+            }
+            Err(err) => {
+                let pe = provider_error(&err);
+                assert_eq!(pe.code, CODE_TRANSPORT);
+                assert!(pe.retryable);
+                assert_eq!(pe.status, 0);
+                return;
+            }
+        }
+    }
+    panic!("every closed port was taken by another process within the retry budget");
 }
 
 #[test]

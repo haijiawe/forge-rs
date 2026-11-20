@@ -13,7 +13,7 @@
 > **状态四态**：已实现 / 部分实现 / 未实现 / 刻意不做（最后一态列出代价，但不当缺陷算）。
 > 每条都指到 DSH 的源文件符号与 forge-rs 的 crate·文件；从 README/注释推断而未逐行验证的，标注「据注释，未逐行验证」。
 >
-> **交付记录（2026-11-20）**：P0/P1/P2 项已按波次补齐——C waterfall = `69aa3c9`(W5) + D 波 `01fd95b`（第三相位 `request-error` 决定是否重试）、F revision/CAS = `d6c98b2`(W3)、G 依赖图+journal = `fedd8fe`(W6)、H surfaceOp+pruner = `6150b27`(W4)、E 子代理 = S1–S5(`47118db`/`cec20ec`/`a42df34`/`ea42128`/`cae8d74`) + W1(`5343e28`) + S2/S3/S4 收尾（`maxActive` 配置、`ChildLock`、`Providers` 注册表、`Delivery`/`interrupt`/`deliver`、`continuation` 消息、`delegationDepth` header 权威）。仍欠：F 的 steer（同步 CLI 无异步注入通道，以 pause→cancel 表达）、H 的 image-offload（此设计下无对象可卸，非缺口）；C 的通用 `emit`/`serial` 监听器分发（仅 waterfall 三相位已做）；F 的 race fence 已补（`forge_goal::fence` + `goalfence::hook`，每步重校验）；H 的三事件事务/孤儿检测/summary-error 已补（C 波）；`interrupt` 已提供**进程内**版本（按 child id 取消已注册的 token）与**跨进程**版本（`forge subagent interrupt` 标记文件，长驻 Runner 轮询后 trip 同一 token）；一次性 worker 进程不受跨进程中断影响；A 常驻 phase 机与 D attempt 记账刻意不做。
+> **交付记录（2026-11-20）**：P0/P1/P2 项已按波次补齐——C waterfall = `69aa3c9`(W5) + D 波 `01fd95b`（第三相位 `request-error` 决定是否重试）、F revision/CAS = `d6c98b2`(W3)、G 依赖图+journal = `fedd8fe`(W6)、H surfaceOp+pruner = `6150b27`(W4)、E 子代理 = S1–S5(`47118db`/`cec20ec`/`a42df34`/`ea42128`/`cae8d74`) + W1(`5343e28`) + S2/S3/S4 收尾（`maxActive` 配置、`ChildLock`、`Providers` 注册表、`Delivery`/`interrupt`/`deliver`、`continuation` 消息、`delegationDepth` header 权威）。仍欠：F 的 steer（同步 CLI 无异步注入通道，以 pause→cancel 表达）、H 的 image-offload（此设计下无对象可卸，非缺口）；C 的通用 `emit`/`serial` 监听器分发已补（G2 的 `Dispatch`）；F 的 race fence 已补（`forge_goal::fence` + `goalfence::hook`，每步重校验）；H 的三事件事务/孤儿检测/summary-error 已补（C 波）；`interrupt` 已提供**进程内**版本（按 child id 取消已注册的 token）与**跨进程**版本（`forge subagent interrupt` 标记文件，长驻 Runner 轮询后 trip 同一 token）；一次性 worker 进程不受跨进程中断影响；A 常驻 phase 机 = G3/G4（`49ab189`，`phase`/`kick`/`when_idle`/`run_maintenance` + 双持久队列 `agent/inbox`）、D attempt 记账 = G1（`09c255e`，`request/header` + `assistant/attempt`）、F steer = G5（`ded692a`，每步先认领 `next-step` 队列）、E 子代理异步 settled 通知 = G6（`Runner::spawn` → 父队列 `next-turn`，工具 `background:true`）。**四项「刻意不做」与四项「部分实现」已全部补齐。**
 
 规模对照（源码实测，排 tests/node_modules）：
 
@@ -47,11 +47,11 @@
 
 | 能力 | DSH 在哪 | forge-rs 现状 | 状态 |
 |---|---|---|---|
-| 持久 inbox，从日志 fold（`agent/inbox/spliced` 事件投影） | `core/agent-loop/src/inbox.ts` `inboxProjectionDefinition` | 无专用 inbox 事件类型；但运行中的输入**已经写进日志**：运行中 POST → 自有新 turn（`202`，`messages_second_while_running_202`），`/steer` → `user/message{steering:true}`（持久） | 记录已持久；只缺 DSH 的双队列结构 |
-| next-turn / next-step 双队列 | 同上 `ReactLoopInbox` | 无区分 | 未实现 |
-| `followup`=next-turn+wake | `agent.ts` `send()` | grep `followup` = 0 命中 | 未实现 |
-| `steer`=next-step+wake（持久） | 同上 | `/steer` 已把文本**持久写进日志**为 `user/message{steering:true}`（`crates/server/src/server.rs` `handle_steer`），投递由 `ServerSteeringSource` 从进程内 deque 喂给 `SteeringHook`；记录不丢，只是投递在进程内 | 已实现（记录持久；投递进程内） |
-| `inject`=next-step 不 wake | 同上 | grep `inject` 2 命中（非队列语义） | 未实现 |
+| 持久 inbox，从日志 fold（`agent/inbox/spliced` 事件投影） | `core/agent-loop/src/inbox.ts` `inboxProjectionDefinition` | `agent/inbox` 事件（splice 形状 `{target,start,removed,inserted}`，`crates/agent/src/inbox.rs` 的 `fold`），`Agent::pending`/`enqueue`/`kick` 全部从日志 fold，第二个进程能看到同一份待办（G3/G4） | 已实现（`agent/inbox`，G3/G4） |
+| next-turn / next-step 双队列 | 同上 `ReactLoopInbox` | `crates/agent/src/inbox.rs` 的 `Inbox{next_turn,next_step}`，`Target::{NextTurn,NextStep}`；`kick()` 先取 next-step 再取 next-turn（先入队的 turn 消息不会插队） | 已实现（G3/G4） |
+| `followup`=next-turn+wake | `agent.ts` `send()` | `Agent::enqueue(text, Target::NextTurn)` 再 `kick()`；`run()` 仍是「恰好一个 turn」，`kick()` 才是循环 | 已实现（G3/G4） |
+| `steer`=next-step+wake（持久） | 同上 | `/steer` 把文本持久写进日志为 `user/message{steering:true}`（`handle_steer`），并从进程内 deque 喂 `SteeringHook`；**G5 把投递做成持久的**：`steps()` 在每一步之前 `claim(next-step)`，取到的行写成 `user/message{steering:true}` 并进入本轮请求，因此跨进程、跨重启都成立 | 已实现（记录与投递都持久） |
+| `inject`=next-step 不 wake | 同上 | `Agent::enqueue(text, Target::NextStep)` 不调用 `kick()`：消息停在队列里，下一次 `kick()`/`run()` 才被取走 | 已实现（G3/G4） |
 | `claim(target,turn)` 批量取 | `inbox.ts` | 无队列可 claim | 未实现 |
 | `cancel(cause,{keepInbox})` 保留队列 | `agent.ts` `cancel()` | 取消是二值原子标志，无队列可保留 | 未实现 |
 
@@ -67,11 +67,11 @@ forge 没有这一层，把"注入当前步"交给 `SteeringHook` 读进程内 d
 
 | 能力 | DSH 在哪 | forge-rs 现状 | 状态 |
 |---|---|---|---|
-| `emit/serial/waterfall` 三态分发器 | `core/agent/src/dispatch.ts` `AgentEventDispatch` | `crates/agent/src/hooks.rs` 的 `Hooks`：三相位——`pre-step`/`request` 改写（每次改写写 `hook/rewrite`）+ `request-error` 决定是否重试（`HookOutcome::Retry`，不改写不记事件）；无通用 `emit`/`serial` 监听器分发 | 已实现（三相位；W5 `69aa3c9` + D 波） |
+| `emit/serial/waterfall` 三态分发器 | `core/agent/src/dispatch.ts` `AgentEventDispatch` | 两个面：改写面 `crates/agent/src/hooks.rs` 的 `Hooks`（三相位——`pre-step`/`request` 改写并写 `hook/rewrite`，`request-error` 决定是否重试）；观察面 `crates/agent/src/dispatch.rs` 的 `Dispatch`（`emit` 对每个已落盘事件调用全部监听器、不可否决；`serial` 在 turn 边界按注册序串行） | 已实现（G2 `09c255e` 后续提交） |
 | `agent/pre-step` 可改写 messages 或 reject | `agent.ts` `preStep()` 派发 | `Hooks::run_pre_step` + `agent.rs step()`（改写 transient，不改 durable history） | 已实现（W5） |
 | `agent/request` 可改本次请求 config（改 model 抛错） | `agent.ts` `step()` 派发 | `Hooks::run_request`（hook 不能改 model id，`run_request` 强制还原） | 已实现（W5） |
 | `agent/request-error` 返回 `retry` 才重来 | `agent.ts` | `Hooks::run_request_error`：传输策略本要放弃时，钩子可答 `HookOutcome::Retry`（不改写、不记 `hook/rewrite`，重试体现为下一条 `llm/call`）；无钩子时行为不变 | 已实现（D 波 `01fd95b`） |
-| listener 抛错不饿死后续（自建 emit 而非 map） | `dispatch.ts` `emit` | `Hooks` 顺序执行，任一 hook 出错即 `hook_failed` loud 终止该步 | 部分实现（loud 而非跳过） |
+| listener 抛错不饿死后续（自建 emit 而非 map） | `dispatch.ts` `emit` | `Dispatch::emit/serial` 用 `catch_unwind` 逐个包住监听器，panic 记进 `Dispatch::problems()` 后继续下一个（2 个单测 + 1 个集成测试钉住）；`Hooks` 则相反——hook 出错即 `hook_failed` loud 终止该步（改写者必须响，观察者必须静） | 已实现 |
 
 **代价**：DSH 能在运行时用插件替换模型适配器、工具、甚至 loop；forge-rs 只开放了三个
 有界扩展点（`pre-step`/`request` 改写 + `request-error` 决定重试，见 `agent-gaps.md` §C 与
@@ -103,10 +103,10 @@ DSH 的 `subagent/subagent` 有 22 个源文件；forge-rs 的 `crates/subagent/
 | 能力 | DSH 在哪 | forge-rs 现状 | 状态 |
 |---|---|---|---|
 | 容量槽 `ActivationPool.reserve(capacity)` | `subagent/src/activation.ts` | `runner.rs` counting `Semaphore{capacity,free}`，`Options.max_active`（默认 1=Go 串行；>1 可并发）；超限**排队**非拒绝 | 已实现（S2 `cec20ec`） |
-| 进程外后端（another process 的子 agent） | `subagent/src/out-of-process.ts` | `crates/subagent/src/backend.rs`：`Backend` trait + `ProcessBackend`（spawn `forge subagent worker`，stdio 一行 JSON）；`Options.backend` 路由 | 已实现（S5 `cae8d74`，仅 worker 后端） |
+| 进程外后端（another process 的子 agent） | `subagent/src/out-of-process.ts`、`manager.ts` 的 `registerProvider` | `crates/subagent/src/backend.rs`：`Backend` trait + `ProcessBackend`（任意程序，stdio 一行 JSON）；`crates/subagent/src/providers.rs`：`Providers` 具名注册表（重名拒 `Conflict`）；配置 `subagent.providers[{name,program,args,timeoutSecs}]` + `subagent.backend` 由 `crates/cli/src/wiring.rs` 注册，`forge subagent providers` 列出并探测程序是否在 PATH 上 | 已实现（S5 `cae8d74` + G7 可配置多后端） |
 | `structured_output` 终结工具（子代理按 schema 返回） | `subagent/src/structured.ts` `STRUCTURED_OUTPUT_TOOL` | `crates/subagent/src/structured.rs`：`structured_output` 工具 + `GuardedTool` + 极小校验器；`ChildRun.structured` | 已实现（W1 `5343e28`） |
 | 深度记账 `subagentDepth`（header 权威、只增不减） | `subagent/src/depth.ts` | `runner.rs` max_depth/depth 链，上限返回 `DepthExceeded`；`session/start` 写 `delegationDepth`，冷恢复按 header 取 `max(header, options)` 作权威下限（child.rs `reopen_child_log` → `ChildRun.depth` → `child_tools(child_depth)`） | 已实现 |
-| 生命周期通知（scoped dispatch + 异常隔离） | `subagent/src/lifecycle.ts` | 无；forge 子代理是同步工具调用，结果即工具结果，无异步 settled 通知 | 刻意不做（同步模型无需） |
+| 生命周期通知（scoped dispatch + 异常隔离） | `subagent/src/lifecycle.ts`、`continuation-messages.ts` | `crates/subagent/src/runner.rs` 的 `Runner::spawn`：子代理跑在后台线程，`leave_settlement` 把结算写成父日志的一条 `next-turn` inbox 消息（`crate::continuation::settlement_notice` 组装文本，含名字、最后一句、结构化结果）；槽位在**线程内** acquire，所以后台子代理与前台一样排队；`subagent` 工具加 `background: true` 暴露给模型，且与 `schema` 互斥（异步结果没有 tool/result 可落） | 已实现（G6，异步形态；无 scoped dispatch 那种订阅者隔离——那是 G2 `Dispatch` 的部分） |
 | 子代理目录投影（chunked catalog，version 3） | `subagent/src/catalog.ts` `SUBAGENT_CATALOG_VERSION` | `crates/subagent/src/catalog.rs`（`subagent/catalog` 事件，父 loop 写）、`descriptor.rs`（子 runner 写）、`names.rs`、`list.rs` | 已实现（S1 `47118db`） |
 | `subagent.prompt`（delivery: queue/steer）/ `subagent.interrupt` 控制接口 | `subagent/src/control.ts` | `prompt` 已实现：工具 `resume` 参数（S4）+ CLI `forge subagent prompt`（S5）；`interrupt` 已实现**进程内**（`runner.interrupt(child_id)` 取消该 child 注册的 cancel token）与**跨进程**（`forge subagent interrupt <child>` 写 `<dataDir>/sessions/<child>.cancel`，运行中的 `Runner` 轮询该标记并 trip 同一 token；worker 一次性进程无监听） | 已实现（进程内 + 跨进程标记） |
 | 冷恢复 cold resume | `subagent/src/manager.ts` | `child.rs reopen_child_log` + `runner.resume`（跨进程靠日志，descriptor 必须 continuable） | 已实现（S3 `a42df34`） |
@@ -126,7 +126,7 @@ interrupt、能冷恢复的子系统；forge-rs 是一个刻意最小的递归�
 | 事件驱动 round driver（inject agents/goals/sessions） | `goal/goal-round-driver/src/index.ts` | `crates/goal/src/lib.rs` 纯函数 `next_action()` + CLI 层循环 | 部分实现（设计选择） |
 | revision + CAS 并发防重 | 同上 `RoundIdentity{goalId,revision,round}` | `Goal.revision`、`RoundIdentity`、`CasOutcome{Written,Stale}`、`next_action_identity()`；CLI 续跑前 `append_continued_if_current` 只有 revision 一致才写 `goal/continued` | 已实现（W3 `d6c98b2`） |
 | `agent/pre-step` waterfall 上校验续跑（race fence，每 checkpoint 重校验） | 同上 `validReservation()` | `forge_goal::fence(events,&Reservation)->FenceOutcome{Valid,Ended,Stale}`（纯比较，4 单测）；CLI `goalfence::hook` 给每个 goal round 挂 `pre-step` 钩子，每步重读日志比对 revision/round/status，失配则 `hook_failed` 中止本轮（2 端到端单测） | 已实现（per-step fence） |
-| 运行中 pause/steer 打断（`goal/changed` → `agent.cancel`） | 同上 | `execute_goal` 接 Ctrl-C → `cancel_open_goal` 写 `goal/ended{reason:cancelled}`；per-step fence 也会在目标被外部结束时停轮。**steer（向运行中的轮注入消息）未做**：同步 CLI 无异步注入通道，暂以 pause→cancel 表达 | 部分实现（pause 已实现；steer 刻意不做） |
+| 运行中 pause/steer 打断（`goal/changed` → `agent.cancel`） | 同上 | `execute_goal` 接 Ctrl-C → `cancel_open_goal` 写 `goal/ended{reason:cancelled}`；per-step fence 也会在目标被外部结束时停轮。pause 已实现（Ctrl-C → `goal/ended{reason:cancelled}`）；**steer 已实现**（G5）：`steps()` 每步前从 `agent/inbox` 的 `next-step` 队列取消息，写成 `user/message{steering:true}` 并进入当轮请求，任何进程都可通过写队列行注入 | 已实现 |
 | goal domain / fold / runtime 分层 | `goal/goal/src/{domain,fold,runtime,client}.ts` | `goal/src/lib.rs` 单文件含 Status/fold/构造器 | 部分实现 |
 | round 预算计数 | `goal-round-driver` maxGoalRounds | `next_action()` 已实现（max_rounds 是轮预算，rounds 数续跑次数，注释详述） | 已实现 |
 
@@ -143,8 +143,8 @@ interrupt、能冷恢复的子系统；forge-rs 是一个刻意最小的递归�
 | task-board（任务板） | `team/agent-team/src/task-board.ts` | `crates/team/src/board.rs`(849 行，CAS 排他) | 已实现 |
 | task-graph 依赖校验（missing/duplicate/cycle） | `team/agent-team/src/task-graph.ts` `TeamTaskGraphError` | `crates/team/src/task-graph.rs`：`TeamTaskGraphError{Missing,Duplicate,Cycle}`、`validate_plan`（duplicate→self/missing→DFS 查环，点名两端） | 已实现（W6 `fedd8fe`） |
 | journal 事务（per-Lead 顺序 + 提交） | `team/agent-team/src/journal.ts` | `crates/team/src/journal.rs`：`Journal{open,record,transact,entries,last_seq}` + `LeadTxn`（事务 Err 整笔丢弃、重开续号） | 已实现（W6 `fedd8fe`） |
-| projection 状态 | `team/agent-team/src/projection.ts` | `board.rs` 持久化 + `/api/teams` 路由 | 部分实现 |
-| task-view 呈现 | `team/agent-team/src/task-view.ts` | web `TeamBoards.tsx` 面板 | 部分实现 |
+| projection 状态 | `team/agent-team/src/projection.ts` | `crates/team/src/view.rs` 的 `project(root)`：把 board + journal 折成一份 `View`（任务按 id 排序、每任务带 `waiting_on`/`missing` 与 `is_ready()`、`Counts` 三态计数、`leads` 每个 Lead 的条目数、board 自己报的 problems），`View::render()` 是稳定文本 | 已实现（G8） |
+| task-view 呈现 | `team/agent-team/src/task-view.ts` | `forge team view <board>`（`crates/cli/src/teamcmd.rs`）打 `View::render()`，`--json` 给结构化形状；web `TeamBoards.tsx` 面板读 `/api/teams` | 已实现（G8，CLI 面） |
 | mailbox（成员通信） | （DSH 经 inbox/control） | `crates/team/src/mailbox.rs`(250 行) | 已实现（forge 自有的） |
 | 并行度由 permits 控制（worker 各一线程） | — | `run.rs` `Plan{workers,max_parallel}` + `RecordingRunner::max_inside` 实测 | 已实现 |
 
@@ -169,7 +169,7 @@ interrupt、能冷恢复的子系统；forge-rs 是一个刻意最小的递归�
 **代价**：DSH 能精确表达「哪里被替换、事务是否完整、摘要失败怎么恢复」，并支持图片卸载与
 结果裁剪；forge-rs 用一条 `compaction/summary` + 事务括号做到「少发旧消息」，失败方向安全，
 C 波补齐了三事件事务、孤儿检测与失败不隐藏；仍差的是通用的 `compaction/summary-error`
-waterfall 插件式恢复（forge 是内建策略，不是可插拔监听器）；image-offload 在此设计下无对象可卸。
+waterfall 插件式恢复（forge 是内建策略，不是可插拔监听器，但观察面 `Dispatch` 已提供）；image-offload 在此设计下无对象可卸。
 
 ---
 
@@ -178,10 +178,10 @@ waterfall 插件式恢复（forge 是内建策略，不是可插拔监听器）�
 | 优先级 | 缺口 | 状态 |
 |---|---|---|
 | ~~P0~~ | E 子代理：结构化输出、进程外后端、容量槽 >1、catalog、cold resume | **已交付** S1–S5 + W1（`47118db`/`cec20ec`/`a42df34`/`ea42128`/`cae8d74`/`5343e28`）+ S2/S3/S4 收尾（`maxActive`/`ChildLock`/`Providers`/`Delivery`/`interrupt`/`continuation`/`delegationDepth`） |
-| — | B 输入队列 | 已核实非缺口：`/steer` 与运行中 POST 已持久落日志（`03ab35d`） |
-| ~~P1~~ | F 目标续跑 revision/CAS + 打断 | **已交付** revision/CAS（W3 `d6c98b2`）+ per-step race fence（`forge_goal::fence` + `goalfence::hook`，B 波 `30e760c`）；仅 steer 不做（同步 CLI 无异步注入通道，以 pause→cancel 表达） |
+| — | B 输入队列 | **已交付**双持久队列 `agent/inbox` + `Agent::kick`/`enqueue`/`pending`（G3/G4）；`/steer` 与运行中 POST 早已持久落日志（`03ab35d`） |
+| ~~P1~~ | F 目标续跑 revision/CAS + 打断 | **已交付** revision/CAS（W3 `d6c98b2`）+ per-step race fence（`forge_goal::fence` + `goalfence::hook`，B 波 `30e760c`）；steer 也已补（G5：`next-step` 队列在每步前被 claim 并记录） |
 | ~~P1~~ | H 压缩 surfaceOp + pruner + 事务 | **已交付** surfaceOp 与 tool-result-pruner（W4 `6150b27`）+ 三事件事务/孤儿检测/summary-error 失败不隐藏（C 波）；image-offload 在此设计下无对象可卸 |
-| ~~P2~~ | C waterfall 扩展点 | **已交付** 三相位 `pre-step`/`request`/`request-error` hooks（W5 `69aa3c9` + D 波）；无通用 `emit`/`serial` 监听器分发 |
+| ~~P2~~ | C waterfall 扩展点 | **已交付** 三相位 hooks（W5 `69aa3c9` + D 波）+ 通用 `Dispatch` 的 `emit`/`serial` 观察面（G2） |
 | ~~P2~~ | G 团队依赖图 + journal | **已交付**（W6 `fedd8fe`） |
 | — | A 常驻 phase 机、D 请求/流 attempt 记账 | 刻意不做（设计选择；要补需先决定是否做常驻服务） |
 

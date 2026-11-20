@@ -6,8 +6,8 @@
 //! events-v1 order; the envelope step is 1-based while payload indices stay
 //! 0-based.
 
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use forge_core::{Error, ErrorKind, Event, EventType, Result};
@@ -20,10 +20,12 @@ use crate::err::{
     cancelled_error, code_of, is_cancelled, refusal_error, retry_after_of, retryable_of,
 };
 use crate::history::{next_turn, open_turn, to_llm_messages_hiding};
+use crate::inbox::{Inbox, Msg, Target};
 use crate::payload::{
-    clip_system, error_event, llm_call, normalize_stop, step_end, step_start, stop_with_calls,
-    turn_end, turn_reason, turn_start, usage_payload, user_message, CODE_CANCELLED,
-    MAX_SYSTEM_BYTES, STOP_CANCELLED, STOP_END_TURN, STOP_ERROR, STOP_MAX_TOKENS, STOP_TOOL_USE,
+    assistant_attempt, clip_system, error_event, llm_call, normalize_stop, request_header,
+    step_end, step_start, stop_with_calls, turn_end, turn_reason, turn_start, usage_payload,
+    user_message, CODE_CANCELLED, MAX_SYSTEM_BYTES, STOP_CANCELLED, STOP_END_TURN, STOP_ERROR,
+    STOP_MAX_TOKENS, STOP_TOOL_USE,
 };
 use crate::tool::{EventLog, ToolRunner};
 
@@ -90,6 +92,10 @@ pub struct Options {
     /// inert and byte-for-byte what it was until a caller installs a hook. See
     /// [ADR-0004](../../docs/11-adr-agent-hooks.md) and [`crate::hooks`].
     pub hooks: crate::hooks::Hooks,
+    /// Observers, not rewriters: every appended event is offered to `emit`, and
+    /// `serial` runs at the turn boundary. Empty by default, so a caller that
+    /// installs nothing gets the same behaviour and the same bytes.
+    pub dispatch: crate::dispatch::Dispatch,
     pub clock: Clock,
     pub cancel: Cancel,
 }
@@ -120,6 +126,7 @@ impl Options {
             attachments: None,
             hidden: None,
             hooks: crate::hooks::Hooks::none(),
+            dispatch: crate::dispatch::Dispatch::none(),
             clock: Arc::new(wall_clock_ms),
             cancel: Cancel::default(),
         }
@@ -145,11 +152,23 @@ pub struct RunResult {
     pub reason: &'static str,
 }
 
+/// Phase values for [`Agent::phase`]. Kept as `u8` in an atomic because the
+/// loop is `&self` and callers may observe the phase from another thread.
+const PHASE_IDLE: u8 = 0;
+const PHASE_RUNNING: u8 = 1;
+const PHASE_MAINTENANCE: u8 = 2;
+
 /// The one-turn loop. Cheap to clone handles; all state is in `Options`.
 pub struct Agent {
     opt: Options,
     cur_turn: AtomicU32,
     cur_step: AtomicU32,
+    /// Tool names of the previous request in this run, so `request/header` can
+    /// say `change` when the set moved instead of always claiming `series`.
+    last_tools: Mutex<Vec<String>>,
+    /// The resident phase. `run` moves it to `running` for its duration and back
+    /// to `idle`; `kick` drives many `run`s. Nothing else touches it.
+    phase: AtomicU8,
 }
 
 impl Agent {
@@ -175,6 +194,8 @@ impl Agent {
             opt,
             cur_turn: AtomicU32::new(0),
             cur_step: AtomicU32::new(0),
+            last_tools: Mutex::new(Vec::new()),
+            phase: AtomicU8::new(PHASE_IDLE),
         })
     }
 
@@ -183,10 +204,153 @@ impl Agent {
         self.opt.cancel.clone()
     }
 
+    // ---- the resident surface ---------------------------------------------
+    //
+    // DSH's `ReactLoopAgent` is a long-lived object with a phase, an inbox and a
+    // `kick()` that runs turns until there is nothing left. forge's loop has
+    // always been `run(text)` = exactly one turn, and that stays: the CLI, the
+    // HTTP server and every golden file depend on it. What this section adds is
+    // the *resident* shape on top, so a caller that wants a queue gets one that
+    // survives a restart instead of one that dies with the process.
+    //
+    // The queue lives in the log (`agent/inbox` rows), never in a field here.
+    // That is deliberate: an in-process deque would be a second copy of the
+    // truth, and the whole point is that a second process can pick the work up.
+
+    /// The phase a resident loop is in.
+    pub fn phase(&self) -> &'static str {
+        match self.phase.load(Ordering::SeqCst) {
+            PHASE_RUNNING => "running",
+            PHASE_MAINTENANCE => "maintenance",
+            _ => "idle",
+        }
+    }
+
+    /// Move to a phase and record it. A same-phase transition writes nothing:
+    /// the log records changes, not heartbeats.
+    fn set_phase(&self, next: u8, record: bool) -> Result<()> {
+        let prev = self.phase.swap(next, Ordering::SeqCst);
+        if prev == next || !record {
+            return Ok(());
+        }
+        let name = match next {
+            PHASE_RUNNING => "running",
+            PHASE_MAINTENANCE => "maintenance",
+            _ => "idle",
+        };
+        self.emit(0, 0, (EventType::AGENT_STATUS, json!({"phase": name})))
+            .map(|_| ())
+    }
+
+    /// The pending queues, folded out of the log.
+    pub fn pending(&self) -> Result<Inbox> {
+        let events = self.opt.log.read_all()?;
+        Ok(crate::inbox::fold(&events))
+    }
+
+    /// Queue a message for a later turn or step.
+    pub fn enqueue(&self, text: &str, target: Target) -> Result<Msg> {
+        self.ensure_session()?;
+        let pending = self.pending()?;
+        let msg = Msg::new(text)?;
+        let ev = crate::inbox::enqueue(&self.opt.session_id, target, &pending, &msg);
+        self.opt.log.append(&ev)?;
+        Ok(msg)
+    }
+
+    /// Take the head of a queue out of the log.
+    fn claim(&self, target: Target) -> Result<Option<Msg>> {
+        let pending = self.pending()?;
+        let Some(head) = pending.queue(target).first().cloned() else {
+            return Ok(None);
+        };
+        let ev = crate::inbox::splice(&self.opt.session_id, target, 0, 1, &[]);
+        self.opt.log.append(&ev)?;
+        Ok(Some(head))
+    }
+
+    /// Run turns until both queues are empty.
+    ///
+    /// `next-step` is drained before `next-turn`: a message queued for the next
+    /// step was queued when something was running, so it is the more urgent of
+    /// the two. Each claimed message becomes exactly one `run`, which keeps the
+    /// one-turn-per-prompt invariant the rest of the tree relies on.
+    ///
+    /// This is synchronous, so `when_idle` is trivially true once it returns —
+    /// see `kick` for why that is honest here rather than a stub.
+    pub fn kick(&self) -> (Vec<RunResult>, Option<Error>) {
+        let mut out = Vec::new();
+        loop {
+            let target = match self.claim(Target::NextStep) {
+                Ok(Some(msg)) => {
+                    let (result, err) = self.run(&msg.text);
+                    out.push(result);
+                    if let Some(e) = err {
+                        return (out, Some(e));
+                    }
+                    continue;
+                }
+                Ok(None) => Target::NextTurn,
+                Err(e) => return (out, Some(e)),
+            };
+            match self.claim(target) {
+                Ok(Some(msg)) => {
+                    let (result, err) = self.run(&msg.text);
+                    out.push(result);
+                    if let Some(e) = err {
+                        return (out, Some(e));
+                    }
+                }
+                Ok(None) => return (out, None),
+                Err(e) => return (out, Some(e)),
+            }
+        }
+    }
+
+    /// Run one maintenance job while the loop is between turns.
+    ///
+    /// DSH's maintenance phase exists so background work (compaction, indexing)
+    /// can happen without a model turn in flight. Here the job is a plain
+    /// closure, and the phase is recorded on the log because unlike a turn, a
+    /// maintenance window is something a reader has no other way to see: without
+    /// gent/status an unexplained gap between two turns is indistinguishable
+    /// from a slow provider.
+    pub fn run_maintenance<F>(&self, job: F) -> Result<()>
+    where
+        F: FnOnce() -> Result<()>,
+    {
+        self.ensure_session()?;
+        self.set_phase(PHASE_MAINTENANCE, true)?;
+        let out = job();
+        let _ = self.set_phase(PHASE_IDLE, true);
+        out
+    }
+
+    /// True when nothing is running. A caller that needs "wait until the loop
+    /// stops" gets the same answer, because `kick` cannot return while a turn is
+    /// in flight.
+    pub fn when_idle(&self) -> bool {
+        self.phase() == "idle"
+    }
+
     /// Run one user turn. The optional error accompanies (never replaces) the
     /// result: a cancelled or failed turn still carries its partial text and
     /// reason, and the `turn/end` event is always written.
     pub fn run(&self, text: &str) -> (RunResult, Option<Error>) {
+        // The phase moves in memory only, not on the log: a resident loop's
+        // liveness is not part of a session's history, and writing two rows per
+        // turn would put a diagnostic in every golden file for no reader's
+        // benefit. run_maintenance is the one caller that does record a phase,
+        // because there the phase is the whole point.
+        let previous = self.phase.swap(PHASE_RUNNING, Ordering::SeqCst);
+        let out = self.run_adopted(text);
+        self.phase.store(previous, Ordering::SeqCst);
+        out
+    }
+
+    /// The body of one turn. Split out so the phase is restored at exactly one
+    /// place instead of at every early return.
+    fn run_adopted(&self, text: &str) -> (RunResult, Option<Error>) {
         if let Err(e) = self.ensure_session() {
             return (RunResult::default(), Some(e));
         }
@@ -227,6 +391,15 @@ impl Agent {
 
         let steps = self.steps(turn, &mut history);
         let reason = turn_reason(steps.stop);
+        // Serial listeners run at the boundary between the last step and the
+        // turn's own close: this is the one place a listener may need to finish
+        // something that must happen before the turn is over.
+        if !self.opt.dispatch.is_empty() {
+            let stopping = json!({"reason": reason, "steps": steps.count});
+            let view =
+                crate::dispatch::EventView::new(&EventType::TURN_END, turn, 0, Some(&stopping));
+            self.opt.dispatch.serial(&view);
+        }
         // endErr only overrides err when err is nil (Go parity).
         let end_res = self.emit(turn, 0, turn_end(reason, steps.count));
         let error = match steps.error {
@@ -280,7 +453,15 @@ impl Agent {
         let mut ev = Event::new(self.opt.session_id.clone(), typ, Some(payload));
         ev.turn = turn;
         ev.step = step;
-        self.opt.log.append(&ev)
+        let seq = self.opt.log.append(&ev)?;
+        // Observers run after the append, never before: an event a listener sees
+        // is an event the log already holds, so a listener cannot promise
+        // anything the log does not.
+        if !self.opt.dispatch.is_empty() {
+            let view = crate::dispatch::EventView::new(&typ, turn, step, ev.payload.as_ref());
+            self.opt.dispatch.emit(&view);
+        }
+        Ok(seq)
     }
 
     fn record_error(&self, message: &str, code: &str, retryable: bool) {
@@ -342,9 +523,49 @@ impl Agent {
                     error: Some(cancelled_error()),
                 };
             }
-            // Steering is injected into the in-memory history only — never as
-            // an event — and only before steps after the first.
+            // Steering, two ways, in that order.
+            //
+            // First the durable queue: a `next-step` row was written by someone
+            // who may not be this process at all, so claiming it here and
+            // recording what the model saw is the only way the delivery can
+            // survive a restart. The row becomes a `user/message` with
+            // `steering: true`, which is also what the next turn rebuilds
+            // history from — so a steered prompt is not a one-turn ghost.
+            //
+            // Then the in-memory hook, kept for callers that push text they
+            // already recorded themselves (the HTTP layer does this). It stays
+            // history-only, as it always was.
             if index > 0 {
+                loop {
+                    match self.claim(Target::NextStep) {
+                        Ok(Some(msg)) => {
+                            if msg.text.trim().is_empty() {
+                                continue;
+                            }
+                            let payload = json!({"text": msg.text, "steering": true});
+                            if let Err(e) =
+                                self.emit(turn, index as u32, (EventType::USER_MESSAGE, payload))
+                            {
+                                return StepsOut {
+                                    count: index,
+                                    stop: STOP_ERROR,
+                                    text,
+                                    error: Some(e),
+                                };
+                            }
+                            history.push(Message::user(&msg.text));
+                        }
+                        Ok(None) => break,
+                        Err(e) => {
+                            return StepsOut {
+                                count: index,
+                                stop: STOP_ERROR,
+                                text,
+                                error: Some(e),
+                            }
+                        }
+                    }
+                }
                 if let Some(steer) = &self.opt.steering {
                     for s in steer() {
                         if !s.trim().is_empty() {
@@ -524,6 +745,15 @@ impl Agent {
             };
         }
         let names: Vec<String> = req.tools.iter().map(|t| t.name.clone()).collect();
+        // One row per request built, before it goes out. The reason names why a
+        // fresh request exists at all: adopting an HTTP-recorded turn, the tool
+        // set moving, the first step, or just the next step of the same series.
+        let reason = self.request_reason(step_no, &names);
+        let _ = self.emit(
+            turn,
+            step_no,
+            request_header(&reason, &self.opt.model, req.messages.len(), &names),
+        );
         let _ = self.emit(
             turn,
             step_no,
@@ -564,6 +794,30 @@ impl Agent {
 
     // ---- provider streaming ----------------------------------------------
 
+    /// Why this request exists. `resume` when the loop is adopting a turn the
+    /// HTTP layer already recorded, `change` when the tool set differs from the
+    /// previous request, `initial` for the first step of a turn, `series` for
+    /// every step after that. The answer is a pure function of what this agent
+    /// has already sent, so replaying a log gives the same words.
+    fn request_reason(&self, step_no: u32, names: &[String]) -> String {
+        let mut last = match self.last_tools.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let moved = *last != names;
+        let reason = if step_no == 1 && self.opt.prompt_recorded {
+            "resume"
+        } else if moved && !last.is_empty() {
+            "change"
+        } else if step_no == 1 {
+            "initial"
+        } else {
+            "series"
+        };
+        *last = names.to_vec();
+        reason.to_string()
+    }
+
     fn stream(&self, req: &Request) -> StreamOut {
         let mut text = String::new();
         let mut usage = Usage::default();
@@ -574,6 +828,7 @@ impl Agent {
                 Ok(s) => s,
                 Err(e) => {
                     if is_cancelled(&e) {
+                        self.record_attempt(attempt, "cancelled", &e);
                         return StreamOut {
                             text,
                             usage,
@@ -584,6 +839,7 @@ impl Agent {
                     }
                     // Transport policy: retry a retryable failure before any text.
                     if retryable_of(&e) && text.is_empty() && attempt < self.opt.max_retries {
+                        self.record_attempt(attempt, "retry", &e);
                         self.wait_retry(&e);
                         continue;
                     }
@@ -591,11 +847,13 @@ impl Agent {
                     // transient when its code does not say so.
                     match self.hooks_request_retry(attempt, &e) {
                         Ok(true) => {
+                            self.record_attempt(attempt, "retry", &e);
                             self.wait_retry(&e);
                             continue;
                         }
                         Ok(false) => {}
                         Err(hook_err) => {
+                            self.record_attempt(attempt, "error", &e);
                             self.record_error_from(&hook_err);
                             return StreamOut {
                                 text,
@@ -606,6 +864,7 @@ impl Agent {
                             };
                         }
                     }
+                    self.record_attempt(attempt, "error", &e);
                     self.record_error_from(&e);
                     return StreamOut {
                         text,
@@ -620,18 +879,21 @@ impl Agent {
             let consumed = self.consume(stream, &mut agg, &mut usage);
             text.push_str(&consumed.text);
             if consumed.cancelled {
+                let err = cancelled_error();
+                self.record_attempt(attempt, "cancelled", &err);
                 return StreamOut {
                     text,
                     usage,
                     calls: Vec::new(),
                     stop: STOP_CANCELLED,
-                    error: Some(cancelled_error()),
+                    error: Some(err),
                 };
             }
             if let Some(e) = consumed.error {
                 // Only retry before the first text fragment; a retry after text
                 // would duplicate that fragment in the log.
                 if retryable_of(&e) && text.is_empty() && attempt < self.opt.max_retries {
+                    self.record_attempt(attempt, "retry", &e);
                     self.wait_retry(&e);
                     continue;
                 }
@@ -640,11 +902,13 @@ impl Agent {
                 if text.is_empty() {
                     match self.hooks_request_retry(attempt, &e) {
                         Ok(true) => {
+                            self.record_attempt(attempt, "retry", &e);
                             self.wait_retry(&e);
                             continue;
                         }
                         Ok(false) => {}
                         Err(hook_err) => {
+                            self.record_attempt(attempt, "error", &e);
                             self.record_error_from(&hook_err);
                             return StreamOut {
                                 text,
@@ -656,6 +920,7 @@ impl Agent {
                         }
                     }
                 }
+                self.record_attempt(attempt, "error", &e);
                 self.record_error_from(&e);
                 return StreamOut {
                     text,
@@ -668,6 +933,7 @@ impl Agent {
             let calls = match agg.finish() {
                 Ok(c) => c,
                 Err(e) => {
+                    self.record_attempt(attempt, "error", &e);
                     self.record_error_from(&e);
                     return StreamOut {
                         text,
@@ -699,6 +965,24 @@ impl Agent {
                 "retry_exhausted",
             )),
         }
+    }
+
+    /// One row for a provider attempt that did not become the visible answer.
+    /// `outcome` is `retry` (the loop will try again) or `error` (it will not).
+    /// The successful attempt writes no row of this type: it is the single
+    /// `assistant/message` the step records.
+    fn record_attempt(&self, attempt: usize, outcome: &str, err: &Error) {
+        let _ = self.emit(
+            self.cur_turn.load(Ordering::SeqCst),
+            self.cur_step.load(Ordering::SeqCst),
+            assistant_attempt(
+                attempt as u32,
+                outcome,
+                err.message(),
+                code_of(err),
+                retryable_of(err),
+            ),
+        );
     }
 
     /// Consult a `request-error` hook for a retry the transport policy refused.

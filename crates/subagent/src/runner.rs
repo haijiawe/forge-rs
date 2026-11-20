@@ -38,7 +38,7 @@ pub enum Delivery {
 
 /// What a direct `Runner::run` call needs from its caller. The tool builds one
 /// of these internally; there is no context parameter on `forge_tool::Tool`.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct CallContext {
     /// Polled by the child agent at every stream boundary.
     pub cancel: Cancel,
@@ -223,6 +223,104 @@ impl Runner {
 
     pub(crate) fn semaphore(&self) -> &Semaphore {
         &self.sem
+    }
+
+    /// Start a child on a background thread and leave its settlement in the
+    /// parent's durable queue instead of returning it to the caller.
+    ///
+    /// This is the asynchronous shape DSH calls a "settled notice": the caller
+    /// delegates and moves on, and the result arrives later as a `next-turn`
+    /// message. Two things make that honest here. The child runs in its own
+    /// session log, so nothing about it depends on this process staying alive.
+    /// And the notice is an `agent/inbox` row on the parent log, so a parent
+    /// that was restarted between delegation and settlement still finds it.
+    ///
+    /// A runner with no `parent_log` cannot deliver anything, so this refuses up
+    /// front rather than spawning a thread whose only outcome is a lost result.
+    pub fn spawn(
+        self: &Arc<Self>,
+        ctx: CallContext,
+        prompt: impl Into<String>,
+        label: Option<String>,
+    ) -> Result<()> {
+        if self.options.parent_log.is_none() {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                "subagent: spawn needs a parent log to deliver its notice to",
+            ));
+        }
+        let runner = Arc::clone(self);
+        let prompt = prompt.into();
+        std::thread::spawn(move || {
+            // The slot is taken inside the thread, not by the caller: a caller
+            // that acquired it and returned immediately would let every
+            // background child run at once, which is exactly what the pool is
+            // for. Queueing here means a background delegation waits its turn
+            // like a foreground one.
+            if !runner.acquire(&ctx.cancel) {
+                let _ = runner.leave_settlement(&Err(forge_core::Error::new(
+                    ErrorKind::Refused,
+                    "subagent: the child was cancelled before it started",
+                )));
+                return;
+            }
+            let out = runner.run_child(
+                &ctx,
+                &prompt,
+                "",
+                "",
+                None,
+                Mode::Continuable,
+                label.as_deref(),
+            );
+            runner.semaphore().release();
+            let _ = runner.leave_settlement(&out);
+        });
+        Ok(())
+    }
+
+    /// Record how a child ended as a `next-turn` message for the parent. The
+    /// notice is the same text the synchronous path would have returned, so a
+    /// reader cannot tell which delivery shape a child used from its words
+    /// alone -- only from the row.
+    fn leave_settlement(&self, out: &Result<ChildRun>) -> Result<()> {
+        let Some(path) = self.options.parent_log.as_ref() else {
+            return Ok(());
+        };
+        let notice = match out {
+            Ok(run) => {
+                let name = run.name.clone().unwrap_or_else(|| run.id.clone());
+                crate::continuation::settlement_notice(
+                    &name,
+                    "completed",
+                    run.mode,
+                    &run.text,
+                    run.structured.as_ref(),
+                )
+            }
+            // A child that never started has no closing text to quote, but the
+            // parent still has to learn that its delegation went nowhere.
+            Err(e) => format!(
+                "a delegated child failed before it settled: {}",
+                e.message()
+            ),
+        };
+        let store = forge_session::Store::open(path, forge_session::Options::default())?;
+        let mut events = Vec::new();
+        store.read_from(0, |ev| {
+            events.push(ev.clone());
+            Ok(())
+        })?;
+        let pending = forge_agent::inbox::fold(&events);
+        let msg = forge_agent::inbox::Msg::new(notice)?;
+        let event = forge_agent::inbox::enqueue(
+            &self.options.parent_session_id,
+            forge_agent::inbox::Target::NextTurn,
+            &pending,
+            &msg,
+        );
+        store.append(&event)?;
+        Ok(())
     }
 
     /// Acquire one of the concurrent slots. Returns `false` if cancelled while

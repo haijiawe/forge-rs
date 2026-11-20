@@ -62,6 +62,10 @@ pub fn tool_schema() -> Value {
             "resume": {
                 "type": "string",
                 "description": "Resume this continuable child (its session id) with `prompt` instead of starting a new one. The child must have been created with continuable:true and not have ended; its schema is fixed from creation, so `schema` may not be set here."
+            },
+            "background": {
+                "type": "boolean",
+                "description": "Start the child and return immediately instead of waiting for its answer. The answer arrives later as a message in a later turn, so you can keep working in the meantime. Cannot be combined with `schema`."
             }
         },
         "required": ["prompt"],
@@ -103,6 +107,11 @@ pub struct DelegateArgs {
     /// `prompt` instead of creating a new child.
     #[serde(default)]
     pub resume: String,
+    /// When true, start the child and return at once. Its answer arrives later
+    /// as a `next-turn` message on this session's log, so the caller does not
+    /// have to wait for it (and does not lose it if it stops paying attention).
+    #[serde(default)]
+    pub background: bool,
 }
 
 impl DelegateArgs {
@@ -193,6 +202,40 @@ impl Tool for DelegateTool {
         let canceller = &self.runner.options().canceller;
         if canceller.is_cancelled() {
             return cancelled_result("");
+        }
+
+        let ctx = crate::runner::CallContext {
+            cancel: Cancel::default(),
+            parent_session_id: String::new(),
+            workspace: if call.workspace.is_empty() {
+                self.runner.options().workspace.clone()
+            } else {
+                call.workspace.clone()
+            },
+        };
+
+        // A background delegation returns before the child has said anything.
+        // Its result arrives later as a `next-turn` message on the parent log,
+        // which is the only place it can arrive: this call is long gone by then.
+        if args.background {
+            if schema.is_some() {
+                return ToolResult::error(
+                    ERR_BAD_ARGS,
+                    "subagent: a background child cannot report a schema result; its answer arrives as a message",
+                );
+            }
+            let label = if args.label.trim().is_empty() {
+                None
+            } else {
+                Some(args.label.clone())
+            };
+            return match self.runner.spawn(ctx, &args.prompt, label) {
+                Ok(()) => ToolResult::ok(
+                    "subagent: started in the background; its answer will arrive as a message in a later turn.",
+                )
+                .with_meta("background", json!(true)),
+                Err(e) => result(ChildRun::default(), Some(e), false),
+            };
         }
 
         let cancel = Cancel::default();

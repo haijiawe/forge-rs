@@ -112,6 +112,38 @@ impl Journal {
         &self.root
     }
 
+    /// The leads that have journalled anything, sorted.
+    ///
+    /// The journal has no index file on purpose (one file per lead means one
+    /// lock per lead), so the directory listing is the index. A missing
+    /// directory is an empty journal, not an error: a board written by a run
+    /// that never journalled is still a board.
+    pub fn leads(&self) -> Result<Vec<String>> {
+        let dir = self.root.join(JOURNAL_DIR);
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(Error::new(
+                    ErrorKind::Io,
+                    format!("team: cannot read journal dir {}: {error}", dir.display()),
+                ))
+            }
+        };
+        let mut leads = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                leads.push(stem.to_string());
+            }
+        }
+        leads.sort();
+        Ok(leads)
+    }
+
     /// `<root>/journal/<lead>.jsonl`.
     pub fn path(&self, lead: &str) -> PathBuf {
         self.root.join(JOURNAL_DIR).join(format!("{lead}.jsonl"))
