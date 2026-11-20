@@ -585,7 +585,10 @@ no `boards` array.
 - `workers[].ok` and `workers[].note` come from the transcript's `worker/end` line,
   and `events` counts the JSON lines in it: two for a worker that finished, one for
   a worker that was still running. A transcript with no end line reports
-  `ok: false` and says why in `diagnostics`.
+  `ok: null` — **not** `false` — and says why in `diagnostics`: a worker that has
+  not finished has not failed, and a board read mid-run must not make every worker
+  look broken. `ok: null` therefore means "this build cannot say", the same
+  discipline `parallel` follows above.
 - `diagnostics` appears only when something is wrong: a half-written board, an
   unparseable `board.json`, a board version this build does not read, a missing
   `workers/` directory, a line that is not JSON. A healthy board has no such key.

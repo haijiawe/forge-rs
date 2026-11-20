@@ -1312,6 +1312,55 @@ fn an_unparseable_board_is_reported_without_hiding_the_others() {
 }
 
 #[test]
+fn a_worker_that_has_not_finished_is_not_reported_as_failed() {
+    let data_dir = unique_dir("teams-unfinished");
+    let board =
+        board_json(json!([{ "id": "t1", "subject": "still running", "status": "in_progress" }]));
+    // A `worker/start` with no `worker/end`: the board was read mid-run, which
+    // is the normal case while a team is working.
+    write_board(
+        &data_dir,
+        "running-20261118-003000",
+        Some(&board),
+        &[(
+            "worker-a",
+            vec![json!({
+                "kind": "worker/start",
+                "ts": 1_764_547_343_000i64,
+                "worker": "worker-a",
+                "task": "t1",
+                "prompt": "review the patch"
+            })],
+        )],
+    );
+    let fixture = fixture_for(&data_dir);
+
+    let (status, _, bytes) = fixture.api("GET", "/api/teams", None, &[]);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    let workers = body["boards"][0]["workers"].as_array().expect("workers");
+    assert_eq!(workers.len(), 1, "{body}");
+    // Null, not false. A worker that has not finished has not failed, and a
+    // board read mid-run must not make every worker look broken.
+    assert_eq!(
+        workers[0]["ok"],
+        Value::Null,
+        "an unfinished worker is unknown, not failed: {}",
+        workers[0]
+    );
+    // The reason it is unknown is still said out loud.
+    let diagnostics = body["boards"][0]["diagnostics"]
+        .as_array()
+        .expect("diagnostics");
+    let text = diagnostics
+        .iter()
+        .map(|line| line.as_str().unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("has no worker/end line"), "{text}");
+}
+
+#[test]
 fn the_team_boards_route_is_read_only() {
     let data_dir = unique_dir("teams-read-only");
     write_board(&data_dir, "release-squad-20261118-002223", None, &[]);

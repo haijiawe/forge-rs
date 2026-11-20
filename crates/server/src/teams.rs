@@ -91,9 +91,14 @@ pub struct Task {
 #[derive(Debug, Serialize)]
 pub struct Worker {
     name: String,
-    /// From the transcript's `worker/end` line. A transcript with no end line
-    /// is a worker that was still running (or died) when the board was read.
-    ok: bool,
+    /// From the transcript's `worker/end` line.
+    ///
+    /// `null` means the transcript has no end line: the worker was still
+    /// running, or was killed, when the board was read. That is *not* the same
+    /// claim as `false` — a worker that has not finished has not failed, and
+    /// reporting it as failed would make every board read mid-run look worse
+    /// than it is. The diagnostic beside it says which case it was.
+    ok: Option<bool>,
     /// The end line's `note`, already clipped by the team crate to 400 bytes.
     note: String,
     /// How many JSON lines the transcript holds: one `worker/start`, plus the
@@ -357,7 +362,7 @@ fn read_worker(name: &str, path: &Path, diagnostics: &mut Vec<String>) -> Option
     let text = read_capped(path, MAX_TRANSCRIPT_BYTES, diagnostics)?;
     let mut events = 0usize;
     let mut unreadable = 0usize;
-    let mut end: Option<(bool, String)> = None;
+    let mut end: Option<(Option<bool>, String)> = None;
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -369,13 +374,10 @@ fn read_worker(name: &str, path: &Path, diagnostics: &mut Vec<String>) -> Option
         };
         events += 1;
         if value.get("kind").and_then(Value::as_str) == Some("worker/end") {
-            let ok = match value.get("ok").and_then(Value::as_bool) {
-                Some(ok) => ok,
-                None => {
-                    diagnostics.push(format!("{label} has a worker/end line with no ok flag"));
-                    false
-                }
-            };
+            let ok = value.get("ok").and_then(Value::as_bool);
+            if ok.is_none() {
+                diagnostics.push(format!("{label} has a worker/end line with no ok flag"));
+            }
             let note = value
                 .get("note")
                 .and_then(Value::as_str)
@@ -397,7 +399,7 @@ fn read_worker(name: &str, path: &Path, diagnostics: &mut Vec<String>) -> Option
             diagnostics.push(format!(
                 "{label} has no worker/end line: the worker had not finished when this board was read"
             ));
-            (false, String::new())
+            (None, String::new())
         }
     };
     Some(Worker {
