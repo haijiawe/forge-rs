@@ -1,12 +1,13 @@
 # ADR-0002 — the harness is written in Rust
 
 - **Status:** accepted and delivered (2026-11-17); all six waves are in, and §6
-  records what each one had to pass. Supersedes the language half of
-  [01-tech-stack-adr.md](01-tech-stack-adr.md) (ADR-0001, Go + React).
+  records what each one had to pass. Supersedes the language half of ADR-0001
+  (Go + React), which lived at `01-tech-stack-adr.md` in the retired tree and was
+  **not carried over** — the measurements that led to Go are quoted in §1 instead
+  of being linked, so the reversal still has a paper trail.
 - **Decision owner:** the user. This document records the consequences, not the
-  debate; ADR-0001 keeps the measurements that led to Go so the reversal has a
-  paper trail.
-- **Scope:** a new tree at `D:\魔改版Agent框架\hearth`. The Go tree this port
+  debate.
+- **Scope:** a new tree at `D:\hearth`. The Go tree this port
   started from was **deleted on 2026-11-17**, at the user's instruction, once the
   port had passed W6 and the five capability crates were wired in. It spent its
   last day archived (git history intact) as the frozen reference implementation,
@@ -30,7 +31,9 @@ neutral and already frozen. A Rust reader that reproduces those bytes is not
 
 ## 1. Measured facts this decision rests on
 
-From `06-perf-and-gaps.md` §7 (same box, same 4,278-byte event):
+From §7 of the retired tree's `06-perf-and-gaps.md` (same box, same 4,278-byte
+event; that document did not come across, which is why the numbers are copied
+here):
 
 | Axis | Go 1.27 | Rust 1.96 | Note |
 | --- | --- | --- | --- |

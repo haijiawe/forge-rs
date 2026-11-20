@@ -1,24 +1,24 @@
 # hearth web UI (M3)
 
 The browser UI for a `hearth` session: a session list, a virtualized transcript,
-tool cards, the approval dialog and the composer. It talks to `hearth serve` over
+tool cards, the approval dialog and the composer. It talks to `hearth web` over
 HTTP and one WebSocket per session. No UI kit, no CSS framework, no
 virtualization library — the virtualizer and the stream reducer are in this
 directory because they are the interesting part.
 
 ## Run it
 
-The UI is served by the Go binary from `web/dist` at `/`. For development, run
-the Go server and Vite side by side:
+The UI is embedded in the `hearth` binary from `web/dist` and served at `/`. For
+development, run the API and Vite side by side:
 
 ```powershell
-# terminal 1 — the API on 127.0.0.1:8848
-cd D:\魔改版Agent框架\hearth
-go run ./cmd/forge serve
+# terminal 1 — the API on 127.0.0.1:8848 (the token is printed to stderr)
+cd D:\hearth
+.\bin\hearth.exe web --addr 127.0.0.1:8848
 
 # terminal 2 — the UI on 127.0.0.1:5173, proxying /api and /ws to :8848
-$env:npm_config_cache="D:\魔改版Agent框架\hearth\.cache\npm"
-$env:npm_config_store_dir="D:\魔改版Agent框架\hearth\.cache\pnpm-store"
+$env:npm_config_cache="D:\hearth\.cache\npm"
+$env:npm_config_store_dir="D:\hearth\.cache\pnpm-store"
 cd web
 npm run dev
 ```
@@ -32,7 +32,7 @@ http://127.0.0.1:5173/?token=<token>
 `?token=` is read **once**, stored in `sessionStorage` (never `localStorage`),
 and then removed from the address bar with `history.replaceState` — a token in
 the URL ends up in screenshots, shell history and the browser history.
-Reloads reuse the stored token. Routes are hash routes (`#/s/<id>`) so the Go
+Reloads reuse the stored token. Routes are hash routes (`#/s/<id>`) so the
 server needs no SPA fallback rule.
 
 Point the dev proxy at a different server with
@@ -41,7 +41,7 @@ Point the dev proxy at a different server with
 ## Build, test, check
 
 ```powershell
-$env:npm_config_cache="D:\魔改版Agent框架\hearth\.cache\npm"
+$env:npm_config_cache="D:\hearth\.cache\npm"
 cd web
 npm ci            # exact pinned versions, lockfile committed
 npm run typecheck # tsc --noEmit
@@ -53,14 +53,17 @@ The npm cache must live inside the repo: the sandbox blocks the default cache
 under the user profile (`E:\Cache\npm`), so a bare `npm install` fails. The
 variables above are the fix, not a preference.
 
-`npm run build` writes `web/dist`, which `hearth serve` embeds/serves. Source
-maps stay off (they would ship the sources in the binary).
+`npm run build` writes `web/dist`, which the `hearth-cli` binary embeds with
+`include_dir!` at compile time — a running binary does not read this directory,
+so a rebuilt bundle needs a rebuilt binary (`cargo build --release -p hearth-cli`
+and copy the artifact to `bin/hearth.exe`). Source maps stay off (they would ship
+the sources in the binary).
 
 ## What is where
 
 | Path | Owns |
 | --- | --- |
-| `src/api/protocol.ts` | **generated** from `internal/protocol` — never hand-edit |
+| `src/api/protocol.ts` | the wire shapes, mirroring `crates/protocol/src/protocol.rs` — the two change in one commit (the Go generator behind this file did not come across) |
 | `src/api/types.ts` | the single import door for protocol types (keeps tests independent of the generator) |
 | `src/api/events.ts` | the event envelope and payload shapes from `docs/contracts/events-v1.md`, with an unknown-type fallback |
 | `src/api/client.ts` | typed fetch wrapper (Bearer + `X-Hearth-Protocol`), token capture, `Idempotency-Key` on POSTs |
@@ -74,7 +77,9 @@ maps stay off (they would ship the sources in the binary).
 
 ## Rendering rules this UI is held to
 
-From `docs/02-architecture.md` §10.1 and `docs/05-roadmap.md` M3:
+From the M3 design in the retired tree's `02-architecture.md` §10.1; the rules are
+enforced by tests here, and [../docs/web-ui.md](../docs/web-ui.md) records the
+measurements that hold them to account.
 
 1. **Only the visible window ±1 screen is in the DOM**, however long the
    transcript. Variable row heights are measured after commit and cached by row

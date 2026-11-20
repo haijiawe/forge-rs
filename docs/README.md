@@ -24,6 +24,7 @@ the only place the shape of that work is written down.
 | If you want to | Read |
 | --- | --- |
 | know what the tree is and how to build it | [../README.md](../README.md) |
+| pick the tree up from someone else's hands | [13-handover.md](13-handover.md) |
 | know the rules a change must obey | [../AGENTS.md](../AGENTS.md) |
 | know what is frozen and must not move | [contracts/README.md](contracts/README.md) |
 | understand the agent execution layer | [agent-comparison.md](agent-comparison.md), then [agent-gaps.md](agent-gaps.md) |
@@ -44,6 +45,7 @@ the only place the shape of that work is written down.
 | [10 agent parity](10-agent-parity.md) | the wave plan that closed the agent gaps: scope, contract changes, acceptance per wave | delivered (W1–W6, S1–S5, A–E, G1–G8, H1–H7) |
 | [12 subagent port](12-subagent-port.md) | what the deep subagent port delivered (S1–S5), including the out-of-process worker | delivered (S1–S5) |
 | [agent gaps](agent-gaps.md) | what DSH has that this tree does not, item by item, with a status and a cost — the ledger to open when planning | delivered; one deliberate non-goal left (`archive-admission` is now **done**) |
+| [13 handover](13-handover.md) | where the tree stands, what is deliberately not built, and the traps that already cost hours — whoever picks this up next | delivered (state as of 2026-11-21) |
 
 ## Comparisons — how this tree relates to DSH
 
@@ -107,6 +109,10 @@ wave's contract changes, tests and acceptance — **every wave it names is now b
 (W2 turned out to be satisfied by the frozen contract already, so it needed no
 code), and the waves that followed it (S1–S5 for subagents, A–E, G1–G8 and H1–H7)
 closed the rest of the ledger.
+[13 handover](13-handover.md) is a record with an expiry date built in: its counts,
+its gate result and its binary size were measured at the handover commit, so a
+later reader should re-run `check.ps1` rather than trust the numbers, and the
+list of traps is the part that does not expire.
 
 ## Keeping this index from rotting
 

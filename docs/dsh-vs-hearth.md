@@ -2,8 +2,8 @@
 
 这份对比读的是源码，不是安装包的表面行为。
 
-- 原版：`D:\魔改版Agent框架\deepseek-harness-master\`，根包 `@deepseek-ai/dsh-root` **0.2.2-rc.5**，MIT，Node ≥ 24.9.0，pnpm 11.28.5。目录里没有 `.git`，所以无法给出 commit。
-- 重构版：`D:\魔改版Agent框架\hearth\`，HEAD `1409bd5`，24 个 Rust crate，MIT，rustc 1.96（MSRV 1.89）。
+- 原版：`D:\reference\deepseek-harness-master\`，根包 `@deepseek-ai/dsh-root` **0.2.2-rc.5**，MIT，Node ≥ 24.9.0，pnpm 11.28.5。目录里没有 `.git`，所以无法给出 commit。
+- 重构版：`D:\hearth\`，24 个 Rust crate，MIT，rustc 1.96（MSRV 1.89）；交接时 HEAD 是 `f4ccae4`（88 个提交），当前值以 `git log` 为准。
 - 性能数字取自 `docs/dsh-comparison.md`，那次实测用的是本机安装的 **0.2.2-rc.1** npm 包，不是这份 rc.5 源码。版本差一个 rc，数字只作量级参考。
 
 一个容易混淆的点：DSH 自己有个叫 **hearth** 的子系统（`packages/experimental/hearth*`），它是 GitHub/GitLab 的 PR/MR 集成，跟本项目 `hearth` 没有任何关系。下文说"hearth"均指 `hearth`。
