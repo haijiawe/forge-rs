@@ -3,11 +3,14 @@ name: ci
 # Runs on pushes and pull requests, but not on changes that cannot affect a
 # build: a `docs:` commit must not buy three operating systems of compilation.
 #
-# The cost model matters here. GitHub bills a private repository's hosted
-# runners out of a shared monthly pool (2,000 minutes on the free and education
-# plans), and not at the same rate: Linux counts 1×, Windows 2×, macOS 10×. A
-# five-job matrix on every push therefore spends its minutes unevenly — the
-# macOS sandbox job alone costs as much as ten Linux jobs of the same length.
+# The cost model matters here. While this repository was private, GitHub billed
+# its hosted runners out of a shared monthly pool (2,000 minutes on the free and
+# education plans), and not at the same rate: Linux counts 1×, Windows 2×, macOS
+# 10×. A five-job matrix on every push therefore spent its minutes unevenly — the
+# macOS sandbox job alone costs as much as ten Linux jobs of the same length. The
+# repository is public now, so standard runners are free and that pool no longer
+# bounds anything; the classification is kept because a documentation commit that
+# buys three operating systems is a pointless use of compute either way.
 # See docs/ci.md for the measured numbers. Nothing in this file exists to make
 # the gate weaker: `test` and `lint` still run on every change that can break a
 # build, and the `release.yml` workflow is untouched.

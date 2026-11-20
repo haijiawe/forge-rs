@@ -1,12 +1,14 @@
 # CI: what runs, what it caught, and what is still not rehearsed
 
-The repository is `github.com/haijiawe/forge-rs` (private) and the tree is MIT.
-Every workflow here has now executed on hosted runners, including `release.yml`
-(through its `workflow_dispatch` dry-run mode) and the manual `bench.yml`.
+The repository is `github.com/haijiawe/forge-rs` (public since 2026-11-21) and the
+tree is MIT. Every workflow here has now executed on hosted runners, including
+`release.yml` (through its `workflow_dispatch` dry-run mode) and the manual
+`bench.yml`.
 
-The honest headline: **the first twenty-four CI runs were not a formality.** Each one
-found something the Windows development box could not see, and several were
-defects in tests that would have kept hiding indefinitely on a single machine.
+The honest headline: **the early CI runs were not a formality.** Eleven of the
+first twenty-four found a defect the Windows development box could not see, and
+several were defects in tests that would have kept hiding indefinitely on a
+single machine.
 
 ## The jobs
 
@@ -44,6 +46,14 @@ Two changes followed, and neither weakens the gate:
 cost more than the other four jobs combined, and it can only fail inside the two
 crates it exercises. `release.yml` is untouched: a tag still builds everything.
 
+The repository is now public, which removes the cost question entirely: standard
+GitHub-hosted runners are free for public repositories, so the 2,000 minute pool
+no longer bounds what CI can do. The two reductions above stay anyway. A
+documentation commit that buys five operating systems is a pointless use of
+compute whether or not someone else pays for it, and `sandbox-macos` still has
+nothing to say about a change outside the two crates it exercises. The billing
+history is kept because it explains why the gate is shaped this way.
+
 The direction of failure is deliberate. The `changes` job runs under `set -eu`,
 so an error there fails the run rather than silently skipping the gate; when it
 cannot identify a base commit — a new branch, a force-push, a manual dispatch —
@@ -78,6 +88,7 @@ acceptable when the diff proves the job has nothing to say about the change.
 | 44661935829 | `72da233` | ✓ | ✓ | ✓ | ✓ | — (the browser reads the handoff manifest) |
 | 44663090396 | `790c157` | ✓ | ✓ | ✓ | ✓ | — (counting the commands the binary actually prints) |
 | 44676607395 | `1924819` | ✓ | ✓ | ✓ | ✓ | — (the DSH rc.5 source comparison; a duplicate trigger was cancelled by concurrency) |
+| 44767162264 | `4a18fe5` | ✓ | ✓ | ✓ | ✓ | — (`sandbox macos-latest` ✓: first run of the classified gate, on a manual dispatch, so `changes` fell back to "run everything" as designed) |
 
 The eleven defects, in the order they surfaced:
 
