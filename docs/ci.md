@@ -4,7 +4,7 @@ The repository is `github.com/haijiawe/forge-rs` (private) and the tree is MIT.
 Every workflow here has now executed on hosted runners, including `release.yml`
 (through its `workflow_dispatch` dry-run mode) and the manual `bench.yml`.
 
-The honest headline: **the first twelve CI runs were not a formality.** Each one
+The honest headline: **the first eighteen CI runs were not a formality.** Each one
 found something the Windows development box could not see, and several were
 defects in tests that would have kept hiding indefinitely on a single machine.
 
@@ -39,8 +39,12 @@ knows (`is_multiple_of` was exactly that kind of lint).
 | 44618571269 | `f56bda3` | ✓ | ✓ | ✓ | ✓ | — (first run of `sandbox macos-latest`, green) |
 | 44627249157 | `ce9d56f` | ✓ | ✓ | ✓ | ✓ | — (the darwin/arm64 bench record and its docs) |
 | 44638519696 | `3a0acb16` | ✓ | ✓ | ✓ | ✓ | — (the capability snapshot route, its tests and the doc corrections) |
+| 44644899266 | `f3276f63` | ✓ | ✓ | ✓ | ✓ | — (addressable compression over the event log) |
+| 44648922153 | `d5861b3` | ✗ | ✓ | ✗ | ✓ | 11 |
+| 44649948765 | `dbd3201` | ✓ | ✓ | ✓ | ✓ | — (defect 11 fixed) |
+| 44651257668 | `6754c9b` | ✓ | ✓ | ✓ | ✓ | — (an unfinished team worker reports `null`, not `false`) |
 
-The ten defects, in the order they surfaced:
+The eleven defects, in the order they surfaced:
 
 1. **A pinned target directory is not portable.** `.cargo/config.toml` carried
    `target-dir = "D:/forge-rs-target/forge-rs"` — a workaround for MSVC error
@@ -93,10 +97,21 @@ The ten defects, in the order they surfaced:
     is now case-insensitive on the text. Worth keeping in the list because the
     product was right and the test was wrong: a red CI run is a claim to
     investigate, not a verdict.
+11. **A `mut` that only one platform needs.** `crates/cli/src/office.rs` built
+    its interpreter candidate list as `let mut candidates = vec![...]` and pushed
+    the Windows launcher `py -3` behind `#[cfg(windows)]`. On every other platform
+    nothing mutated the binding, so `-D warnings` turned `unused_mut` into a
+    build failure — the `lint` and `ubuntu` jobs both died, while `windows` and
+    `macos` passed and the local gate was green. Each platform now constructs its
+    list whole, so `mut` exists exactly where something is pushed. The general
+    shape to watch for: **a `#[cfg]`-guarded mutation is an `unused_mut` on every
+    platform that does not enter the branch.**
 
 Defects 4–9 are all one class: **a second machine is a second reader.** A test
 that passes on Windows because a delete silently fails, because a backslash is
 special, or because the disk is fast enough, is not a test of the thing it names.
+Defect 11 belongs to a second class: **a `#[cfg]` is a claim that the two builds
+differ, and the compiler checks both.**
 
 ## The bench workflow
 

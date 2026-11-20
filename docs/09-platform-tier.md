@@ -1,8 +1,10 @@
 # ADR-0003 — the platform tier: what is missing, and in which language
 
-- **Status:** proposed (2026-11-17); waves P1–P3 plus one follow-up wave are
-  delivered, and each wave's status line below says what was measured and what was
-  not. P4 is not started.
+- **Status:** accepted (2026-11-17), and P1–P4 are delivered. Each wave's status
+  line below says what was measured and what was not. The one thing this ADR
+  deliberately leaves unbuilt is the pure-Rust document writer (§5, P4): Office
+  is a skill plus a program probe, and a Rust `.docx` writer only becomes worth
+  writing if a single-binary install is ever required.
 - **Decision owner:** the user. This records the gap inventory, the language
   decisions, and the wave plan; it does not authorise the work.
 - **Supersedes nothing.** [08-rust-port.md](08-rust-port.md) (ADR-0002) still

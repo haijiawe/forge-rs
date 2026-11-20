@@ -1,5 +1,7 @@
 // The composer's turn controls: Enter sends while idle, the same Enter steers
 // while a turn runs (§4.10), and Stop asks the running turn to end (§4.9).
+// The second half covers attachments: what a pick shows, what the send carries,
+// and what survives a refusal or a failure.
 //
 // The component takes the three verbs as props, so here they are spies: that is
 // what makes "exactly once" and "the draft was not thrown away" observable.
@@ -68,7 +70,10 @@ describe('Composer', () => {
     keydown(textarea);
 
     expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith('hello agent');
+    // The second argument is the attachment list — empty, because nothing was
+    // picked. It is passed on every send so the caller never has to guess
+    // whether "no files" means `undefined` or `[]`.
+    expect(onSend).toHaveBeenCalledWith('hello agent', []);
     expect(onSteer).not.toHaveBeenCalled();
     expect(onStop).not.toHaveBeenCalled();
 
@@ -190,7 +195,7 @@ describe('Composer', () => {
     typeInto(textarea, 'line one\nline two');
     keydown(textarea);
     await waitFor(() => onSend.mock.calls.length === 1);
-    expect(onSend).toHaveBeenCalledWith('line one\nline two');
+    expect(onSend).toHaveBeenCalledWith('line one\nline two', []);
     view.unmount();
   });
 
@@ -229,10 +234,186 @@ describe('Composer', () => {
     view.unmount();
   });
 
-  // TODO(finding, not fixed: product code is off-limits here): submit() in
-  // Composer.tsx:38-47 has try/finally but no catch, and it is called as
-  // `void submit()` (Composer.tsx:70,84). An onSend/onSteer that *rejects*
-  // instead of resolving false therefore escapes as an unhandled rejection and
-  // the user sees nothing. SessionView always passes the store's methods, which
-  // catch and resolve false, so this is a latent robustness gap, not a live bug.
+  // Files. What is proven here is the round trip through the picker, the removal
+// and what survives a failed send; the encoding, the kind decision and every cap
+// are pinned without a DOM in state/attachments.test.ts, because a 2 GB refusal
+// is not something a component test should have to allocate.
+
+function fileInputOf(container: HTMLElement): HTMLInputElement {
+  const input = container.querySelector('input[type="file"]');
+  if (!(input instanceof HTMLInputElement)) throw new Error('no file input');
+  return input;
+}
+
+/**
+ * Pick files the way a browser delivers them: the input's FileList holds them
+ * and one change event follows.
+ *
+ * jsdom exposes no way to set a file input's selection, so the list is shadowed
+ * on the element — the same technique @testing-library/user-event uses. The
+ * component reads `input.files` before it clears the input, so the shadow is
+ * what it sees.
+ */
+function pickFiles(container: HTMLElement, files: File[]): void {
+  const input = fileInputOf(container);
+  Object.defineProperty(input, 'files', { value: files, configurable: true });
+  interact(() => {
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
+/** The eight-byte PNG signature: 89 50 4E 47 0D 0A 1A 0A. */
+const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function pngFile(name = 'shot.png'): File {
+  return new File([PNG_BYTES], name, { type: 'image/png' });
+}
+
+function chips(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>('.composer-attachment'));
+}
+
+function refusalsOf(container: HTMLElement): HTMLElement | null {
+  return container.querySelector('.composer-refusals');
+}
+
+describe('Composer attachments', () => {
+  it('offers the picker as a real, labelled control', () => {
+    const view = mount(<Composer disabled={false} onSend={vi.fn(async () => true)} />);
+
+    const input = fileInputOf(view.container);
+    expect(input.getAttribute('aria-label')).toBe('Attach images or .diff/.patch files');
+    expect(input.multiple).toBe(true);
+    expect(input.accept).toBe('image/*,.diff,.patch');
+    // Not display:none and not `hidden`: an invisible input cannot be reached
+    // with Tab, and picking a file is the only way to attach one.
+    expect(input.hidden).toBe(false);
+    expect(input.style.display).not.toBe('none');
+    expect(input.disabled).toBe(false);
+    view.unmount();
+  });
+
+  it('shows a picked file and sends its bytes with the message', async () => {
+    const onSend = vi.fn(async () => true);
+    const view = mount(<Composer disabled={false} onSend={onSend} />);
+
+    pickFiles(view.container, [pngFile()]);
+    await waitFor(() => chips(view.container).length === 1);
+
+    const chip = chips(view.container)[0];
+    expect(chip?.textContent).toContain('shot.png');
+    expect(chip?.textContent).toContain('image · 8 B');
+
+    const textarea = textareaOf(view.container);
+    typeInto(textarea, 'what is wrong in this screenshot?');
+    keydown(textarea);
+
+    await waitFor(() => onSend.mock.calls.length === 1);
+    expect(onSend).toHaveBeenCalledWith('what is wrong in this screenshot?', [
+      // 89 50 4E 47 0D 0A 1A 0A -> iVBORw0KGgo= (see attachments.test.ts).
+      { kind: 'image', data: 'iVBORw0KGgo=', name: 'shot.png', mediaType: 'image/png' },
+    ]);
+    // Accepted, so the chip goes with the draft.
+    await waitFor(() => chips(view.container).length === 0);
+    view.unmount();
+  });
+
+  it('removes one attachment before sending, leaving the others', async () => {
+    const onSend = vi.fn(async () => true);
+    const view = mount(<Composer disabled={false} onSend={onSend} />);
+
+    pickFiles(view.container, [pngFile('a.png'), pngFile('b.png')]);
+    await waitFor(() => chips(view.container).length === 2);
+
+    const remove = view.container.querySelector('.composer-attachment .link-button');
+    if (!(remove instanceof HTMLButtonElement)) throw new Error('no remove button');
+    // A real <button>: Tab reaches it and the browser activates it on Enter and
+    // Space without any key handler of ours. The label says which file it
+    // removes, because "remove" alone is ambiguous with several attached.
+    expect(remove.tagName).toBe('BUTTON');
+    expect(remove.getAttribute('type')).toBe('button');
+    expect(remove.getAttribute('aria-label')).toBe('Remove a.png');
+
+    click(view.container, 'remove');
+    await waitFor(() => chips(view.container).length === 1);
+    expect(chips(view.container)[0]?.textContent).toContain('b.png');
+    expect(onSend).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it('keeps the file when the send fails', async () => {
+    // A failed send dumps the message into state.actionError and resolves false;
+    // the file must survive it, because a picked file cannot be retyped.
+    const onSend = vi.fn(async () => false);
+    const view = mount(<Composer disabled={false} onSend={onSend} />);
+
+    pickFiles(view.container, [pngFile()]);
+    await waitFor(() => chips(view.container).length === 1);
+
+    const textarea = textareaOf(view.container);
+    typeInto(textarea, 'look at this');
+    keydown(textarea);
+    await waitFor(() => onSend.mock.calls.length === 1);
+    await flush();
+
+    expect(textarea.value).toBe('look at this');
+    expect(chips(view.container).length).toBe(1);
+    // And the box is usable again, so the retry is possible.
+    expect(buttonByText(view.container, 'Send').disabled).toBe(false);
+    view.unmount();
+  });
+
+  it('refuses an unsupported file in words, and the refusal can be dismissed', async () => {
+    const onSend = vi.fn(async () => true);
+    const view = mount(<Composer disabled={false} onSend={onSend} />);
+
+    pickFiles(view.container, [
+      new File([new Uint8Array([0x68, 0x69])], 'notes.txt', { type: 'text/plain' }),
+    ]);
+    await waitFor(() => refusalsOf(view.container) !== null);
+
+    const alert = refusalsOf(view.container);
+    // role="alert" is what makes a screen reader say it without focus moving.
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(alert?.textContent).toContain('Unsupported file: "notes.txt" is type text/plain.');
+    expect(alert?.textContent).toContain('path inside the workspace');
+    expect(chips(view.container).length).toBe(0);
+
+    click(view.container, 'dismiss');
+    await waitFor(() => refusalsOf(view.container) === null);
+    view.unmount();
+  });
+
+  it('refuses to steer with a file instead of dropping it', async () => {
+    const onSend = vi.fn(async () => true);
+    const onSteer = vi.fn(async () => true);
+    const view = mount(
+      <Composer disabled={false} running onSend={onSend} onSteer={onSteer} />,
+    );
+
+    pickFiles(view.container, [pngFile()]);
+    await waitFor(() => chips(view.container).length === 1);
+
+    const textarea = textareaOf(view.container);
+    typeInto(textarea, 'and this too');
+    keydown(textarea);
+    await waitFor(() => refusalsOf(view.container) !== null);
+
+    // SteerRequest carries text only, so a steer would lose the file silently.
+    expect(onSteer).not.toHaveBeenCalled();
+    expect(onSend).not.toHaveBeenCalled();
+    expect(refusalsOf(view.container)?.textContent).toContain(
+      'A file cannot ride along with a steer',
+    );
+    expect(chips(view.container).length).toBe(1);
+    expect(textarea.value).toBe('and this too');
+    view.unmount();
+  });
+
+  // Note on the finding that used to live here: submit() had try/finally with no
+  // catch, so a rejecting onSend/onSteer escaped as an unhandled rejection. The
+  // attachment rewrite added the catch (both submit() and stop()), so the note
+  // is gone rather than stale — the draft now survives a throwing handler too.
+  });
 });

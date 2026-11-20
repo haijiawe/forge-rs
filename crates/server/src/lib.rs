@@ -13,6 +13,10 @@
 
 pub mod api;
 pub mod capabilities;
+/// One session's goal, folded from its log for `GET /api/sessions/{id}/goal`.
+/// Private for the same reason as `teams`: a wire shape for one route, not
+/// part of this crate's boundary.
+mod goal_route;
 pub mod ratelimit;
 pub mod server;
 /// Reads the boards `forge team run` leaves in the data dir. Private: it is

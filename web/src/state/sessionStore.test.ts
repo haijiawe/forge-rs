@@ -56,6 +56,7 @@ function fakeApi(overrides: Partial<ForgeApi> = {}): ForgeApi {
       skills: [],
       mcp: [],
     })),
+    teams: vi.fn(async () => ({ boards: [] })),
   };
   return { ...base, ...overrides };
 }

@@ -186,9 +186,10 @@ test run ends with `test result: ok`. `make release` compile-checks the
 installed cross targets only — it does not link, because this host has no linker
 for them.
 
-`.github/workflows/ci.yml` runs three jobs on every push and pull request: `test`
-on ubuntu and windows against the **minimum** rustc (1.89), `lint` on current
-stable (`fmt --check`, `clippy --all-targets -D warnings`), and `web` (`npm ci`,
+`.github/workflows/ci.yml` runs four jobs on every push and pull request: `test`
+on ubuntu and windows against the **minimum** rustc (1.89), `sandbox macos-latest`
+(the `sandbox-exec` evidence, on a real macOS kernel), `lint` on current stable
+(`fmt --check`, `clippy --all-targets -D warnings`), and `web` (`npm ci`,
 `tsc --noEmit`, `vitest run`, `npm run build`, 2 MB raw bundle budget). Two
 toolchains because clippy grows lints in new releases: a developer on stable can
 otherwise write code that a pinned-toolchain lint job never sees — `% 2 != 0`
@@ -197,8 +198,9 @@ becoming `is_multiple_of` was exactly that. CI deliberately does **not** pass
 `check.ps1` do, because this host cannot reach crates.io. `.github/workflows/release.yml`
 builds and checksums the artifacts on version tags.
 
-Neither workflow has ever run on a GitHub runner: this checkout has no remote and
-no `gh`. Both were rehearsed step by step locally instead (see `docs/ci.md`).
+Both workflows have run on GitHub runners. The runs, what each one caught, and
+the eleven real defects CI found that the local gate could not are recorded in
+`docs/ci.md`.
 
 ## What is not done yet
 
@@ -213,20 +215,27 @@ no `gh`. Both were rehearsed step by step locally instead (see `docs/ci.md`).
   that comes back empty is refused rather than appended (`web_compaction_refuses_an_empty_summary`
   in `crates/cli/src/web.rs`): an empty fold would delete history and record
   nothing in its place.
-- Attachment bodies are stored, not understood: POST /messages writes an upload
-  to <dataDir>/blobs/ and the event keeps a reference, but nothing feeds those
-  bytes to a model. crates/llm/src/contract.rs declares message content as a
-  plain String, so an image is recorded and downloadable and still invisible to
-  the model. Feeding pixels needs a content-part type in the provider contract.
+- Attachment bodies are stored *and* understood. POST /messages writes an upload
+  to `<dataDir>/blobs/` and the event keeps a reference (never the bytes: the log
+  is append-only and a fork copies it), and `crates/cli/src/attachments.rs`
+  turns an `image` reference back into a `ContentPart::Image` when a turn is
+  built, so the model receives a `data:` URI and can see the picture. The bytes
+  are re-read from the blob store on every turn rather than cached in history,
+  so the log stays free of base64 and the picture stays visible for the whole
+  session. `read_image` does the same for a file in the workspace. Nothing turns
+  a `diff` or a `file` into pixels — those stay references a tool can open.
 - Cross-target release builds from this host are compile checks only; see the
   toolchain section and `docs/release.md`. CI uses native runners for the
   artifacts it claims.
 - `archcheck` checks layer direction and the README contract only. It does not
   inspect Rust source, enforce the dependency budget, or check that a crate's
   public API matches its README; those are review and `Cargo.toml` concerns.
-- Benchmarks are ported in `tools/bench` and a windows/amd64 baseline was recorded
-  from a settled tree; `make bench-check` / `-strict` is now armed on this host.
-  No linux/amd64 baseline exists yet, so that platform prints a skip line.
+- Benchmarks are ported in `tools/bench` and three baselines are recorded:
+  windows/amd64 from a settled tree on this host, linux/amd64 and darwin/arm64
+  from `bench.yml` on GitHub runners. A platform with no record prints a skip
+  line rather than comparing against another platform's numbers. The hosted
+  Windows numbers are *not* the baseline, because its `fsync` runs 16× slower
+  than this host's — a runner is a different machine, not a different day.
 - Language-neutral HTTP, event and WebSocket golden corpora are shared with the
   Go oracle and run in both trees. WS caught three real Rust server bugs (delta
   seq, control-ping framing, close code 1000) which are fixed.
@@ -306,7 +315,8 @@ no `gh`. Both were rehearsed step by step locally instead (see `docs/ci.md`).
   rows, load in ~650 ms, and hold ~18 MB of heap. Numbers, method and the three
   browser-only defects the measurement exposed are in `docs/web-ui.md`. It is one
   headless Edge on Windows/amd64; no other browser or GPU was measured.
-- No `LICENSE` file yet: all rights reserved, do not redistribute.
+- `LICENSE` is MIT. The `UNLICENSED` that `Cargo.toml` carried while this was a
+  private port is gone; the tree is redistributable under the terms in `LICENSE`.
 - `make check` could not be executed on the authoring host because GNU make is
   not installed. Its component commands were run directly and are the source
   of the expected output above; `check.ps1` runs the same five steps on Windows.

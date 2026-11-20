@@ -87,6 +87,7 @@ function fakeApi(overrides: Partial<ForgeApi> = {}): ForgeApi {
       skills: [],
       mcp: [],
     })),
+    teams: vi.fn(async () => ({ boards: [] })),
   };
   return { ...base, ...overrides };
 }
@@ -138,7 +139,11 @@ describe('SessionView turn controls', () => {
     await waitFor(() => textarea().value === '');
 
     expect(api.postMessage).toHaveBeenCalledTimes(1);
-    expect(api.postMessage).toHaveBeenCalledWith('sess-1', 'hello agent');
+    // The list is always passed, empty or not: the client is what decides to
+    // omit the key, so a message with no files still sends byte-identical JSON
+    // (see client.test.ts). Asserting the empty array here is asserting that
+    // the store did not drop its argument on the way.
+    expect(api.postMessage).toHaveBeenCalledWith('sess-1', 'hello agent', []);
     expect(api.steer).not.toHaveBeenCalled();
     expect(api.cancel).not.toHaveBeenCalled();
     view.unmount();

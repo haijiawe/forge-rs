@@ -13,9 +13,11 @@
 
 import { decodeFrame, HeaderVersion, IdempotencyKeyHeader, Version } from './protocol';
 import { parseReport, type CapabilityReport } from './capabilities';
+import { parseBoards, type TeamBoardReport } from './teams';
 import type {
   ApprovalDecision,
   ApprovalDecisionResponse,
+  Attachment,
   CancelResponse,
   EventsPage,
   PingFrame,
@@ -54,12 +56,30 @@ export interface ListSessionsOptions {
   limit?: number;
 }
 
+/**
+ * What `postMessage` puts in `attachments`.
+ *
+ * It is the protocol's Attachment plus the two optional members the server's
+ * own struct declares — `mediaType` and `name` at
+ * crates/protocol/src/protocol.rs:180-193, both `Option<String>` and both
+ * recorded per attachment (`server.rs:2021-2022`). The generated
+ * `protocol.ts` predates them and is owned elsewhere, so they are added here
+ * rather than restated there: this is the `Attachment` type, not a copy of it,
+ * and an older server simply ignores what it does not read. They are what lets
+ * a transcript say "shot.png (image/png)" instead of "an image".
+ */
+export type OutgoingAttachment = Attachment & { name?: string; mediaType?: string };
+
 /** The subset of the client the session screen needs, so tests can fake it. */
 export interface ForgeApi {
   listSessions(options?: ListSessionsOptions): Promise<SessionList>;
   getSession(id: string): Promise<SessionDetail>;
   events(id: string, after: number, limit?: number): Promise<EventsPage>;
-  postMessage(id: string, text: string): Promise<PostMessageResponse>;
+  postMessage(
+    id: string,
+    text: string,
+    attachments?: readonly OutgoingAttachment[],
+  ): Promise<PostMessageResponse>;
   /** Ask the running turn to stop (§4.9); the turn's ending arrives on the stream. */
   cancel(id: string): Promise<CancelResponse>;
   /** Inject text into the running turn (§4.10); 409 when nothing is running. */
@@ -72,6 +92,8 @@ export interface ForgeApi {
   ): Promise<ApprovalDecisionResponse>;
   /** What this process was configured with; one GET, no session involved. */
   capabilities(): Promise<CapabilityReport>;
+  /** Team boards `forge team run` left in the data dir; one GET, no session. */
+  teams(): Promise<TeamBoardReport>;
 }
 
 function trimTrailingSlash(baseUrl: string): string {
@@ -169,12 +191,21 @@ export class ForgeClient implements ForgeApi {
     return this.request<EventsPage>(`/api/sessions/${encodeURIComponent(id)}/events?${query.toString()}`);
   }
 
-  postMessage(id: string, text: string): Promise<PostMessageResponse> {
+  postMessage(
+    id: string,
+    text: string,
+    attachments: readonly OutgoingAttachment[] = [],
+  ): Promise<PostMessageResponse> {
     // The key makes a retry safe: the same key never appends a second message.
+    // `attachments` is left out entirely when there are none: the field is
+    // optional, and a message without files must stay byte-identical to what it
+    // was before attachments existed (api/client.test.ts asserts that body). An
+    // empty array would be a different request for no gain.
+    const body = attachments.length === 0 ? { text } : { text, attachments };
     return this.request<PostMessageResponse>(`/api/sessions/${encodeURIComponent(id)}/messages`, {
       method: 'POST',
       headers: { [IdempotencyKeyHeader]: newIdempotencyKey() },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(body),
     });
   }
 
@@ -212,6 +243,13 @@ export class ForgeClient implements ForgeApi {
     // the frozen protocol module, so an older or partial server must degrade to
     // empty groups instead of handing the panel `undefined`.
     return this.request<unknown>('/api/capabilities').then(parseReport);
+  }
+
+  teams(): Promise<TeamBoardReport> {
+    // Same reason as `capabilities`: newer than the protocol module, so the
+    // answer is parsed defensively. A raise here would read as "the routes are
+    // broken" when the truth is "nothing has run a team yet".
+    return this.request<unknown>('/api/teams').then(parseBoards);
   }
 }
 

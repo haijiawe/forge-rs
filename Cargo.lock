@@ -306,6 +306,7 @@ name = "forge-server"
 version = "0.1.0"
 dependencies = [
  "forge-core",
+ "forge-goal",
  "forge-protocol",
  "forge-session",
  "serde",

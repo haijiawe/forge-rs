@@ -1512,11 +1512,13 @@ impl Server {
                 }
                 "cancel" if request.method == "POST" => self.handle_cancel(request, segments[1]),
                 "steer" if request.method == "POST" => self.handle_steer(request, segments[1]),
+                "goal" if request.method == "GET" => self.handle_goal(segments[1]),
                 "stream" => Err(method_not_allowed("GET")),
                 "events" => Err(method_not_allowed("GET")),
                 "messages" => Err(method_not_allowed("POST")),
                 "cancel" => Err(method_not_allowed("POST")),
                 "steer" => Err(method_not_allowed("POST")),
+                "goal" => Err(method_not_allowed("GET")),
                 _ => Err(ApiFailure::new(404, code::NOT_FOUND, "no such endpoint")),
             },
             4 if segments[2] == "approvals" => {
@@ -1533,6 +1535,33 @@ impl Server {
             }
             _ => Err(ApiFailure::new(404, code::NOT_FOUND, "no such endpoint")),
         }
+    }
+
+    /// One session's goal, folded from its own log.
+    ///
+    /// Read-only in the strict sense: `goal_route::read` opens the file for
+    /// reading and creates nothing, which matters because
+    /// `forge_session::Store::open` would create the file it cannot find and a
+    /// GET must not manufacture a session. A goal that was never set is
+    /// `{"goal":null}` -- a fact, not a 404; only a missing log is a 404.
+    fn handle_goal(&self, id: &str) -> ApiResult<Response> {
+        if !valid_session_id(id) {
+            return Err(ApiFailure::new(404, code::NOT_FOUND, "no such session"));
+        }
+        let reply =
+            crate::goal_route::read(&self.session_path(id)).map_err(|problem| match problem {
+                crate::goal_route::Problem::NotFound => {
+                    ApiFailure::new(404, code::NOT_FOUND, "no such session")
+                }
+                // The log exists but its bytes did not come back. Calling that
+                // "no such session" would blame the caller for the disk.
+                crate::goal_route::Problem::Read => ApiFailure::new(
+                    500,
+                    code::LOG_READ_FAILED,
+                    "the session log could not be read",
+                ),
+            })?;
+        Ok(Response::json(200, &reply))
     }
 
     /// Every board under `<dataDir>/teams/`. A data dir without that directory

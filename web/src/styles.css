@@ -646,6 +646,82 @@ body {
   opacity: 0.6;
 }
 
+/* The attachment strip and the refusal list sit on their own line above the
+   input: a plan of N files must not squeeze the textarea, and both are lists
+   that can wrap. `flex-basis: 100%` on the strip is what forces that line. */
+.composer {
+  flex-wrap: wrap;
+}
+
+.composer-strip {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.composer-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  font-size: 12px;
+}
+
+.composer-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 260px;
+}
+
+.composer-refusals {
+  color: var(--warn-text, var(--text));
+  font-size: 12px;
+}
+
+.composer-refusals li {
+  margin: 0;
+}
+
+/* A real file input, kept in the tab order on purpose: an opacity:0 input behind
+   a label cannot be found by a keyboard user watching where focus goes. So the
+   native control is styled rather than hidden, and `::file-selector-button` is
+   the one hook the spec gives for the button half of it. */
+.composer-attach {
+  max-width: 260px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.composer-attach::file-selector-button {
+  margin-right: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.composer-attach::file-selector-button:hover {
+  border-color: var(--accent);
+}
+
+.composer-attach:disabled {
+  opacity: 0.55;
+}
+
 /* --- status bar --- */
 
 .status-bar {
@@ -856,4 +932,233 @@ body {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   font-size: 11px;
   white-space: nowrap;
+}
+
+/* --- team boards ---
+ *
+ * On the session list, below the table: a board belongs to `forge team run`, not
+ * to any one conversation. The three worker states get three looks because the
+ * middle one is not a shade of either neighbour: `unknown` means this build
+ * cannot say, and a grey-but-green pill would still read as "it worked". */
+
+.teams {
+  margin-top: 26px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.teams-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.teams-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.teams-note {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.teams-retry {
+  margin-left: auto;
+}
+
+.teams-empty,
+.team-reading {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.teams-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.team-board {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+}
+
+.team-board-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.team-board-title {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.team-board-team {
+  font-weight: 600;
+}
+
+.team-board-id,
+.team-board-when,
+.team-board-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.team-board-parallel-unknown {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.team-board-total {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.team-board-tasks,
+.team-board-workers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.team-board-tasks-empty {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.team-task-count,
+.team-worker-count {
+  padding: 1px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.team-task-count-pending,
+.team-task-count-in_progress {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+}
+
+.team-task-count-completed {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 45%, var(--border));
+}
+
+.team-worker-count-finished {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 45%, var(--border));
+}
+
+.team-worker-count-failed {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 45%, var(--border));
+}
+
+/* Not green, not red: a dashed border is the visual claim "no verdict exists". */
+.team-worker-count-unknown {
+  color: var(--text-muted);
+  border-style: dashed;
+}
+
+.team-board-diagnostic-badge {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+  cursor: pointer;
+}
+
+.team-board-toggle {
+  margin-left: auto;
+}
+
+.team-board-detail {
+  padding: 4px 10px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.team-board-detail-head {
+  margin: 6px 0 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.team-board-diagnostics {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.team-board-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.team-board-table th,
+.team-board-table td {
+  padding: 3px 8px 3px 0;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.team-board-table th {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.team-task-status-failed,
+.team-worker-state-failed {
+  color: var(--bad);
+}
+
+.team-task-status-completed,
+.team-worker-state-finished {
+  color: var(--good);
+}
+
+.team-task-status-pending,
+.team-task-status-in_progress {
+  color: var(--warn);
+}
+
+.team-worker-state-unknown {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.team-task-owner,
+.team-worker-events {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.team-worker-note,
+.team-board-note {
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }

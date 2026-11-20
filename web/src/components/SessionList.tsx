@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ForgeApi } from '../api/client';
 import { ApiError } from '../api/client';
 import type { SessionSummary } from '../api/types';
+import { TeamBoards } from './TeamBoards';
 
 export interface SessionListProps {
   api: ForgeApi;
@@ -119,6 +120,11 @@ export function SessionList({ api, onOpen }: SessionListProps) {
           load more
         </button>
       )}
+
+      {/* Team boards live here rather than on a session screen because a board
+          is not part of any one conversation: `forge team run` writes it under
+          the data dir, and it outlives every session that spawned a worker. */}
+      <TeamBoards load={() => api.teams()} />
     </main>
   );
 }

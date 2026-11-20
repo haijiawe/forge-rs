@@ -140,6 +140,7 @@ All paths are under `{base}`. `{id}` is a session id; an unknown id is
 | 11 | `GET` | `/api/sessions/{id}/attachments/{attachmentId}` | One attachment's bytes | `200` |
 | 12 | `GET` | `/api/capabilities` | What this process can offer, session or not | `200` |
 | 13 | `GET` | `/api/teams`, `/api/teams/{board}` | Team boards this machine has run | `200` |
+| 14 | `GET` | `/api/sessions/{id}/goal` | The goal this session is still working toward | `200` |
 
 ### 4.1 `GET /healthz`
 
@@ -610,6 +611,79 @@ no `boards` array.
 - `GET` only; anything else is `405 method_not_allowed`.
 - `500 log_read_failed` — `<dataDir>/teams/` exists but cannot be read at all. One
   bad board is never this.
+
+### 4.14 `GET /api/sessions/{id}/goal`
+
+The goal this session is working toward, folded from the `goal/created`,
+`goal/continued` and `goal/ended` records in its log — the same fold
+`forge goal status` prints. It is a read of the log and nothing else: a goal
+that lived in process memory would be a goal a restart loses, which is the
+thing a goal exists to survive.
+
+A session that never had a goal:
+
+```json
+{"goal": null}
+```
+
+A session that has one:
+
+```json
+{
+  "goal": {
+    "id": "g_01jya7c9q3r5t7v9w1x3y5z7",
+    "text": "finish the goal route",
+    "maxRounds": 10,
+    "rounds": 2,
+    "status": "active",
+    "nextRound": 3
+  }
+}
+```
+
+- `rounds` counts **continuations spent**, not turns. The first turn came with
+  `goal/created`, so a goal that has continued twice is on its third turn and
+  reports `rounds: 2`. This is the number the log holds, not a human rendering
+  of it.
+- `maxRounds` is a budget of **turns**, not of continuations: `maxRounds: 2`
+  buys the creating turn plus exactly one continuation. `Goal::next_action`
+  enforces that boundary (`rounds + 1 >= max_rounds` means stop), and this route
+  reports its decision instead of recomputing one.
+- `nextRound` is the round the loop would actually open next, and it is present
+  only when `next_action` says `Continue`. It is **absent** for every inactive
+  goal — `complete`, `blocked`, `cancelled`, `exhausted` — because a round
+  number there would promise a round nobody will run.
+- It is also **absent for an `active` goal whose budget is spent**: `fold` still
+  says `active` because no `goal/ended` has been written yet, while
+  `next_action` already says `Stop { Exhausted }`. `status: "active"` with no
+  `nextRound` is a real and expected answer; it means "the budget is gone, the
+  close has not been written yet". A client must render it as no next round.
+  Do not "fix" this by computing `rounds + 1`: with `maxRounds: 2` and one
+  continuation spent, `rounds: 1` and no `nextRound` is the truth, and
+  `nextRound: 2` is precisely the lie the absent member avoids.
+- `status` is one of `active`, `complete`, `blocked`, `cancelled`, `exhausted`,
+  spelled as `forge_goal::Status::as_str()` spells them.
+- The most recent `goal/created` wins. A session that finished one goal and
+  started another reports the live one, and a trailing `goal/ended` carrying an
+  older `goalId` does not close the new goal.
+- A partially unreadable log still answers `200`. `fold` skips every goal record
+  it cannot project — no payload, a payload that is not an object, no `goalId`,
+  a `goal/ended` whose reason it does not know — and this route skips every line
+  that is not a v1 envelope at all, such as a torn tail or a foreign record. The
+  answer is the goal those readable records fold to, or `{"goal": null}` when
+  none of them names one. It is never a `500`: one bad byte must not blind an
+  operator to a goal that is really there.
+- A session whose log exists but holds no readable record is `404 not_found`,
+  the answer `/api/sessions/{id}` gives it. A missing file, an empty directory
+  and a blank log are not three different answers.
+- The route creates nothing: no log, no directory, no lock, no store handle.
+  Reading a session that does not exist must not bring it into being.
+- `404 not_found` — no such session. `405 method_not_allowed` — any method other
+  than `GET`. `500 log_read_failed` — the log exists but its bytes could not be
+  read; that is not "no such session", because the session may be perfectly fine.
+- `forge goal status --json` folds the same records but names the id `goalId`
+  and carries no `nextRound`. This route is the HTTP shape; a client porting one
+  to the other renames the field rather than assuming they are byte-identical.
 
 ---
 

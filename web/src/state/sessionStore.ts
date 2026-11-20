@@ -8,7 +8,7 @@
 // docs/05-roadmap.md M3 ("no jank while streaming").
 
 import { ApiError } from '../api/client';
-import type { ForgeApi } from '../api/client';
+import type { ForgeApi, OutgoingAttachment } from '../api/client';
 import type { Event } from '../api/events';
 import { latestToolNames } from './capabilities';
 import { StreamMachine, type StreamInput, type StreamState } from '../api/stream';
@@ -311,11 +311,14 @@ export class SessionStore {
   }
 
   /** POST a user message. The transcript updates when the event arrives. */
-  async sendMessage(text: string): Promise<boolean> {
+  async sendMessage(
+    text: string,
+    attachments: readonly OutgoingAttachment[] = [],
+  ): Promise<boolean> {
     const trimmed = text.trim();
     if (trimmed === '') return false;
     try {
-      await this.options.api.postMessage(this.options.sessionId, trimmed);
+      await this.options.api.postMessage(this.options.sessionId, trimmed, attachments);
       return true;
     } catch (error) {
       this.setActionError(errorMessage(error));

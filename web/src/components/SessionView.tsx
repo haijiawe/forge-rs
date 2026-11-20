@@ -4,7 +4,7 @@
 // useSyncExternalStore and re-renders once per published frame (the store
 // batches to requestAnimationFrame, see state/sessionStore.ts).
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import type { ForgeApi } from '../api/client';
+import type { ForgeApi, OutgoingAttachment } from '../api/client';
 import type { CapabilityReport } from '../api/capabilities';
 import type { ApprovalDecision } from '../api/types';
 import { SessionStore } from '../state/sessionStore';
@@ -64,7 +64,11 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
     };
   }, [api]);
 
-  const send = useCallback((text: string) => store.sendMessage(text), [store]);
+  const send = useCallback(
+    (text: string, attachments: readonly OutgoingAttachment[]) =>
+      store.sendMessage(text, attachments),
+    [store],
+  );
   const steer = useCallback((text: string) => store.steerTurn(text), [store]);
   const stop = useCallback(() => store.cancelTurn(), [store]);
   const decide = useCallback(

@@ -1,6 +1,6 @@
 # docs — what is here, and what to read first
 
-This tree is `forge`, a Rust harness: twenty-three crates over one append-only
+This tree is `forge`, a Rust harness: twenty-four crates over one append-only
 event log, with [architecture.yaml](../architecture.yaml) stating which crate may
 import which and [tools/archcheck](../tools/archcheck) failing the build when an
 edge points up. What is frozen is [docs/contracts/](contracts/README.md) — the v1
@@ -22,6 +22,7 @@ in before the Go tree was deleted on 2026-11-17.
 | [dsh](dsh-comparison.md) | how this compares with original DSH — speed claims | delivered |
 | [release](release.md) | what an artifact does and does not claim — release builder | delivered |
 | [web ui](web-ui.md) | does a 10k-event transcript hold 60 fps — transcript owner | delivered |
+| [office](office-run.md) | does the Office skill actually produce documents — skill editor | delivered |
 | [contracts](contracts/README.md) | what is frozen — wire/CLI/API editors | delivered |
 
 The [contracts/](contracts/README.md) directory holds seven files:
@@ -40,10 +41,13 @@ lines of [08](08-rust-port.md) and [bench](bench.md) used to contradict their ow
 bodies ("accepted, in progress" above a wave table that ends with every wave in;
 "no baseline has been recorded" above a baseline file with three rows) and were
 corrected rather than left as a known lie. [09](09-platform-tier.md) is
-`partially delivered` on purpose: waves P1–P3 are in and P4 — the addressable
-compaction and Office output — is not started, which is what its status line
-says. [ci](ci.md) and [release](release.md) are delivered as documents, and both
+`partially delivered` on purpose: waves P1–P4 are in, and the one item it
+deliberately leaves unbuilt is the pure-Rust document writer, which its §5 says
+only becomes worth writing if a single-binary install is ever required.
+[ci](ci.md) and [release](release.md) are delivered as documents, and both
 now describe runs that actually happened, on hosted runners, with the run ids.
+[office](office-run.md) is the same kind of record for the Office skill: what the
+shipped instructions produced, what was missing, and what was never verified.
 Where this table and a document disagree, the document is the source of truth and
 the table is the bug.
 

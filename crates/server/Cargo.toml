@@ -10,5 +10,6 @@ license.workspace = true
 forge-core = { path = "../core" }
 forge-session = { path = "../session" }
 forge-protocol = { path = "../protocol" }
+forge-goal = { path = "../goal" }
 serde.workspace = true
 serde_json.workspace = true
