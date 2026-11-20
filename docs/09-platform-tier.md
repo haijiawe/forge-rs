@@ -770,11 +770,15 @@ files, `check.ps1` green. End-to-end: the second provider request carries
 deleting the file makes the next turn report no image — which is what "re-read
 from disk, not stored in the log" means when it is true.*
 
-**Still not done, and named rather than implied:** the panel reports the last
-request's tool list and the configured-but-unused set; it does not show a team
-board's contents or a plugin's own tool schema, because neither is in the
-capability snapshot. Both are readable over existing routes (`forge team list`,
-`forge plugin call`), so this is a UI decision, not a missing field.
+**Still not done, and named rather than implied:** the capability panel reports the
+last request's tool list and the configured-but-unused set; it does not show a
+plugin's own tool schema, because that is not in the capability snapshot and no
+route exposes it: `forge plugin start <name>` lists the names, and the schemas
+travel only on the plugin protocol. Exposing them is a decision about the wire
+format, not a missing field. The two things this paragraph used to list
+as unshown now have readers of their own: `GET /api/teams` feeds a board panel on
+the session list (`web/src/components/TeamBoards.tsx`), and `GET /api/presents`
+feeds a handoff panel beside it (`web/src/components/Presents.tsx`).
 
 ## 6. What this does not buy
 
