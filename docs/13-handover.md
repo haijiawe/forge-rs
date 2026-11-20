@@ -118,6 +118,27 @@ exhaustive.
 | S1–S5 | subagent identity (`catalog`/`descriptor`), bounded pool, cold resume, settled notifications, out-of-process worker backend | [12-subagent-port.md](12-subagent-port.md) |
 | G1–G8 | attempt accounting, general listener surface, resident phase machine, persistent inbox queues, steer, async settlement, named backends, team board projection | [agent-gaps.md](agent-gaps.md) |
 | H1–H7 | `request/context`, `cancelledBy` causes, goal `domain`/`fold`/`runtime` split, queue drain, session archive, immutability evidence, one resident agent per web session | [agent-gaps.md](agent-gaps.md) |
+| I1–I3 | incremental projection behind a byte cursor, incremental transcript scan, and the workspace read API (`files`/`file`/`diff`) | this file, §"The IDE turn" |
+| D1 | the Tauri 2 desktop shell, and the three-column workbench it opens | [apps/desktop/README.md](../apps/desktop/README.md) |
+
+### The IDE turn
+
+After the handover the work turned towards a workbench rather than a chat page,
+which changed three things and left the harness alone:
+
+- **A turn no longer re-reads the whole log.** `Agent::snapshot` used to call
+  `read_all` and re-project every event each turn — measured at 88,916 events/sec
+  on this host, so 100,000 events cost 1.8 s *before* the model was asked
+  anything, and 500,000 cost 9 s. `Store::read_after` plus a `Projection` held
+  behind a byte cursor makes a turn cost what the turn added, and a torn trailing
+  line is left for the next call instead of being consumed.
+- **The transcript is scanned incrementally.** `compressedBlocks` walked every
+  event on every animation frame; `collectBlocks`/`blocksFromScan` keep a scan
+  position, and the `toBeyondHead` verdict is recomputed rather than cached
+  because it flips as the head grows.
+- **The window can read the workspace** over `GET /api/sessions/{id}/files`,
+  `/file` and `/diff`, which resolve the workspace from `session/start`, refuse
+  `..` and symlink escapes, cap text at 1 MiB, and never write.
 
 ## What is deliberately not built
 
@@ -126,10 +147,12 @@ so each needs its own ADR rather than a quiet commit.
 
 - **A pure-Rust Office writer.** The `office` skill drives an external program
   and says so; [office-run.md](office-run.md) records what was produced.
-- **The non-goals in [09-platform-tier.md](09-platform-tier.md) §6**: desktop
-  shell, in-browser terminal multiplexer, ACP agent protocol, Office *rendering*,
-  image generation models, and any DSH/DS server dependency. This tree is
-  in-process Rust by design.
+- **The non-goals in [09-platform-tier.md](09-platform-tier.md) §6**: in-browser
+  terminal multiplexer, ACP agent protocol, Office *rendering*, image generation
+  models, and any DSH/DS server dependency. This tree is in-process Rust by
+  design. The desktop shell was on that list and was built later on request; the
+  editor it opens stays read-only, because a write from the window would bypass
+  the policy, the approval prompt and `tool/call`.
 - **`archive-admission` as DSH implements it** was replaced by a real
   `session/archived` event plus checks at the two doors where new work enters
   ([agent-gaps.md](agent-gaps.md) explains why there is no veto surface here).
@@ -193,6 +216,28 @@ the abstract.
    `dsh-vs-forge.md`. If you rename anything, grep for both spellings afterwards.
 8. **`cargo fmt` reformats the test you are about to edit.** Read the file back
    after formatting before you anchor an edit on an exact line.
+9. **A CSS rule and a `className` that disagree fail silently.** The tool card's
+   head was `className="tool-head"` with the stylesheet defining `.tool-card-head`,
+   and `.tool-callid` against a JSX `tool-call-id`; nothing errors, the `gap`
+   simply never applies, and the rendered result was `fs_writecall_smoke_1`.
+   Layout bugs that do not throw are found by looking at a screenshot, not by
+   reading either file.
+10. **A flex item will not shrink below its longest word.** `.session-head` sits in
+    a flex row with the default `min-width: auto`, so one long error message
+    pushed the whole document wider than the window and shoved the agent panel off
+    screen. `min-width: 0` plus `overflow: hidden` on the growing item is the fix;
+    a CSS audit will not find this, a screenshot at the real window size will.
+11. **A WebView2 window must be created on the thread that runs the event loop.**
+    Building it from a worker thread produces a window that loads the page
+    completely — `#root` had 7,819 bytes of markup, 267 CSS rules, an empty error
+    list, all read through the debugging port — and paints pure black forever.
+    Waiting for a child process off the main thread is fine; creating the window
+    there is not, so `apps/desktop` hops back with `run_on_main_thread`.
+12. **A screenshot can agree with the wrong layer.** The same page rendered
+    correctly in headless Edge while the desktop window was black, which said the
+    UI was fine; the opposite trap is reading a blank DOM and blaming the browser.
+    When a picture and the API disagree, query the page itself (`--remote-debugging-port`
+    plus `Runtime.evaluate`) before changing either side.
 
 ## First three things to do
 

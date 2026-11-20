@@ -46,6 +46,7 @@ the only place the shape of that work is written down.
 | [12 subagent port](12-subagent-port.md) | what the deep subagent port delivered (S1–S5), including the out-of-process worker | delivered (S1–S5) |
 | [agent gaps](agent-gaps.md) | what DSH has that this tree does not, item by item, with a status and a cost — the ledger to open when planning | delivered; one deliberate non-goal left (`archive-admission` is now **done**) |
 | [13 handover](13-handover.md) | where the tree stands, what is deliberately not built, and the traps that already cost hours — whoever picks this up next | delivered (state as of 2026-11-21) |
+| [apps/desktop](../apps/desktop/README.md) | the Tauri 2 window around the web UI: how it starts the server, why it is a separate workspace, and the two window-creation defects it cost — desktop shell owner | delivered |
 
 ## Comparisons — how this tree relates to DSH
 

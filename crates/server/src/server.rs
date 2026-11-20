@@ -358,6 +358,29 @@ fn valid_session_id(id: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
+/// The three workspace routes share one translation from a filesystem problem
+/// to a status code, so `GET /file` and `GET /files` cannot disagree about what
+/// a refused path means.
+fn workspace_failure(problem: crate::workspace_route::Problem) -> ApiFailure {
+    use crate::workspace_route::Problem;
+    match problem {
+        Problem::NoSession => ApiFailure::new(404, code::NOT_FOUND, "no such session"),
+        // The log is readable but the tree is not; blaming the caller would be
+        // wrong, and this is not a session that does not exist.
+        Problem::Read => ApiFailure::new(500, code::INTERNAL, "the workspace could not be read"),
+        Problem::BadPath => ApiFailure::new(
+            400,
+            code::BAD_REQUEST,
+            "the path must be relative to the workspace and must not contain '..'",
+        ),
+        Problem::NotFound => ApiFailure::new(404, code::NOT_FOUND, "no such file or directory"),
+        Problem::NotAFile => ApiFailure::new(400, code::BAD_REQUEST, "that path is a directory"),
+        Problem::NotADirectory => {
+            ApiFailure::new(400, code::BAD_REQUEST, "that path is not a directory")
+        }
+    }
+}
+
 fn abs_path(path: &Path) -> PathBuf {
     if path.is_absolute() {
         path.to_path_buf()
@@ -1529,6 +1552,13 @@ impl Server {
                 "steer" if request.method == "POST" => self.handle_steer(request, segments[1]),
                 "goal" if request.method == "GET" => self.handle_goal(segments[1]),
                 "subagents" if request.method == "GET" => self.handle_subagents(segments[1]),
+                "files" if request.method == "GET" => {
+                    self.handle_workspace_files(request, segments[1])
+                }
+                "file" if request.method == "GET" => {
+                    self.handle_workspace_file(request, segments[1])
+                }
+                "diff" if request.method == "GET" => self.handle_workspace_diff(segments[1]),
                 "stream" => Err(method_not_allowed("GET")),
                 "events" => Err(method_not_allowed("GET")),
                 "messages" => Err(method_not_allowed("POST")),
@@ -1536,6 +1566,9 @@ impl Server {
                 "steer" => Err(method_not_allowed("POST")),
                 "goal" => Err(method_not_allowed("GET")),
                 "subagents" => Err(method_not_allowed("GET")),
+                "files" => Err(method_not_allowed("GET")),
+                "file" => Err(method_not_allowed("GET")),
+                "diff" => Err(method_not_allowed("GET")),
                 _ => Err(ApiFailure::new(404, code::NOT_FOUND, "no such endpoint")),
             },
             4 if segments[2] == "approvals" => {
@@ -1579,6 +1612,72 @@ impl Server {
                 ),
             })?;
         Ok(Response::json(200, &reply))
+    }
+
+    /// The workspace a session was started in, or the failure that says why it
+    /// could not be read.
+    ///
+    /// The workspace is taken from the session's own `session/start` record and
+    /// never from the process or the request: the UI should see exactly the tree
+    /// the agent was given, no wider and no narrower.
+    fn session_workspace(&self, id: &str) -> ApiResult<String> {
+        if !valid_session_id(id) {
+            return Err(ApiFailure::new(404, code::NOT_FOUND, "no such session"));
+        }
+        let workspace = crate::workspace_route::workspace_of(&self.session_path(id))
+            .map_err(workspace_failure)?;
+        Ok(workspace)
+    }
+
+    /// One directory of the session's workspace.
+    ///
+    /// Read-only and process-free: it names the tree the agent is working in so
+    /// the editor pane can show it. Nothing here can write, so the policy, the
+    /// approval prompt and the `tool/call` record still cover every change.
+    fn handle_workspace_files(&self, request: &Request, id: &str) -> ApiResult<Response> {
+        let workspace = self.session_workspace(id)?;
+        let path = request.query("path").unwrap_or("");
+        let listing =
+            crate::workspace_route::list_dir(&workspace, path).map_err(workspace_failure)?;
+        Ok(Response::json(200, &listing.to_json()))
+    }
+
+    /// One file of the session's workspace, as text.
+    ///
+    /// A binary file is answered as `{"binary":true,"text":""}` rather than as an
+    /// error: the file exists and the reader is entitled to be told that, instead
+    /// of being told the path was wrong.
+    fn handle_workspace_file(&self, request: &Request, id: &str) -> ApiResult<Response> {
+        let workspace = self.session_workspace(id)?;
+        let Some(path) = request.query("path") else {
+            return Err(ApiFailure::new(
+                400,
+                code::BAD_REQUEST,
+                "the path parameter is required",
+            ));
+        };
+        if path.trim().is_empty() {
+            return Err(ApiFailure::new(
+                400,
+                code::BAD_REQUEST,
+                "the path parameter is required",
+            ));
+        }
+        let body =
+            crate::workspace_route::read_file(&workspace, path).map_err(workspace_failure)?;
+        Ok(Response::json(200, &body.to_json()))
+    }
+
+    /// The changes git knows about in the session's workspace.
+    ///
+    /// A workspace that is not a repository, or a machine with no `git`, answers
+    /// with an empty list: "nothing is versioned here" is a fact about the tree,
+    /// not a failure of the request.
+    fn handle_workspace_diff(&self, id: &str) -> ApiResult<Response> {
+        let workspace = self.session_workspace(id)?;
+        let changes = crate::workspace_route::list_diff(&workspace).map_err(workspace_failure)?;
+        let files: Vec<serde_json::Value> = changes.iter().map(|change| change.to_json()).collect();
+        Ok(Response::json(200, &serde_json::json!({ "files": files })))
     }
 
     /// The subagent tree of one session, joined with each child's timing.

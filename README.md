@@ -91,16 +91,19 @@ These were measured on this host, not chosen:
 
 ## Quick start
 
-From a fresh shell, with only `.cargo/config.toml` in effect — on this
-checkout, set the ASCII target directory first (or use `check.ps1`, which
-derives it):
+From a fresh shell:
 
 ```powershell
-$env:CARGO_TARGET_DIR = 'D:\hearth-target\hearth'
 cargo build --release --offline
 cargo test --offline
 cargo run -q -p archcheck --offline
 ```
+
+The checkout this was developed in is `D:\hearth`, which is ASCII, so the
+in-tree `target/` works. If you move it somewhere with a non-ASCII character in
+the path, set an ASCII target directory first (`$env:CARGO_TARGET_DIR`) or every
+crate that compiles C fails with `cl: D8050`; `check.ps1` does that for you when
+it notices.
 
 `cargo run -q -p archcheck --offline -- -json` emits the CI form; `-root <path>`
 checks a tree other than the one above the working directory.
@@ -172,6 +175,29 @@ or `web.results`, and each hit may spell its fields `url|link|href`,
 
 Both network tools are `ask` in `read-only` and `workspace-write`: they run inside the
 harness, not inside the sandbox, so the approval prompt is the only gate.
+
+## The desktop shell
+
+`apps/desktop` is a Tauri 2 window around the same web UI: it starts `hearth web` as a
+child process, waits for the server to print the URL it is serving, and opens a window at
+that URL. It is a **separate cargo workspace**, so `cargo test --workspace` and CI never
+need a GUI toolkit to compile a window border; build it on its own:
+
+```powershell
+cd apps\desktop
+cargo build --offline --release
+```
+
+Its arguments are forwarded to `hearth web` (`hearth-desktop --model deepseek-chat`), and
+`HEARTH_BIN` says which binary to start. Closing the window kills the child server, so no
+listener is left behind. Details, including the two window-creation defects this cost, are
+in [apps/desktop/README.md](apps/desktop/README.md).
+
+The web UI itself is a three-column workbench: the file tree, a read-only editor with line
+numbers, and the agent panel. The editor reads through `GET /api/sessions/{id}/files|file|diff`
+— read-only on purpose, because a write from the window would bypass the policy, the
+approval prompt and `tool/call`. Everything the model does still shows up in the transcript
+and in the event log.
 
 ## Documentation map
 

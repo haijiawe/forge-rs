@@ -287,6 +287,19 @@ export class HearthClient implements HearthApi {
       `/api/sessions/${encodeURIComponent(id)}/subagents`,
     ).then(parseTree);
   }
+
+  /**
+   * GET one JSON document under `/api/...`, through the same envelope and
+   * protocol-version checks every other method uses.
+   *
+   * It exists so that api/workbench.ts (the `/files`, `/file` and `/diff`
+   * routes) can be written without a second fetch wrapper: the error envelope,
+   * the version echo and the Bearer header are decided here, once. Callers
+   * still have to parse the answer — this returns `unknown` on purpose.
+   */
+  getJson<T>(path: string): Promise<T> {
+    return this.request<T>(path);
+  }
 }
 
 /**

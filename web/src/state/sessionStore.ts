@@ -14,7 +14,14 @@ import { latestToolNames } from './capabilities';
 import { StreamMachine, type StreamInput, type StreamState } from '../api/stream';
 import { SessionStream, type StreamEvent } from '../api/transport';
 import type { ApprovalDecision, PendingApproval, ServerFrame, SessionDetail } from '../api/types';
-import { RowAccumulator, compressedBlocks, type CompressedBlock, type Row } from './rows';
+import {
+  RowAccumulator,
+  blocksFromScan,
+  collectBlocks,
+  emptyBlockScan,
+  type CompressedBlock,
+  type Row,
+} from './rows';
 
 export interface SessionViewState {
   /** Monotonic; useSyncExternalStore subscribers diff on this. */
@@ -79,6 +86,8 @@ export class SessionStore {
   private version = 0;
   private frame: number | null = null;
   private projectedSeq = 0;
+  /** How far the compressed-block walk has got; see `collectBlocks`. */
+  private blockScan = emptyBlockScan();
   private started = false;
   private resyncing = false;
   private disposing = false;
@@ -266,13 +275,12 @@ export class SessionStore {
       if (event !== undefined) this.accumulator.push(event);
     }
     this.projectedSeq = events.length;
-    // Blocks are rebuilt per flush, like toolNames: the fold marks have to
-    // describe the log as it is now. A block whose `to` runs past `lastSeq` is
-    // not an error — it covers seqs this window has not been sent yet — so the
-    // range is kept as written and rows that arrive inside it later get marked
-    // then. `lastSeq` is passed so a range that is still open here is not
-    // mistaken for a range that ended before the newest event.
-    const blocks = compressedBlocks(events, machineState.lastSeq);
+    // Blocks are collected incrementally: the walk remembers how far it got, so
+    // a flush costs the events that arrived since the last one, not the whole
+    // log. `blocksFromScan` re-judges `toBeyondHead` against the scan's own head,
+    // because a range that ran past the reader stops doing so as events arrive.
+    this.blockScan = collectBlocks(this.blockScan, events, machineState.lastSeq);
+    const blocks = blocksFromScan(this.blockScan);
     this.accumulator.setBlocks(blocks);
     this.accumulator.setDeltas(machineState.deltas);
 

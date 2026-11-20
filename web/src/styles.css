@@ -479,7 +479,7 @@ body {
   overflow: hidden;
 }
 
-.tool-head {
+.tool-card-head {
   display: flex;
   flex-wrap: wrap;
   gap: 9px;
@@ -493,7 +493,7 @@ body {
   font-weight: 600;
 }
 
-.tool-callid {
+.tool-call-id {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text-muted);
@@ -1384,4 +1384,425 @@ body {
 
 .subagent-state-bad {
   color: var(--bad);
+}
+
+/* --- workbench (three-column IDE) ---------------------------------------
+   Appended, never interleaved: the rules above are the single-column screen
+   and this section must be able to disappear without disturbing them. The
+   only shared things are the tokens and a handful of button classes. */
+
+.wb-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.wb-dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.wb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  min-height: 44px;
+}
+
+.wb-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex: none;
+}
+
+.wb-link-state {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.wb-warn {
+  color: var(--warn);
+}
+
+.wb-body {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.wb-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.wb-pane-tree {
+  border-right: 1px solid var(--border);
+  background: var(--bg-sunken);
+  overflow-y: auto;
+}
+
+.wb-pane-agent {
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.wb-centre {
+  background: var(--bg-sunken);
+}
+
+.wb-grip {
+  cursor: col-resize;
+  background: transparent;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.wb-grip:hover,
+.wb-grip:focus-visible {
+  background: var(--border-strong);
+  outline: none;
+}
+
+.wb-pane-head {
+  margin: 0;
+  padding: 8px 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.wb-empty {
+  margin: 0;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.wb-empty-nested {
+  padding-top: 2px;
+  padding-bottom: 4px;
+}
+
+.wb-error {
+  color: var(--bad);
+}
+
+.wb-muted {
+  color: var(--text-muted);
+}
+
+.wb-tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wb-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.wb-row:hover {
+  background: var(--bg-raised);
+}
+
+.wb-row-active,
+.wb-row-active:hover {
+  background: var(--bg-raised);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.wb-caret {
+  color: var(--text-muted);
+  width: 1ch;
+  flex: none;
+}
+
+.wb-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wb-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-height: 32px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  overflow-x: auto;
+}
+
+.wb-tabs-empty {
+  align-items: center;
+  font-size: 12px;
+  padding-left: 10px;
+}
+
+.wb-tab {
+  display: flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+}
+
+.wb-tab-active {
+  background: var(--bg-sunken);
+  border-color: var(--border);
+}
+
+.wb-tab-label {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-family: var(--mono);
+  padding: 6px 4px 6px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.wb-tab-active .wb-tab-label {
+  color: var(--text);
+}
+
+.wb-tab-flag {
+  color: var(--text-muted);
+}
+
+.wb-tab-close {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.wb-tab-close:hover {
+  color: var(--bad);
+}
+
+.wb-editor-slot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wb-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.wb-editor-path {
+  padding: 4px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-editor-notice {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--warn);
+  border-bottom: 1px solid var(--border);
+}
+
+.wb-editor-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.wb-gutter {
+  flex: none;
+  overflow: hidden;
+  padding: 8px 8px 8px 12px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  user-select: none;
+}
+
+.wb-gutter-line {
+  white-space: pre;
+}
+
+.wb-textarea {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow: auto;
+  tab-size: 2;
+}
+
+.wb-textarea[readonly] {
+  color: var(--text);
+}
+
+.wb-diff {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.wb-diff-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.wb-diff-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wb-diff-row {
+  display: grid;
+  grid-template-columns: 8ch minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.wb-diff-row:hover {
+  background: var(--bg-raised);
+}
+
+.wb-diff-status {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.wb-diff-path {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-diff-counts {
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.wb-good {
+  color: var(--good);
+}
+
+.wb-bad {
+  color: var(--bad);
+}
+
+/* --- the workbench never grows the document ---
+ *
+ * The header is a flex row of strings whose length nobody controls: a session
+ * id, an absolute workspace path, a goal that could not be read. A flex item's
+ * default `min-width: auto` refuses to shrink below that text, so one long
+ * child made the shell wider than the window; the grid inside it then laid the
+ * agent pane out past the right edge, where it was clipped rather than
+ * shrunk. Every level therefore has to be told it may shrink, and the shell
+ * clips as the last resort, so a long word costs an ellipsis and not a pane.
+ */
+.wb-shell {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+.wb-toolbar {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.wb-toolbar > .session-head {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.wb-body {
+  min-width: 0;
 }

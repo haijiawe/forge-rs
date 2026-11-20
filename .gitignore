@@ -12,3 +12,8 @@
 
 # Nothing here is generated into the source tree; if it appears, it is a mistake.
 **/dist/
+
+# The desktop shell is its own cargo workspace, so its build output lands inside
+# the tree instead of in /target, and `tauri-build` writes schemas on every build.
+/apps/desktop/target
+/apps/desktop/gen

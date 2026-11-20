@@ -20,11 +20,13 @@
 //
 // usage:
 //   node scripts/sync.cjs "commit message"     commit, push, align
+//   node scripts/sync.cjs --message-file f.txt commit with a multi-paragraph message
 //   node scripts/sync.cjs --no-commit          push and align the current HEAD
 //   node scripts/sync.cjs --dry "message"      say what would happen, write nothing
 //
 // The token comes from $GITHUB_PAT, or from `GITHUB_PAT:` in
-// $HEARTH_CREDENTIALS (default D:\dsh\.credentials.yaml). Nothing is logged.
+// $HEARTH_CREDENTIALS (default $HEARTH_CREDENTIALS or D:\dsh\.credentials.yaml).
+// Nothing is logged.
 
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -39,7 +41,17 @@ const OFFSETS = ['+0000', '+0800', '-0700'];
 const args = process.argv.slice(2);
 const dry = args.includes('--dry');
 const noCommit = args.includes('--no-commit');
-const message = args.filter((a) => !a.startsWith('--')).join(' ').trim();
+// A message file exists because a multi-paragraph message is unreadable as one
+// shell argument: backticks, quotes and newlines all survive a file and none of
+// them survive every shell on the way here.
+const messageFileIndex = args.indexOf('--message-file');
+const messageFile = messageFileIndex >= 0 ? args[messageFileIndex + 1] : null;
+const words = args.filter((a, index) => {
+  if (a.startsWith('--')) return false;
+  if (messageFileIndex >= 0 && index === messageFileIndex + 1) return false;
+  return true;
+});
+const message = messageFile ? fs.readFileSync(path.resolve(messageFile), 'utf8').trim() : words.join(' ').trim();
 
 function git(argv, opts = {}) {
   return execFileSync(GIT, argv, { cwd: REPO, maxBuffer: 256 << 20, ...opts });

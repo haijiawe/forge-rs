@@ -150,6 +150,57 @@ impl Store {
         Ok(())
     }
 
+    /// Call `f` for every record stored at or after byte `offset`, and return
+    /// the offset just past the last complete line consumed.
+    ///
+    /// `read_from` re-reads and re-parses the whole file. A resident process
+    /// that folds the log once per turn needs only the tail, and at 100k events
+    /// the difference is 1.8 s of work before the first byte reaches the model.
+    ///
+    /// A trailing partial line is **not** consumed: either another process is
+    /// midway through its own append, or the file was torn and the next `open`
+    /// will repair it. Returning the position before it is what lets the next
+    /// call pick the line up whole instead of failing on half a record.
+    pub fn read_after<F>(&self, offset: u64, mut f: F) -> Result<u64>
+    where
+        F: FnMut(&Event) -> Result<()>,
+    {
+        let mut inner = self.lock();
+        let file = inner
+            .file
+            .as_mut()
+            .ok_or_else(|| Error::new(ErrorKind::Conflict, "store: read after close"))?;
+        let end = file.metadata()?.len();
+        if end <= offset {
+            return Ok(offset);
+        }
+        // Reads seek; writes do not care where the cursor is, because the file
+        // is opened `append(true)` and every write goes to the end regardless.
+        file.seek(SeekFrom::Start(offset))?;
+        let mut data = Vec::new();
+        std::io::Read::by_ref(file)
+            .take(end - offset)
+            .read_to_end(&mut data)?;
+
+        let mut position = offset;
+        let mut start = 0usize;
+        while let Some(rel) = data[start..].iter().position(|&b| b == b'\n') {
+            let stop = start + rel;
+            let text = &data[start..stop];
+            start = stop + 1;
+            position = offset + start as u64;
+            if text.iter().all(|b| b.is_ascii_whitespace()) {
+                continue;
+            }
+            let line = std::str::from_utf8(text).map_err(|e| {
+                Error::new(ErrorKind::Json, format!("store: log is not UTF-8: {e}"))
+            })?;
+            let event = Event::parse_line(line.trim())?;
+            f(&event)?;
+        }
+        Ok(position)
+    }
+
     pub fn last_seq(&self) -> u64 {
         self.lock().seq
     }

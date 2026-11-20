@@ -17,6 +17,7 @@ import { GoalPill } from './GoalPill';
 import { StatusBar } from './StatusBar';
 import { SubagentPanel } from './SubagentPanel';
 import { Transcript } from './Transcript';
+import { Workbench, useWideLayout } from './ide/Workbench';
 
 export interface SessionViewProps {
   api: HearthApi;
@@ -107,22 +108,38 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
   useEffect(() => {
     if (settled === null) return;
     let live = true;
-    api.getGoal(sessionId).then(
-      (value) => {
-        if (!live) return;
-        setGoal(value);
-        setGoalError(null);
-      },
-      // A goal that cannot be read must not take the turn controls with it: the
-      // session still works, so the pill carries the failure and nothing else
-      // changes.
-      (error: unknown) => {
-        if (!live) return;
-        setGoalError(error instanceof Error ? error.message : 'goal unavailable');
-      },
-    );
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    // One retry before the failure is shown. The first read can race the load of
+    // the document itself -- in the desktop shell the window navigates into this
+    // session while the page is still settling -- and a red sentence in the
+    // toolbar for a request that succeeds 400 ms later is a lie the reader has
+    // no way to check.
+    const read = (attempt: number): void => {
+      api.getGoal(sessionId).then(
+        (value) => {
+          if (!live) return;
+          setGoal(value);
+          setGoalError(null);
+        },
+        // A goal that cannot be read must not take the turn controls with it:
+        // the session still works, so the pill carries the failure and nothing
+        // else changes.
+        (error: unknown) => {
+          if (!live) return;
+          if (attempt === 0) {
+            retry = setTimeout(() => {
+              read(1);
+            }, 400);
+            return;
+          }
+          setGoalError(error instanceof Error ? error.message : 'goal unavailable');
+        },
+      );
+    };
+    read(0);
     return () => {
       live = false;
+      if (retry !== null) clearTimeout(retry);
     };
   }, [api, sessionId, settled]);
 
@@ -149,31 +166,41 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
   // wrote, and the marks in `rows` are what those blocks hid.
   const blocksLabel = `${String(state.blocks.length)} block${state.blocks.length === 1 ? '' : 's'} hidden from the model`;
 
-  return (
-    <main className="screen screen-session">
-      <header className="session-head">
-        <button type="button" className="button button-ghost" onClick={onBack}>
-          ← sessions
-        </button>
-        <div className="session-title">
-          <span className="mono">{state.session?.id ?? sessionId}</span>
-          {state.session !== null && (
-            <span className="mono muted" title={state.session.workspace}>
-              {state.session.workspace}
-            </span>
-          )}
-        </div>
-        <GoalPill goal={goal} error={goalError} />
-        {state.blocks.length > 0 && (
-          <span
-            className="session-compressed"
-            title={`block ids: ${state.blocks.map((block) => block.blockId).join(', ')}`}
-          >
-            {blocksLabel}
+  // One screen, two shapes. Everything below the fold is built once and placed
+  // in either layout: the workbench wraps the same transcript and composer in a
+  // three-column shell, and a window narrower than 900px keeps exactly the
+  // single column this screen has always been. `useWideLayout` answers false
+  // where matchMedia does not exist, so nothing degrades into a layout it was
+  // never tested in.
+  const wide = useWideLayout();
+
+  const head = (
+    <header className="session-head">
+      <button type="button" className="button button-ghost" onClick={onBack}>
+        ← sessions
+      </button>
+      <div className="session-title">
+        <span className="mono">{state.session?.id ?? sessionId}</span>
+        {state.session !== null && (
+          <span className="mono muted" title={state.session.workspace}>
+            {state.session.workspace}
           </span>
         )}
-      </header>
+      </div>
+      <GoalPill goal={goal} error={goalError} />
+      {state.blocks.length > 0 && (
+        <span
+          className="session-compressed"
+          title={`block ids: ${state.blocks.map((block) => block.blockId).join(', ')}`}
+        >
+          {blocksLabel}
+        </span>
+      )}
+    </header>
+  );
 
+  const agent = (
+    <>
       {state.actionError !== null && (
         <p className="banner banner-error" role="alert">
           {state.actionError}
@@ -215,6 +242,25 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
         needsResync={state.needsResync}
         streamError={state.streamError}
       />
+    </>
+  );
+
+  if (wide) {
+    return (
+      <Workbench
+        sessionId={sessionId}
+        head={head}
+        agent={agent}
+        connecting={state.connecting}
+        needsResync={state.needsResync}
+      />
+    );
+  }
+
+  return (
+    <main className="screen screen-session">
+      {head}
+      {agent}
     </main>
   );
 }

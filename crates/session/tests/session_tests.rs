@@ -378,6 +378,112 @@ fn append_assigns_dense_sequences_and_read_from_filters() {
 }
 
 #[test]
+fn read_after_returns_only_the_tail_and_never_consumes_half_a_line() {
+    let dir = TempDir::new("tail");
+    let path = dir.join("tail.jsonl");
+    let store = Store::open(
+        &path,
+        Options {
+            sync_every: 0,
+            no_fsync: true,
+        },
+    )
+    .unwrap();
+    for i in 0..3 {
+        let event = event(0, "user/message", 1, 0, json!({"text": format!("m{i}")}));
+        store.append(&event).unwrap();
+    }
+    // The cursor starts at the beginning of the file.
+    let mut first = Vec::new();
+    let offset = store
+        .read_after(0, |event| {
+            first.push(event.seq);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(first, vec![1, 2, 3]);
+    assert!(offset > 0);
+
+    // Nothing new: the same offset comes back and nothing is handed over.
+    let mut none = Vec::new();
+    let same = store
+        .read_after(offset, |event| {
+            none.push(event.seq);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(same, offset);
+    assert!(none.is_empty());
+
+    // One more append: only that record is handed over, and the cursor moves.
+    let event = event(0, "user/message", 1, 0, json!({"text": "m3"}));
+    store.append(&event).unwrap();
+    let mut second = Vec::new();
+    let moved = store
+        .read_after(offset, |event| {
+            second.push(event.seq);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(second, vec![4]);
+    assert!(moved > offset);
+    store.close().unwrap();
+}
+
+#[test]
+fn read_after_leaves_a_torn_trailing_line_for_the_next_call() {
+    let dir = TempDir::new("torn-tail-read");
+    let path = dir.join("torn.jsonl");
+    let store = Store::open(
+        &path,
+        Options {
+            sync_every: 0,
+            no_fsync: true,
+        },
+    )
+    .unwrap();
+    let event = event(0, "user/message", 1, 0, json!({"text": "whole"}));
+    store.append(&event).unwrap();
+    let mut seen = Vec::new();
+    let offset = store
+        .read_after(0, |event| {
+            seen.push(event.seq);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(seen, vec![1]);
+    store.close().unwrap();
+
+    // A partially written record, as another process mid-append would leave it.
+    let mut handle = fs::OpenOptions::new().append(true).open(&path).unwrap();
+    use std::io::Write;
+    handle.write_all(b"{\"v\":1,\"seq\":2").unwrap();
+    handle.sync_all().unwrap();
+    drop(handle);
+
+    // The half line is not consumed: the cursor stays exactly where it was, and
+    // nothing is reported, so a later call can read it once it is whole.
+    let store = Store::open(
+        &path,
+        Options {
+            sync_every: 0,
+            no_fsync: true,
+        },
+    )
+    .unwrap();
+    let mut after = Vec::new();
+    let still = store
+        .read_after(offset, |event| {
+            after.push(event.seq);
+            Ok(())
+        })
+        .unwrap();
+    assert!(after.is_empty());
+    assert_eq!(still, offset);
+    store.close().unwrap();
+}
+
+#[test]
 fn concurrent_appends_are_dense_and_unique() {
     let dir = TempDir::new("concurrent");
     let path = dir.join("concurrent.jsonl");

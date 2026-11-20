@@ -450,29 +450,89 @@ export function compressedBlocks(
   events: readonly Event[],
   headSeq?: number,
 ): CompressedBlock[] {
-  let head = typeof headSeq === 'number' && Number.isFinite(headSeq) ? headSeq : 0;
-  for (const event of events) {
+  return blocksFromScan(collectBlocks(emptyBlockScan(), events, headSeq));
+}
+
+/**
+ * What a transcript reader has already walked for compressed blocks.
+ *
+ * The store publishes once per animation frame, and the log only ever grows, so
+ * re-walking it every frame is work that grows with the session and never
+ * shrinks: at 100k events that was 100k row decodes per frame for a handful of
+ * blocks. This keeps the walk's result and how far it got, so a flush costs the
+ * events that arrived since the last one.
+ */
+export interface BlockScan {
+  /** Ranges found so far, sorted by `from`. */
+  ranges: BlockRange[];
+  /** How many of the reader's events have been walked. */
+  scanned: number;
+  /** Highest seq seen, including the stream's own head. */
+  head: number;
+}
+
+/** A block without the reader-relative `toBeyondHead` judgement. */
+export type BlockRange = Omit<CompressedBlock, 'toBeyondHead'>;
+
+export function emptyBlockScan(): BlockScan {
+  return { ranges: [], scanned: 0, head: 0 };
+}
+
+/**
+ * Extend a scan with the events it has not walked yet.
+ *
+ * `scan.scanned` indexes into the reader's event array, which only grows — the
+ * stream machine pushes onto it and never reassigns. If that ever changes, an
+ * `events` shorter than `scan.scanned` starts the walk again instead of keeping
+ * a stale tail.
+ */
+export function collectBlocks(
+  scan: BlockScan,
+  events: readonly Event[],
+  headSeq?: number,
+): BlockScan {
+  const reset = events.length < scan.scanned;
+  const ranges = reset ? [] : scan.ranges;
+  let head = reset ? 0 : scan.head;
+  if (typeof headSeq === 'number' && Number.isFinite(headSeq) && headSeq > head) {
+    head = headSeq;
+  }
+  let added = false;
+  for (let index = reset ? 0 : scan.scanned; index < events.length; index += 1) {
+    const event = events[index];
+    if (event === undefined) continue;
     const seq = seqOf(event);
     if (seq > head) head = seq;
-  }
-  const blocks: CompressedBlock[] = [];
-  for (const event of events) {
     if (event.type !== 'context/compressed') continue;
     const row = rowFromEvent(event);
     if (row === null || row.kind !== 'compressed') continue;
     const { from, to } = row;
     if (from === undefined || to === undefined || from > to) continue;
-    blocks.push({
+    ranges.push({
       blockId: row.blockId,
       from,
       to,
       seq: row.seq,
-      toBeyondHead: to > head,
       ...(row.messages === undefined ? {} : { messages: row.messages }),
     });
+    added = true;
   }
-  blocks.sort((left, right) => left.from - right.from || left.to - right.to);
-  return blocks;
+  if (added) ranges.sort((left, right) => left.from - right.from || left.to - right.to);
+  return { ranges, scanned: events.length, head };
+}
+
+/**
+ * The blocks a scan describes, with `toBeyondHead` judged against its own head.
+ *
+ * Kept separate from {@link collectBlocks} because the head grows after a block
+ * was found: a range that ran past the reader's events stops doing so once those
+ * events arrive, and a cached `true` would then be stale forever.
+ */
+export function blocksFromScan(scan: BlockScan): CompressedBlock[] {
+  return scan.ranges.map((range) => ({
+    ...range,
+    toBeyondHead: range.to > scan.head,
+  }));
 }
 
 /**

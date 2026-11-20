@@ -28,6 +28,9 @@ mod subagent_route;
 /// Reads the boards `hearth team run` leaves in the data dir. Private: it is
 /// a wire shape for one route, not part of this crate's public boundary.
 mod teams;
+/// The workspace a session was started in, as a read-only tree: list, read,
+/// and the changes git knows about. Private for the same reason as `teams`.
+mod workspace_route;
 
 pub use api::{
     CancelToken, DeltaSink, EventWriter, Options, StaticSource, SteeringSource, TurnContext,

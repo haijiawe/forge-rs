@@ -44,6 +44,25 @@ pub trait EventLog: Send + Sync {
     /// Read every event back, so history can be re-projected from the log
     /// every turn (invariant I1) without opening a second file handle.
     fn read_all(&self) -> hearth_core::Result<Vec<Event>>;
+
+    /// Read only what was appended after byte `offset`, and return the position
+    /// just past the last complete line read.
+    ///
+    /// `Ok(None)` means this log cannot report byte positions, which is the
+    /// honest answer for an in-memory double; the loop then folds from scratch
+    /// rather than pretending it has a cursor. The default implementation is
+    /// exactly that: read everything, hand it over, say "no cursor".
+    fn read_after(
+        &self,
+        offset: u64,
+        f: &mut dyn FnMut(&Event) -> hearth_core::Result<()>,
+    ) -> hearth_core::Result<Option<u64>> {
+        let _ = offset;
+        for event in self.read_all()? {
+            f(&event)?;
+        }
+        Ok(None)
+    }
 }
 
 impl EventLog for hearth_session::Store {
@@ -60,5 +79,12 @@ impl EventLog for hearth_session::Store {
             Ok(())
         })?;
         Ok(events)
+    }
+    fn read_after(
+        &self,
+        offset: u64,
+        f: &mut dyn FnMut(&Event) -> hearth_core::Result<()>,
+    ) -> hearth_core::Result<Option<u64>> {
+        hearth_session::Store::read_after(self, offset, f).map(Some)
     }
 }

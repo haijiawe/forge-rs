@@ -786,8 +786,13 @@ feeds a handoff panel beside it (`web/src/components/Presents.tsx`).
   installed plugins, not the loader. Shipping P3 gives us the ability to have
   plugins, not plugins.
 - **Feature parity with DSH.** P1–P4 close the *capability* list, not the
-  *surface* list (desktop shell, xterm terminal, ACP agent protocol, Office
-  rendering, image models).
+  *surface* list (xterm terminal, ACP agent protocol, Office rendering, image
+  models). The desktop shell on this list was built afterwards on request — see
+  [apps/desktop/README.md](../apps/desktop/README.md) — because a Tauri window
+  around the existing UI costs one crate outside the workspace and changes
+  nothing in the harness. The editor in that window is read-only for the same
+  reason the browser one is: writes belong to the agent, where policy, approval
+  and the log apply.
 - **A licence.** Mitigated: `Cargo.toml` says `license = "MIT"` and `LICENSE`
   holds the MIT text. The crate is redistributable; a published package would
   still need a decision about the name and a version policy.

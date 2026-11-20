@@ -3,7 +3,16 @@
 // itself, never vanish and never throw.
 import { describe, expect, it } from 'vitest';
 import type { EventEnvelope } from '../api/events';
-import { RowAccumulator, blockHiding, compressedBlocks, projectRows, rowFromEvent } from './rows';
+import {
+  RowAccumulator,
+  blockHiding,
+  blocksFromScan,
+  collectBlocks,
+  compressedBlocks,
+  emptyBlockScan,
+  projectRows,
+  rowFromEvent,
+} from './rows';
 import { interact, mount } from '../test/render';
 import { TranscriptRow } from '../components/TranscriptRow';
 
@@ -298,5 +307,46 @@ describe('context/compressed rows', () => {
     expect(blockHiding(6, blocks)?.blockId).toBe('b'.repeat(32));
     expect(blockHiding(9, blocks)?.blockId).toBe('b'.repeat(32));
     expect(blockHiding(10, blocks)).toBeUndefined();
+  });
+
+  it('collects the same blocks as a full walk when fed the log in pieces', () => {
+    // The store walks once per animation frame over a log that only grows, so
+    // the walk keeps its place. This is the property that makes that safe: any
+    // chunking of the same events must give the same blocks as one full pass.
+    const all = [
+      ...messages([1, 2, 3]),
+      block(4, { blockId: 'a'.repeat(32), from: 1, to: 3, summary: 'first' }),
+      ...messages([5, 6]),
+      block(7, { blockId: 'b'.repeat(32), from: 5, to: 6, summary: 'second', messages: 2 }),
+    ];
+    let scan = emptyBlockScan();
+    for (const event of all) {
+      // One event per "frame": the increment has to be exactly the full result.
+      scan = collectBlocks(scan, [...all.slice(0, all.indexOf(event) + 1)]);
+    }
+    expect(blocksFromScan(scan)).toEqual(compressedBlocks(all));
+  });
+
+  it('re-judges toBeyondHead when the head grows, instead of caching the verdict', () => {
+    const early = messages([1, 2, 3]);
+    early.push(block(4, { blockId: BLOCK, from: 2, to: 9, summary: 'a summary' }));
+    const scan = collectBlocks(emptyBlockScan(), early);
+    expect(blocksFromScan(scan).map((entry) => entry.toBeyondHead)).toEqual([true]);
+
+    // The seqs the block covered arrive later: the range is no longer open.
+    const grown = collectBlocks(scan, [...early, ...messages([5, 6, 7, 8, 9])]);
+    expect(blocksFromScan(grown).map((entry) => entry.toBeyondHead)).toEqual([false]);
+    expect(blocksFromScan(grown)).toEqual(compressedBlocks([...early, ...messages([5, 6, 7, 8, 9])]));
+  });
+
+  it('starts over when it is handed an event array shorter than the one it walked', () => {
+    // The stream machine only ever appends, but a scan that assumed that
+    // forever would silently keep blocks from a log this reader no longer has.
+    const long = [...messages([1, 2, 3]), block(4, { blockId: BLOCK, from: 1, to: 2, summary: 's' })];
+    const scan = collectBlocks(emptyBlockScan(), long);
+    expect(scan.ranges).toHaveLength(1);
+    const fresh = collectBlocks(scan, messages([1, 2]));
+    expect(fresh.ranges).toEqual([]);
+    expect(fresh.scanned).toBe(2);
   });
 });

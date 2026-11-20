@@ -142,6 +142,10 @@ All paths are under `{base}`. `{id}` is a session id; an unknown id is
 | 13 | `GET` | `/api/teams`, `/api/teams/{board}` | Team boards this machine has run | `200` |
 | 14 | `GET` | `/api/sessions/{id}/goal` | The goal this session is still working toward | `200` |
 | 15 | `GET` | `/api/presents` | Files the model handed to the operator, newest first | `200` |
+| 16 | `GET` | `/api/sessions/{id}/subagents` | The children this session delegated to | `200` |
+| 17 | `GET` | `/api/sessions/{id}/files` | One directory of the session's workspace | `200` |
+| 18 | `GET` | `/api/sessions/{id}/file` | One file of that workspace, as text | `200` |
+| 19 | `GET` | `/api/sessions/{id}/diff` | The changes git knows about in that workspace | `200` |
 
 ### 4.1 `GET /healthz`
 
@@ -815,6 +819,92 @@ number is a number that will disagree later.
 - **The route creates nothing and starts nothing**: no child process, no log, no
   directory. It is a read of files that a run already wrote.
 - `GET` only; anything else is `405 method_not_allowed`.
+
+---
+
+### 4.17 `GET /api/sessions/{id}/files`
+
+One directory of the workspace the session was started in. This is what an
+editor pane reads to draw a file tree; before it existed, the only way to list a
+directory from a browser was to ask the model to run a tool, which costs a turn
+and writes a `tool/call` into the log to answer a question the UI could answer
+itself.
+
+The workspace is taken from the session's own `session/start` record
+(`workspace`, else `cwd`) and from nowhere else: the UI must see exactly the tree
+the agent was told it may touch.
+
+```
+200 OK
+{ "path": "", "entries": [ { "name": "src", "kind": "dir" }, { "name": "README.md", "kind": "file", "size": 1284 } ] }
+```
+
+- `path` in the query is **relative to the workspace**; absent or empty means the
+  root. The same value comes back normalised (`"src/main.rs"`, never `"./src"`),
+  so a client can key a cache on it.
+- `kind` is `"dir"` or `"file"`. Entries that are neither (sockets, pipes, device
+  nodes) are omitted rather than mislabelled: an entry that cannot be opened is
+  not a file.
+- Directories sort before files, then case-insensitively by name. `.git` is
+  omitted.
+- `size` is present for files only.
+- Path rules (shared by §4.17–4.19): no leading `/` or `\`, no drive letter or
+  `:`, no `..` component, and — after the path exists — it must canonicalise
+  inside the workspace, so a symlink out of the tree is refused too. A refused
+  path is `400 bad_request`. A path that is well formed but absent is
+  `404 not_found`; a file asked for as a directory is `400`.
+- **Nothing here writes.** No directory is created, no file touched, no process
+  started. Edits go through the agent, because a write from the UI would bypass
+  the policy, the approval prompt and the `tool/call` record — the three things
+  that make a session reviewable.
+- A session with no log at all is `404 no such session`; a `workspace` that is no
+  longer on disk is `404 not_found` (the tree moved, and saying so beats
+  inventing one).
+- `GET` only; anything else is `405 method_not_allowed`.
+
+### 4.18 `GET /api/sessions/{id}/file`
+
+One file of that workspace, as text.
+
+```
+200 OK
+{ "path": "src/main.rs", "size": 13, "text": "fn main() {}\n", "truncated": false, "binary": false }
+```
+
+- `?path=` is required; a missing or empty one is `400 bad_request`.
+- At most 1 MiB of the file is returned. A longer file is cut and
+  `"truncated": true` says so — the answer never silently shows part of a file as
+  if it were all of it.
+- A file that is not UTF-8, or that contains a NUL byte, answers
+  `{"text": "", "binary": true}` with the real `size` instead of an error: the
+  file exists, and the UI is entitled to be told that rather than told its path
+  was wrong.
+- `size` is the size on disk, not the size of `text`.
+- Same path rules, same refusal to write, and the same 404 shapes as §4.17. A
+  directory asked for as a file is `400 bad_request`.
+
+### 4.19 `GET /api/sessions/{id}/diff`
+
+The changes git knows about in that workspace: one row per path, with the line
+counts a review pane needs to decide what to open.
+
+```
+200 OK
+{ "files": [ { "path": "src/main.rs", "status": "modified", "additions": 12, "deletions": 3 } ] }
+```
+
+- `status` is a git word, not a word of this contract's invention: `modified`,
+  `added`, `deleted`, `renamed`, `untracked`, `conflicted`.
+- `additions` and `deletions` come from `git diff --numstat` against `HEAD`,
+  falling back to the worktree and then the index for a repository with no
+  commit. A file git cannot count (`untracked`) reports `0` and `0`.
+- A workspace that is not a git repository, or a machine with no `git`, answers
+  `{"files": []}` with `200`: "nothing here is versioned" is a fact about the
+  tree, not a failure of the request.
+- Rows are sorted by path. Line-level hunks are deliberately not part of this
+  answer: that is `git diff`'s own format, and re-encoding it here would make
+  this contract responsible for a format it does not own.
+- Same 404 shapes as §4.17. `GET` only.
 
 ---
 
