@@ -13,7 +13,7 @@
 > **状态四态**：已实现 / 部分实现 / 未实现 / 刻意不做（最后一态列出代价，但不当缺陷算）。
 > 每条都指到 DSH 的源文件符号与 forge-rs 的 crate·文件；从 README/注释推断而未逐行验证的，标注「据注释，未逐行验证」。
 >
-> **交付记录（2026-11-20）**：P0/P1/P2 项已按波次补齐——C waterfall = `69aa3c9`(W5)、F revision/CAS = `d6c98b2`(W3)、G 依赖图+journal = `fedd8fe`(W6)、H surfaceOp+pruner = `6150b27`(W4)、E 子代理 = S1–S5(`47118db`/`cec20ec`/`a42df34`/`ea42128`/`cae8d74`) + W1(`5343e28`) + S2/S3/S4 收尾（`maxActive` 配置、`ChildLock`、`Providers` 注册表、`Delivery`/`interrupt`/`deliver`、`continuation` 消息、`delegationDepth` header 权威）。仍欠：F 的 steer（同步 CLI 无异步注入通道，以 pause→cancel 表达）、H 的 image-offload（此设计下无对象可卸，非缺口）；C 的通用 `emit`/`serial` 监听器分发（仅 waterfall 三相位已做）；F 的 race fence 已补（`forge_goal::fence` + `goalfence::hook`，每步重校验）；H 的三事件事务/孤儿检测/summary-error 已补（C 波）；`interrupt` 已提供**进程内**版本（按 child id 取消已注册的 token）与**跨进程**版本（`forge subagent interrupt` 标记文件，长驻 Runner 轮询后 trip 同一 token）；一次性 worker 进程不受跨进程中断影响；A 常驻 phase 机与 D attempt 记账刻意不做。
+> **交付记录（2026-11-20）**：P0/P1/P2 项已按波次补齐——C waterfall = `69aa3c9`(W5) + D 波 `01fd95b`（第三相位 `request-error` 决定是否重试）、F revision/CAS = `d6c98b2`(W3)、G 依赖图+journal = `fedd8fe`(W6)、H surfaceOp+pruner = `6150b27`(W4)、E 子代理 = S1–S5(`47118db`/`cec20ec`/`a42df34`/`ea42128`/`cae8d74`) + W1(`5343e28`) + S2/S3/S4 收尾（`maxActive` 配置、`ChildLock`、`Providers` 注册表、`Delivery`/`interrupt`/`deliver`、`continuation` 消息、`delegationDepth` header 权威）。仍欠：F 的 steer（同步 CLI 无异步注入通道，以 pause→cancel 表达）、H 的 image-offload（此设计下无对象可卸，非缺口）；C 的通用 `emit`/`serial` 监听器分发（仅 waterfall 三相位已做）；F 的 race fence 已补（`forge_goal::fence` + `goalfence::hook`，每步重校验）；H 的三事件事务/孤儿检测/summary-error 已补（C 波）；`interrupt` 已提供**进程内**版本（按 child id 取消已注册的 token）与**跨进程**版本（`forge subagent interrupt` 标记文件，长驻 Runner 轮询后 trip 同一 token）；一次性 worker 进程不受跨进程中断影响；A 常驻 phase 机与 D attempt 记账刻意不做。
 
 规模对照（源码实测，排 tests/node_modules）：
 
@@ -70,11 +70,13 @@ forge 没有这一层，把"注入当前步"交给 `SteeringHook` 读进程内 d
 | `emit/serial/waterfall` 三态分发器 | `core/agent/src/dispatch.ts` `AgentEventDispatch` | `crates/agent/src/hooks.rs` 的 `Hooks`：三相位——`pre-step`/`request` 改写（每次改写写 `hook/rewrite`）+ `request-error` 决定是否重试（`HookOutcome::Retry`，不改写不记事件）；无通用 `emit`/`serial` 监听器分发 | 已实现（三相位；W5 `69aa3c9` + D 波） |
 | `agent/pre-step` 可改写 messages 或 reject | `agent.ts` `preStep()` 派发 | `Hooks::run_pre_step` + `agent.rs step()`（改写 transient，不改 durable history） | 已实现（W5） |
 | `agent/request` 可改本次请求 config（改 model 抛错） | `agent.ts` `step()` 派发 | `Hooks::run_request`（hook 不能改 model id，`run_request` 强制还原） | 已实现（W5） |
-| `agent/request-error` 返回 `retry` 才重来 | `agent.ts` | 重试仍内建在 `stream()`，不可被 hook 改写 | 未实现 |
+| `agent/request-error` 返回 `retry` 才重来 | `agent.ts` | `Hooks::run_request_error`：传输策略本要放弃时，钩子可答 `HookOutcome::Retry`（不改写、不记 `hook/rewrite`，重试体现为下一条 `llm/call`）；无钩子时行为不变 | 已实现（D 波 `01fd95b`） |
 | listener 抛错不饿死后续（自建 emit 而非 map） | `dispatch.ts` `emit` | `Hooks` 顺序执行，任一 hook 出错即 `hook_failed` loud 终止该步 | 部分实现（loud 而非跳过） |
 
-**代价**：DSH 能在运行时用插件替换模型适配器、工具、甚至 loop；forge-rs 改 agent 行为必须改
-代码重编译。换来的是「没有隐藏改写者」。**这是两者最根本的哲学差：可塑性 vs 可解释性。**
+**代价**：DSH 能在运行时用插件替换模型适配器、工具、甚至 loop；forge-rs 只开放了三个
+有界扩展点（`pre-step`/`request` 改写 + `request-error` 决定重试，见 `agent-gaps.md` §C 与
+ADR-0004），其余 agent 行为仍须改代码重编译。换来的是「没有**未记录**的改写者」——每次改写都
+落一条 `hook/rewrite`。**这是两者最根本的哲学差：可塑性 vs 可解释性。**
 
 ---
 
