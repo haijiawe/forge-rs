@@ -1041,6 +1041,108 @@ body {
   list-style: none;
 }
 
+/* The handoff pane. Same frame as `.teams` so two machine-level panes do not
+   look like two different products, but the rows are simpler: a handoff has a
+   name, a size, a time and one line of prose, and nothing to expand. */
+.presents {
+  margin-top: 26px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.presents-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.presents-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.presents-note {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.presents-retry {
+  margin-left: auto;
+}
+
+.presents-empty,
+.presents-reading {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.presents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.present-row {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  padding: 8px 10px;
+}
+
+.present-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.present-name {
+  font-weight: 600;
+}
+
+.present-size,
+.present-when {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.present-description {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+/* Selectable, not clickable: the browser cannot open a path on the operator's
+   disk, and a link that does nothing is worse than text that says so. */
+.present-path {
+  display: block;
+  margin-top: 5px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.present-path:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.presents-partial {
+  margin: 8px 0 0;
+  color: var(--warn);
+  font-size: 11px;
+}
+
 .team-board {
   border: 1px solid var(--border);
   border-radius: 6px;

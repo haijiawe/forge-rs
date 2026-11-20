@@ -15,6 +15,9 @@ import { decodeFrame, HeaderVersion, IdempotencyKeyHeader, Version } from './pro
 import { parseReport, type CapabilityReport } from './capabilities';
 import { parseBoards, type TeamBoardReport } from './teams';
 import { parseGoal, type Goal } from './goal';
+// Aliased: `capabilities` and `presents` both export a `parseReport`, and they
+// parse different answers. Two imports of one name would silently keep the last.
+import { parseReport as parsePresentReport, type PresentReport } from './presents';
 import type {
   ApprovalDecision,
   ApprovalDecisionResponse,
@@ -97,6 +100,8 @@ export interface ForgeApi {
   teams(): Promise<TeamBoardReport>;
   /** The goal a session pursues, or null when it pursues none. */
   getGoal(id: string): Promise<Goal | null>;
+  /** Files the model handed over with `present`; one GET, no session. */
+  presents(): Promise<PresentReport>;
 }
 
 function trimTrailingSlash(baseUrl: string): string {
@@ -260,6 +265,13 @@ export class ForgeClient implements ForgeApi {
     // about an empty log, not a fault to report. Parsed for the same reason as
     // `capabilities`: the route is newer than the frozen protocol module.
     return this.request<unknown>(`/api/sessions/${encodeURIComponent(id)}/goal`).then(parseGoal);
+  }
+
+  presents(): Promise<PresentReport> {
+    // Same reason as `teams`: newer than the frozen protocol module, so the
+    // answer is parsed defensively. Raising here would read as "the route is
+    // broken" when the truth is "nothing has been presented yet".
+    return this.request<unknown>('/api/presents').then(parsePresentReport);
   }
 }
 

@@ -91,6 +91,7 @@ function fakeApi(overrides: Partial<ForgeApi> = {}): ForgeApi {
     // No goal by default: the pill renders nothing unless a test asks for one,
     // which keeps the transcript assertions in this file independent of it.
     getGoal: vi.fn(async () => null),
+      presents: vi.fn(async () => ({ presents: [], skipped: 0, truncated: false, note: null })),
   };
   return { ...base, ...overrides };
 }

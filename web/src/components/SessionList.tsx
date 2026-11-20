@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ForgeApi } from '../api/client';
 import { ApiError } from '../api/client';
 import type { SessionSummary } from '../api/types';
+import { Presents } from './Presents';
 import { TeamBoards } from './TeamBoards';
 
 export interface SessionListProps {
@@ -125,6 +126,11 @@ export function SessionList({ api, onOpen }: SessionListProps) {
           is not part of any one conversation: `forge team run` writes it under
           the data dir, and it outlives every session that spawned a worker. */}
       <TeamBoards load={() => api.teams()} />
+
+      {/* Handoffs are here for the same reason as team boards: `present`
+          appends to one manifest in the data dir, so the list belongs to the
+          machine and outlives the session whose model handed a file over. */}
+      <Presents load={() => api.presents()} />
     </main>
   );
 }
