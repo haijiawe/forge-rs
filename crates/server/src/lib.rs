@@ -15,6 +15,9 @@ pub mod api;
 pub mod capabilities;
 pub mod ratelimit;
 pub mod server;
+/// Reads the boards `forge team run` leaves in the data dir. Private: it is
+/// a wire shape for one route, not part of this crate's public boundary.
+mod teams;
 
 pub use api::{
     CancelToken, DeltaSink, EventWriter, Options, StaticSource, SteeringSource, TurnContext,

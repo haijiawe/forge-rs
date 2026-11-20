@@ -1,4 +1,4 @@
-//! The doctor: ten read-only environment checks, in a fixed order.
+//! The doctor: eleven read-only environment checks, in a fixed order.
 //!
 //! A check that cannot be performed is `skip`, never `ok` — the harness must
 //! not claim to have verified something it did not. Only a `fail` changes the
@@ -230,6 +230,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         check_mcp(&options),
         check_proxy(),
         check_pty(),
+        check_office(),
     ];
 
     let report = Report {
@@ -663,6 +664,40 @@ fn check_pty() -> Check {
         other => Check::new("pty", Status::Warn, format!("unsupported platform {other}"))
             .with_hint("interactive terminal will fall back to pipes"),
     }
+}
+
+/// Document work is a skill plus an external program (`docs/09-platform-tier.md`),
+/// and the office skill runs `python-docx` / `openpyxl` / `python-pptx`. This check
+/// reports whether that program is here.
+///
+/// It is a report, not a requirement: an absent library means the office skill has
+/// to refuse, not that the harness is broken, so this check is never `fail`. A
+/// probe that could not answer is `skip` — the one thing this check may not do is
+/// print `ok` for a machine it did not manage to inspect.
+fn check_office() -> Check {
+    let availability = crate::office::probe();
+    let absent = availability.absent();
+    if !absent.is_empty() {
+        let hint = availability
+            .refusal()
+            .unwrap_or_else(|| "document work needs an external program".to_string());
+        return Check::new("office", Status::Warn, availability.summary()).with_hint(hint);
+    }
+    let undecided = availability.undecided();
+    if !undecided.is_empty() {
+        let reasons = undecided
+            .iter()
+            .map(|(name, why)| format!("{name}: {why}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Check::new(
+            "office",
+            Status::Skip,
+            format!("{} ({reasons})", availability.summary()),
+        )
+        .with_hint("the probe timed out or could not start; document work may still be possible");
+    }
+    Check::new("office", Status::Ok, availability.summary())
 }
 
 fn find_on_path(program: &str) -> Option<PathBuf> {

@@ -6,6 +6,7 @@ import { memo, useState } from 'react';
 import type {
   ApprovalRow,
   AssistantRow,
+  CompressedRow,
   ErrorRow,
   EventRow,
   Row,
@@ -106,6 +107,62 @@ export const SummaryRowView = memo(function SummaryRowView({ row }: { row: Summa
   );
 });
 
+/**
+ * A `context/compressed` block. This is a note about the transcript, not a turn:
+ * it names the seq range the model stopped being sent and what it reads instead.
+ * The rows in that range are still on screen, marked folded, because the point of
+ * the note is to make the hidden stretch visible, not to make the transcript
+ * look shorter than it is.
+ *
+ * A payload the log could not describe completely renders here too, with the
+ * `incomplete` pill and the problem spelled out: a block that hides rows must
+ * never disappear quietly.
+ */
+export const CompressedRowView = memo(function CompressedRowView({ row }: { row: CompressedRow }) {
+  const range =
+    row.from !== undefined && row.to !== undefined
+      ? `seq ${String(row.from)}..${String(row.to)}`
+      : row.from !== undefined
+        ? `from seq ${String(row.from)}`
+        : row.to !== undefined
+          ? `to seq ${String(row.to)}`
+          : 'seq range unknown';
+  // The writer's own count when it said one, otherwise the count the range
+  // implies — the range is the address, the count is only a diagnostic (§4.0.3).
+  const records =
+    row.messages !== undefined && row.messages > 0
+      ? row.messages
+      : row.from !== undefined && row.to !== undefined && row.to >= row.from
+        ? row.to - row.from + 1
+        : undefined;
+  const count = records === undefined ? '' : ` (${String(records)} records)`;
+  // One string, not adjacent JSX expressions: JSX drops the whitespace between
+  // expressions on different lines, which would glue `40` to `(29 records)`.
+  const note = `${row.summary === '' ? 'summary missing for' : 'summary replaced'} ${range}${count}`;
+  return (
+    <div className={`row row-compressed${row.incomplete ? ' row-compressed-incomplete' : ''}`}>
+      <div className="row-meta">
+        <span>compressed</span>
+        {row.incomplete && <span className="pill pill-warn">incomplete</span>}
+        {row.blockId !== '' && (
+          <span className="mono muted" title={row.blockId}>
+            {row.blockId.slice(0, 8)}
+          </span>
+        )}
+        <span>{formatTime(row.ts)}</span>
+      </div>
+      <p className="mono compressed-note">{note}</p>
+      {row.problem !== undefined && <p className="compressed-problem">payload problem: {row.problem}</p>}
+      {row.summary !== '' && (
+        <details className="compressed-summary">
+          <summary>what the model reads instead</summary>
+          <p className="mono muted">{row.summary}</p>
+        </details>
+      )}
+    </div>
+  );
+});
+
 export const ErrorRowView = memo(function ErrorRowView({ row }: { row: ErrorRow }) {
   return (
     <div className="row row-error">
@@ -186,6 +243,8 @@ export const TranscriptRow = memo(function TranscriptRow({ row }: { row: Row }) 
       return <ApprovalRowView row={row} />;
     case 'summary':
       return <SummaryRowView row={row} />;
+    case 'compressed':
+      return <CompressedRowView row={row} />;
     case 'error':
       return <ErrorRowView row={row} />;
     case 'turn':

@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -1086,6 +1086,304 @@ fn the_capability_report_is_read_only() {
     assert_eq!(status, 405, "{}", String::from_utf8_lossy(&bytes));
     let (status, _, bytes) = fixture.api("DELETE", "/api/capabilities", None, &[]);
     assert_eq!(status, 405, "{}", String::from_utf8_lossy(&bytes));
+}
+
+/// A fixture whose data dir is a path the test already prepared, so a board can
+/// be written the way `forge team run` writes one before the server starts.
+fn fixture_for(data_dir: &Path) -> Fixture {
+    Fixture::start(Options {
+        addr: "127.0.0.1:0".to_string(),
+        data_dir: data_dir.to_path_buf(),
+        version: "feature-test".to_string(),
+        poll_interval: Duration::from_millis(2),
+        delta_interval: Duration::from_millis(2),
+        ..Options::default()
+    })
+}
+
+/// Writes one run directory: `<dataDir>/teams/<name>/board.json` plus a
+/// `workers/<worker>.jsonl` per worker. The board is text, so a test can write
+/// one that will not parse as well as one that will.
+fn write_board(
+    data_dir: &Path,
+    name: &str,
+    board: Option<&str>,
+    workers: &[(&str, Vec<Value>)],
+) -> PathBuf {
+    let dir = data_dir.join("teams").join(name);
+    fs::create_dir_all(dir.join("workers")).expect("workers dir");
+    if let Some(text) = board {
+        fs::write(dir.join("board.json"), text).expect("board.json");
+    }
+    for (worker, lines) in workers {
+        let mut text = String::new();
+        for line in lines {
+            text.push_str(&serde_json::to_string(line).expect("transcript line"));
+            text.push('\n');
+        }
+        fs::write(dir.join("workers").join(format!("{worker}.jsonl")), text).expect("transcript");
+    }
+    dir
+}
+
+/// `board.json` as `crates/team/src/board.rs` writes it: camelCase, with the
+/// fields a board view does not show still present.
+fn board_json(tasks: Value) -> String {
+    json!({ "version": 1, "revision": 3, "tasks": tasks }).to_string()
+}
+
+/// The transcript `crates/team/src/run.rs` leaves: a start line, an end line.
+fn transcript(worker: &str, ok: bool, note: &str) -> Vec<Value> {
+    vec![
+        json!({
+            "kind": "worker/start",
+            "ts": 1_764_547_343_000i64,
+            "worker": worker,
+            "task": "t1",
+            "prompt": "review the patch"
+        }),
+        json!({
+            "kind": "worker/end",
+            "ts": 1_764_547_350_000i64,
+            "worker": worker,
+            "ok": ok,
+            "exit": if ok { json!(0) } else { Value::Null },
+            "note": note,
+            "text": "done"
+        }),
+    ]
+}
+
+#[test]
+fn a_board_written_by_hand_is_listed() {
+    let data_dir = unique_dir("teams-listed");
+    let board = board_json(json!([
+        {
+            "id": "t1",
+            "subject": "Add the teams route",
+            "status": "completed",
+            "owner": "api-reviewer",
+            "revision": 2,
+            "blockedBy": [],
+            "writeScopes": ["crates/server/src"]
+        },
+        { "id": "t2", "subject": "Write the contract", "status": "pending", "revision": 1 }
+    ]));
+    write_board(
+        &data_dir,
+        "release-squad-20261118-002223",
+        Some(&board),
+        &[(
+            "api-reviewer",
+            transcript("api-reviewer", true, "1 turn(s), session s_abc"),
+        )],
+    );
+    let fixture = fixture_for(&data_dir);
+
+    let (status, headers, bytes) = fixture.api("GET", "/api/teams", None, &[]);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    assert!(headers
+        .iter()
+        .any(|(name, value)| name.eq_ignore_ascii_case("content-type")
+            && value.starts_with("application/json")));
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    let boards = body["boards"].as_array().expect("boards");
+    assert_eq!(boards.len(), 1, "{body}");
+    let row = &boards[0];
+    assert_eq!(row["board"], "release-squad-20261118-002223");
+    assert_eq!(row["team"], "release-squad");
+    // Chosen by `forge team run` and persisted nowhere, so it is an honest null
+    // rather than a number this process would have had to invent.
+    assert!(row.get("parallel").is_some(), "{row}");
+    assert!(row["parallel"].is_null(), "{row}");
+    assert_eq!(row["createdAt"], "2026-11-18T00:22:23Z");
+    assert_eq!(
+        row["tasks"],
+        json!([
+            {
+                "id": "t1",
+                "subject": "Add the teams route",
+                "status": "completed",
+                "owner": "api-reviewer"
+            },
+            {
+                "id": "t2",
+                "subject": "Write the contract",
+                "status": "pending",
+                "owner": null
+            }
+        ])
+    );
+    assert_eq!(
+        row["workers"],
+        json!([{
+            "name": "api-reviewer",
+            "ok": true,
+            "note": "1 turn(s), session s_abc",
+            "events": 2
+        }])
+    );
+    // A board with nothing wrong carries no warning at all.
+    assert!(row.get("diagnostics").is_none(), "{row}");
+}
+
+#[test]
+fn one_board_is_served_unwrapped() {
+    let data_dir = unique_dir("teams-detail");
+    let board = board_json(json!([{ "id": "t1", "subject": "one", "status": "pending" }]));
+    write_board(
+        &data_dir,
+        "release-squad-20261118-002223",
+        Some(&board),
+        &[],
+    );
+    let fixture = fixture_for(&data_dir);
+
+    let (status, _, bytes) =
+        fixture.api("GET", "/api/teams/release-squad-20261118-002223", None, &[]);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    assert!(body.get("boards").is_none(), "{body}");
+    assert_eq!(body["board"], "release-squad-20261118-002223");
+    assert_eq!(body["team"], "release-squad");
+    assert_eq!(body["tasks"][0]["id"], "t1");
+
+    let (status, _, bytes) = fixture.api("GET", "/api/teams/nobody-ran-this", None, &[]);
+    assert_eq!(status, 404, "{}", String::from_utf8_lossy(&bytes));
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    assert_eq!(body["error"]["code"], "not_found");
+}
+
+#[test]
+fn an_unparseable_board_is_reported_without_hiding_the_others() {
+    let data_dir = unique_dir("teams-junk");
+    let good = board_json(json!([{ "id": "t1", "subject": "fine", "status": "completed" }]));
+    write_board(
+        &data_dir,
+        "healthy-run-20261118-000000",
+        Some(&good),
+        &[("worker-a", transcript("worker-a", true, "ok"))],
+    );
+    // A run that died mid-write: truncated JSON, and no transcripts at all.
+    let junk = write_board(
+        &data_dir,
+        "half-written-20261118-000001",
+        Some("{ \"version\": 1"),
+        &[],
+    );
+    fs::remove_dir(junk.join("workers")).expect("remove workers");
+    // A directory that is not a board name is not a board.
+    write_board(&data_dir, ".hidden-20261118-000002", Some(&good), &[]);
+    let fixture = fixture_for(&data_dir);
+
+    let (status, _, bytes) = fixture.api("GET", "/api/teams", None, &[]);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    let boards = body["boards"].as_array().expect("boards");
+    // Both boards are listed, newest first; the hidden directory is not one.
+    assert_eq!(boards.len(), 2, "{body}");
+    assert_eq!(boards[0]["board"], "half-written-20261118-000001");
+    assert_eq!(boards[1]["board"], "healthy-run-20261118-000000");
+
+    // What is known is still reported, and the reason it is all that is known.
+    let broken = &boards[0];
+    assert_eq!(broken["team"], "half-written");
+    assert_eq!(broken["tasks"], json!([]));
+    assert_eq!(broken["workers"], json!([]));
+    let diagnostics = broken["diagnostics"].as_array().expect("diagnostics");
+    let text = diagnostics
+        .iter()
+        .map(|line| line.as_str().unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("board.json could not be parsed"), "{text}");
+    assert!(text.contains("workers/ is missing"), "{text}");
+
+    // The healthy board next door is untouched.
+    assert_eq!(boards[1]["tasks"][0]["id"], "t1");
+    assert!(boards[1].get("diagnostics").is_none(), "{}", boards[1]);
+
+    // The same read, one board at a time, agrees with the list.
+    let (status, _, bytes) =
+        fixture.api("GET", "/api/teams/half-written-20261118-000001", None, &[]);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    assert!(body["diagnostics"].as_array().expect("diagnostics").len() >= 2);
+}
+
+#[test]
+fn the_team_boards_route_is_read_only() {
+    let data_dir = unique_dir("teams-read-only");
+    write_board(&data_dir, "release-squad-20261118-002223", None, &[]);
+    let fixture = fixture_for(&data_dir);
+
+    for method in ["POST", "DELETE"] {
+        let (status, headers, bytes) = fixture.api(method, "/api/teams", None, &[]);
+        assert_eq!(status, 405, "{method}: {}", String::from_utf8_lossy(&bytes));
+        assert!(headers
+            .iter()
+            .any(|(name, value)| name.eq_ignore_ascii_case("allow") && value == "GET"));
+        let body: Value = serde_json::from_slice(&bytes).expect("json");
+        assert_eq!(body["error"]["code"], "method_not_allowed");
+    }
+    let (status, _, bytes) = fixture.api(
+        "POST",
+        "/api/teams/release-squad-20261118-002223",
+        None,
+        &[],
+    );
+    assert_eq!(status, 405, "{}", String::from_utf8_lossy(&bytes));
+    let (status, _, bytes) = fixture.api(
+        "DELETE",
+        "/api/teams/release-squad-20261118-002223",
+        None,
+        &[],
+    );
+    assert_eq!(status, 405, "{}", String::from_utf8_lossy(&bytes));
+
+    // Nothing was created or removed by any of that.
+    let dir = data_dir.join("teams").join("release-squad-20261118-002223");
+    assert!(dir.is_dir());
+    assert!(!dir.join("board.json").exists());
+}
+
+#[test]
+fn a_board_name_that_is_a_path_is_not_found() {
+    // The data dir holds a `token` file, so `../../token` is a name that would
+    // actually resolve to something if it were ever treated as a path.
+    let fixture = Fixture::default();
+    for path in [
+        "/api/teams/../../token",
+        "/api/teams/..%2f..%2ftoken",
+        "/api/teams/..",
+        "/api/teams/.",
+        "/api/teams/%2e%2e",
+        "/api/teams/C:%5Ctoken",
+    ] {
+        let (status, _, bytes) = fixture.api("GET", path, None, &[]);
+        assert_eq!(status, 404, "{path}: {}", String::from_utf8_lossy(&bytes));
+        let body: Value = serde_json::from_slice(&bytes).expect("json");
+        assert_eq!(body["error"]["code"], "not_found", "{path}");
+    }
+    let (status, _, bytes) = fixture.api("GET", "/api/teams/a%2fb", None, &[]);
+    assert_eq!(status, 404, "{}", String::from_utf8_lossy(&bytes));
+}
+
+#[test]
+fn a_machine_that_never_ran_a_team_lists_no_boards() {
+    let data_dir = unique_dir("teams-absent");
+    let fixture = fixture_for(&data_dir);
+
+    let (status, _, bytes) = fixture.api("GET", "/api/teams", None, &[]);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    assert_eq!(body, json!({ "boards": [] }));
+    // Reading a board list must not look like a run: the directory is still
+    // absent, which is what makes the empty list honest.
+    assert!(
+        !data_dir.join("teams").exists(),
+        "GET /api/teams created the teams directory"
+    );
 }
 
 #[test]

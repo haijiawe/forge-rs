@@ -779,3 +779,81 @@ body {
 .capability-off {
   font-size: 10px;
 }
+
+/* --- compressed blocks --- */
+
+/* A `context/compressed` block is a note about the transcript, not a turn: it is
+   dashed and sunken so it reads as an annotation between turns, never as
+   something the user or the model said. */
+.row-compressed {
+  background: var(--bg-sunken);
+  border-left: 3px dashed var(--border-strong);
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.row-compressed .row-meta {
+  margin-bottom: 2px;
+}
+
+.compressed-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  /* The note is one sentence; wrap it rather than let a long range scroll. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A block whose payload did not describe itself: shown, but visibly broken. */
+.row-compressed-incomplete {
+  border-left-color: var(--warn);
+}
+
+.compressed-problem {
+  margin: 2px 0 0;
+  color: var(--warn);
+  font-size: 11px;
+}
+
+.compressed-summary {
+  margin-top: 4px;
+}
+
+.compressed-summary > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.compressed-summary > p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Rows inside a block's range: still on screen, marked as not sent to the model.
+   The mark lives on the wrapper so every row kind gets it from one place, and the
+   inner `.row` keeps its own left border (error, approval) untouched. */
+.row-wrap.row-folded {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.row-wrap.row-folded > .row {
+  opacity: 0.72;
+}
+
+/* The session header count: how much of this transcript the model did not get. */
+.session-compressed {
+  margin-left: auto;
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 999px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-size: 11px;
+  white-space: nowrap;
+}

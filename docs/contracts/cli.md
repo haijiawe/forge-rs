@@ -69,6 +69,7 @@ a bug, not contract. `forge` does not use exit code `1` for "unknown command".
 | `forge schedule <command>` | — | a task id, a table, occurrences or JSON on stdout | `0`, `1` or `2` |
 | `forge plugin <command>` | — | a generated skeleton, a manifest listing, a handshake, tool output or a doctor report on stdout | `0`, `1` or `2` |
 | `forge expert <command>` | — | a roster table, one prompt, or JSON on stdout | `0`, `1` or `2` |
+| `forge skill <command>` | — | a skill table, one skill body, or JSON on stdout | `0`, `1` or `2` |
 | `forge team <command>` | — | team listings or a worker report on stdout | `0`, `1` or `2` |
 | `forge market <command>` | — | installed bundles, search hits, an install result or drift on stdout | `0`, `1` or `2` |
 | `forge help` | `-h`, `--help`, no arguments at all | usage text on stdout | `0` |
@@ -119,6 +120,7 @@ usage:
   forge schedule <command>     record recurring prompts and run the ones due
   forge plugin <command>       inspect the installed plugin set
   forge expert <command>       list or show the expert roster
+  forge skill <command>        list or show the skills the model was offered
   forge team <command>         list teams, or run one over a shared board
   forge market <command>       install or remove plugin bundles
   forge doctor [flags]         check the environment
@@ -128,7 +130,7 @@ docs: docs/README.md
 ```
 
 Exactly: the first line uses an em dash (U+2014), there is a blank line after it,
-fifteen two-space-indented command lines padded so descriptions start in the same
+sixteen two-space-indented command lines padded so descriptions start in the same
 column, a blank line, then the `docs:` line. The block ends with a single `\n`.
 Nothing is written to stderr, and no config or filesystem access happens.
 
@@ -466,7 +468,7 @@ Flags:
 | `-json` / `--json` | bool | `false` | Emit the JSON report instead of the text report. Both spellings are accepted (`flag` package). |
 | `-prune-profiles` / `--prune-profiles` | bool | `false` | Windows only: delete every `forge.sandbox.*` package profile this tool created, then print a one-line summary (or a JSON object with `--json`). Runs *instead of* the checks, because it changes the machine and the checks must stay read-only. Exit `1` if any profile could not be deleted. |
 
-Checks, in this order (all ten always run; order and names are contract):
+Checks, in this order (all eleven always run; order and names are contract):
 
 | # | Name | Verifies |
 | --- | --- | --- |
@@ -480,6 +482,7 @@ Checks, in this order (all ten always run; order and names are contract):
 | 8 | `mcp` | The MCP configuration only — no server is spawned. `skip` with no server configured, `warn` when entries were dropped or duplicated (the reasons are in the hint), `ok` listing the accepted names. |
 | 9 | `proxy` | HTTP(S) proxy environment variables, if any. |
 | 10 | `pty` | PTY availability. `skip` on windows/linux/darwin with the detail `shell runs on pipes, not a pty: interactive programs will not render` (the shell tool deliberately uses pipes; the M0 spike proved ConPTY works but no PTY is wired into the product); `warn` on any other platform. |
+| 11 | `office` | Whether this machine can do document work, probed by running the program rather than by looking for it: a Python launcher (`python`, `python3`, `py -3`), the libraries `python-docx`, `openpyxl` and `python-pptx` imported by that launcher, and `soffice` for format conversion. `ok` when all four answered; `warn` with the refusal sentence when something is missing; `skip` when a probe could not be decided (a timeout, a launcher that would not start, a box with no time left in the budget). Never `fail`: an absent library means the office skill must refuse to write a document, which is not a broken harness. |
 
 Per-check status vocabulary: `ok`, `warn`, `fail`, `skip`. **Only `fail` affects
 the exit code**; `warn` and `skip` do not.
@@ -504,8 +507,10 @@ SKIP  mcp        no MCP servers configured
 OK    proxy      none set
 SKIP  pty        shell runs on pipes, not a pty: interactive programs will not render
                  -> ConPTY/pty is available on this platform and can be wired when a terminal is needed
+WARN  office     docx=python 3.14 xlsx=python 3.14 pptx=python 3.14 convert=missing
+                 -> unavailable on this machine: format conversion (LibreOffice soffice). install LibreOffice for format conversion; say so instead of writing an empty file.
 
-10 checks in 22 ms
+11 checks in 22 ms
 ```
 
 Structure, line by line:
@@ -526,7 +531,7 @@ Structure, line by line:
    name column empty, the detail column holding `-> {hint}`. The hint is
    indented to the detail column of the table.
 7. A blank line.
-8. `{n} checks in {d} ms` — `n` is the number of checks run (10 today), `d` is the
+8. `{n} checks in {d} ms` — `n` is the number of checks run (11 today), `d` is the
    elapsed milliseconds. Both are integers. The timing varies per run and is not
    contract.
 
@@ -563,7 +568,7 @@ A single JSON object, 2-space indented (Go `json.Encoder` with
 }
 ```
 
-(Excerpt: a real run has ten entries in `checks`.)
+(Excerpt: a real run has eleven entries in `checks`.)
 
 Schema:
 
@@ -576,7 +581,7 @@ Schema:
 | `configPath` | string | always | Config file path used (existing or default). |
 | `workspace` | string | always | Workspace directory that was checked. |
 | `durationMs` | integer | always | Elapsed milliseconds; not stable. |
-| `checks` | array of object | always | Ten entries, in the order of the table above. |
+| `checks` | array of object | always | Eleven entries, in the order of the table above. |
 | `checks[].name` | string | always | Check name, e.g. `data dir`. |
 | `checks[].status` | string enum | always | `ok` \| `warn` \| `fail` \| `skip`. |
 | `checks[].detail` | string | always | One-line explanation; may be empty. |
@@ -1222,3 +1227,112 @@ deletes only the files the install record lists, and refuses if any was edited.
 | `0` | The command did what it says. An empty search result is `0`. |
 | `1` | A digest mismatch, a truncated/oversized body, no build for this platform, an ambiguous resolution, an edited file blocking remove, a failed download, or a `pack` whose source is missing/empty/unreadable. |
 | `2` | Usage error: unknown command or flag, a missing name, `search`/`install` without `--index`, `pack` without a directory, `--os` without `--arch` (or vice versa), or an os/arch outside the accepted sets. |
+
+## 9. `forge skill <command>`
+
+The roster the scanner already reads, made visible. `forge_skill::scan` is the
+source of truth for the `skill` tool, so this command runs the same scan and
+prints what it found: a `SKILL.md` with broken frontmatter is named on stderr
+instead of vanishing, and every listed skill carries the root it came from.
+
+### Usage
+
+```text
+usage: forge skill <command> [flags]
+
+commands:
+  list                 every skill the scanner accepted, with the root it came from
+  show <name>          print one skill's path and body
+
+flags:
+  --json               machine-readable output
+  --data-dir <dir>     data directory (default: the forge home's configured dataDir)
+  --root <dir>         skill root; may be repeated (default: the configured skill
+                       roots, then <dataDir>/skills)
+  -h, --help           this message
+```
+
+`--root` is used verbatim and may be repeated; without it the roots are the
+non-empty `skills.roots` of the config file (`crates/config/src/lib.rs`), and
+failing that `<dataDir>/skills`. Roots are scanned in that order, and the scanner
+resolves a duplicate name in favour of the first one.
+
+### Roots and emptiness
+
+An absent root is an empty roster, and it is **success**: `list` exits `0` and
+prints `no skills under <root>`. The directory is never created, because a
+listing that mkdir'd would turn a typo into a permanent home for future
+confusion. A root warning — `<root>: root does not exist (yet); skipped` — goes
+to stderr in that case.
+
+The one case that looks like success and is not: files were there and none
+parsed. Then `list` still prints `no skills under <root>`, still names every
+skipped entry on stderr, and exits `1` with
+`forge skill: nothing parsed; <n> entries were skipped (see above)` — the model
+was offered nothing while the operator believes otherwise. A roster where at
+least one skill parsed exits `0`; the skipped siblings are diagnostics.
+
+### stdout / stderr
+
+stdout carries the listing or the one skill. The text listing is a table:
+
+```text
+skill                    description                                                      root
+office                   Create, read and edit .docx, .xlsx and .pptx by running python-… D:/app/skills
+```
+
+The description is flattened to one line and cut at 64 characters with `…`, so a
+long description cannot push the root off the line; `--json` carries the whole
+string. `show` prints `skill: <name>`, `path:  <path>`, a blank line, then the
+body verbatim.
+
+stderr carries the scanner's own diagnostics — skipped entries and warnings —
+verbatim, each prefixed with `forge skill: ` and nothing else, because those
+strings are the only record of *why* a skill is missing. They are not
+paraphrased. With `--json` the same strings also appear in the payload, under
+`skipped` and `warnings`.
+
+`show <name>` refuses to read a body it cannot: a `SKILL.md` that stopped parsing
+is an exit `1` with the scanner's message, never a partial body.
+
+### JSON output (--json)
+
+`skill list --json` is one object:
+
+| Member | Type | Presence | Meaning |
+| --- | --- | --- | --- |
+| `roots` | array of string | always | The roots scanned, in order, with forward slashes. |
+| `skills` | array of object | always | The accepted roster, sorted by name then path. |
+| `skills[].name` | string | always | Frontmatter `name`, or the directory name. |
+| `skills[].description` | string | always | Frontmatter `description`, untruncated. |
+| `skills[].root` | string | always | The root this skill came from. |
+| `skills[].dir` | string | always | The skill directory. |
+| `skills[].path` | string | always | The `SKILL.md` path. |
+| `skills[].files` | array of string | always | The other files in the skill directory. |
+| `skipped` | array of string | always | Directories or files the scanner refused, with its reason. |
+| `warnings` | array of string | always | Non-fatal notes, including an absent root. |
+
+`skill show --json` is one object: the same six skill members plus `body`, the
+file's text after the frontmatter.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The listing or the skill was printed. An absent root is `0`. |
+| `1` | No skill is named `<name>` (the known names are listed); an empty roster whose only entries were skipped; a body that could not be read. |
+| `2` | Usage error: unknown command or flag, or `show` without a name. |
+
+### Example
+
+```text
+$ forge skill list
+skill                    description                                                      root
+office                   Create, read and edit .docx, .xlsx and .pptx by running python-… D:/forge-rs-target/skill-evidence/populated-home/skills
+forge skill: D:/forge-rs-target/skill-evidence/populated-home/skills/broken: frontmatter is not closed by a second --- line
+
+$ forge skill show nope
+forge skill: no skill named "nope"; known: office
+$ echo $?
+1
+```

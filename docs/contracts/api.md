@@ -139,6 +139,7 @@ All paths are under `{base}`. `{id}` is a session id; an unknown id is
 | 10 | `POST` | `/api/sessions/{id}/steer` | Inject text into the running turn | `202` |
 | 11 | `GET` | `/api/sessions/{id}/attachments/{attachmentId}` | One attachment's bytes | `200` |
 | 12 | `GET` | `/api/capabilities` | What this process can offer, session or not | `200` |
+| 13 | `GET` | `/api/teams`, `/api/teams/{board}` | Team boards this machine has run | `200` |
 
 ### 4.1 `GET /healthz`
 
@@ -526,6 +527,86 @@ it are not ones this layer may depend on.
 - `GET` only; anything else is `405 method_not_allowed`.
 - The `detail` strings are for humans and are not a stable machine interface.
   Machine-readable fields are `name` and `active`; everything else may change.
+
+### 4.13 `GET /api/teams` and `GET /api/teams/{board}`
+
+Describes the team boards on **this machine**, not one session. `forge team run`
+writes a run into `<dataDir>/teams/<slug>-<YYYYMMDD-HHMMSS>/`, and this route is
+the browser's window on it. It reads files and starts nothing: no worker process,
+no board repair, and no directory created on the request path.
+
+```json
+{
+  "boards": [
+    {
+      "board": "release-squad-20261118-002223",
+      "team": "release-squad",
+      "parallel": 2,
+      "createdAt": "2026-11-18T00:22:23Z",
+      "tasks": [
+        {
+          "id": "t1",
+          "subject": "Add the teams route",
+          "status": "completed",
+          "owner": "api-reviewer"
+        }
+      ],
+      "workers": [
+        {
+          "name": "api-reviewer",
+          "ok": true,
+          "note": "1 turn(s), session s_abc",
+          "events": 2
+        }
+      ]
+    }
+  ]
+}
+```
+
+`GET /api/teams/{board}` returns one of those objects, unwrapped: the same fields,
+no `boards` array.
+
+- `board` is the directory name and the key a client asks again with. `team` and
+  `createdAt` are read from that name, because `board.json` carries neither: the
+  directory is `<slug>-<YYYYMMDD-HHMMSS>`, and `createdAt` is that stamp rendered
+  as RFC 3339 in UTC. A directory named otherwise (the `TeamTool` bridge names one
+  after its call id) reports its own modification time and says so in
+  `diagnostics`.
+- `parallel` is how many workers `forge team run` allowed at once. Nothing
+  persists it — `--max-parallel`, `team.max_parallel` and the default are resolved
+  in the CLI and then dropped — so a board written by this build reports `null`
+  rather than a number the server would have had to invent. A client must render
+  `null` as unknown.
+- `tasks` and `workers` are what `board.json` and `workers/<name>.jsonl` hold,
+  reduced to what a board view shows. `tasks[].status` is passed through exactly as
+  written (`pending`, `in_progress`, `completed`); `tasks[].owner` is `null` for an
+  unassigned task.
+- `workers[].ok` and `workers[].note` come from the transcript's `worker/end` line,
+  and `events` counts the JSON lines in it: two for a worker that finished, one for
+  a worker that was still running. A transcript with no end line reports
+  `ok: false` and says why in `diagnostics`.
+- `diagnostics` appears only when something is wrong: a half-written board, an
+  unparseable `board.json`, a board version this build does not read, a missing
+  `workers/` directory, a line that is not JSON. A healthy board has no such key.
+  The strings are for humans and are not a stable machine interface, exactly as
+  §4.12 treats `detail`.
+- `boards` is newest first, ordered by `createdAt` and then by name, so two runs
+  started in the same second still have a stable order.
+- A machine that has never run a team has no `<dataDir>/teams/` directory, and the
+  answer is `{"boards":[]}`. The route does not create it: a read that made a
+  directory would make "has a team run here" unanswerable.
+- One junk board never fails the route. A half-written or unreadable directory is
+  reported with what is known and a diagnostic, so a single corrupt board cannot
+  blind an operator to the other nine.
+- `{board}` must be one plain path segment: no `.`, no `..`, no `/` or `\`, no
+  leading dot, no `:`. Anything else is `404 not_found` **before** a path is built,
+  the same discipline §4.11 applies to an attachment id, so a name cannot become a
+  path to the token file next door.
+- `404 not_found` — no such board, or a name that is not a plain directory name.
+- `GET` only; anything else is `405 method_not_allowed`.
+- `500 log_read_failed` — `<dataDir>/teams/` exists but cannot be read at all. One
+  bad board is never this.
 
 ---
 

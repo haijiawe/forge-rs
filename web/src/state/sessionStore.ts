@@ -14,7 +14,7 @@ import { latestToolNames } from './capabilities';
 import { StreamMachine, type StreamInput, type StreamState } from '../api/stream';
 import { SessionStream, type StreamEvent } from '../api/transport';
 import type { ApprovalDecision, PendingApproval, ServerFrame, SessionDetail } from '../api/types';
-import { RowAccumulator, type Row } from './rows';
+import { RowAccumulator, compressedBlocks, type CompressedBlock, type Row } from './rows';
 
 export interface SessionViewState {
   /** Monotonic; useSyncExternalStore subscribers diff on this. */
@@ -25,6 +25,12 @@ export interface SessionViewState {
   headSeq: number;
   rows: Row[];
   rowKeys: string[];
+  /**
+   * `context/compressed` blocks the log has written, sorted by `from`. The rows
+   * inside a range are marked `foldedBy` in `rows`; this is the list to count
+   * them by, for the header.
+   */
+  blocks: CompressedBlock[];
   /** Tool names from the newest `llm/call`; empty before the first request. */
   toolNames: string[];
   pendingApproval: PendingApproval | null;
@@ -88,6 +94,7 @@ export class SessionStore {
       headSeq: 0,
       rows: [],
       rowKeys: [],
+      blocks: [],
       toolNames: [],
       pendingApproval: null,
       streamError: null,
@@ -259,6 +266,14 @@ export class SessionStore {
       if (event !== undefined) this.accumulator.push(event);
     }
     this.projectedSeq = events.length;
+    // Blocks are rebuilt per flush, like toolNames: the fold marks have to
+    // describe the log as it is now. A block whose `to` runs past `lastSeq` is
+    // not an error — it covers seqs this window has not been sent yet — so the
+    // range is kept as written and rows that arrive inside it later get marked
+    // then. `lastSeq` is passed so a range that is still open here is not
+    // mistaken for a range that ended before the newest event.
+    const blocks = compressedBlocks(events, machineState.lastSeq);
+    this.accumulator.setBlocks(blocks);
     this.accumulator.setDeltas(machineState.deltas);
 
     this.version += 1;
@@ -270,6 +285,7 @@ export class SessionStore {
       headSeq: machineState.headSeq,
       rows: this.accumulator.rows,
       rowKeys: this.accumulator.rowKeys(),
+      blocks,
       // Computed per publish rather than stored: it is a read of the last event,
       // and a stale copy of a list that can change between turns is worse than
       // walking a few thousand events once per animation frame.

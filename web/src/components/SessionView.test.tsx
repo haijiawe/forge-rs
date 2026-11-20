@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
 import type { ForgeApi } from '../api/client';
 import type { CancelResponse, EventsPage, SessionDetail } from '../api/types';
+import type { EventEnvelope } from '../api/events';
 import { SessionView } from './SessionView';
 import { flush, interact, mount, typeInto, waitFor } from '../test/render';
 
@@ -227,6 +228,68 @@ describe('SessionView turn controls', () => {
     // The draft survives the failure, so the text is not lost with the error.
     expect(textarea().value).toBe('retry with backoff');
     expect(api.postMessage).not.toHaveBeenCalled();
+    view.unmount();
+    await flush();
+  });
+});
+
+describe('SessionView compressed blocks', () => {
+  const BLOCK = 'a'.repeat(32);
+
+  /** Two records and the block that replaced them. */
+  function compressedPage(): EventsPage {
+    const events: EventEnvelope[] = [
+      {
+        v: 1,
+        seq: 1,
+        id: 'e1',
+        ts: 1_700_000_000_000,
+        session: 'sess-1',
+        type: 'user/message',
+        payload: { text: 'one' },
+      },
+      {
+        v: 1,
+        seq: 2,
+        id: 'e2',
+        ts: 1_700_000_001_000,
+        session: 'sess-1',
+        type: 'user/message',
+        payload: { text: 'two' },
+      },
+      {
+        v: 1,
+        seq: 3,
+        id: 'e3',
+        ts: 1_700_000_002_000,
+        session: 'sess-1',
+        type: 'context/compressed',
+        payload: { blockId: BLOCK, from: 1, to: 2, summary: 'a summary', messages: 2 },
+      },
+    ];
+    return { sessionId: 'sess-1', from: 0, to: 3, lastSeq: 3, events, nextAfter: 3 };
+  }
+
+  it('says how many blocks are hidden from the model, next to the session title', async () => {
+    const api = fakeApi({ events: vi.fn(async () => compressedPage()) });
+    const view = mountView(api);
+
+    await waitFor(() => (view.container.textContent ?? '').includes('hidden from the model'));
+    const badge = view.container.querySelector('.session-compressed');
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toBe('1 block hidden from the model');
+    // The ids are on the title, so the operator can correlate with the note rows.
+    expect(badge?.getAttribute('title')).toContain(BLOCK);
+    view.unmount();
+    await flush();
+  });
+
+  it('says nothing when no block was written', async () => {
+    const api = fakeApi();
+    const view = mountView(api);
+
+    await waitFor(() => textareaOf(view.container).placeholder.includes('Message the agent'));
+    expect(view.container.querySelector('.session-compressed')).toBeNull();
     view.unmount();
     await flush();
   });

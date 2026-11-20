@@ -100,10 +100,18 @@ export function Transcript({ rows, rowKeys, emptyHint }: TranscriptProps) {
     <div className="transcript" ref={scrollRef} onScroll={onScroll}>
       <div className="transcript-inner" style={{ height: `${String(range.totalHeight)}px` }}>
         {range.offsetTop > 0 && <div className="spacer" style={{ height: `${String(range.offsetTop)}px` }} aria-hidden="true" />}
+        {/* A row the model was not sent is marked here, on the wrapper, rather
+            than in each row view: one place to mark, one place to style, and a
+            row kind added later cannot forget to mark itself. The block id goes
+            into `title` (and `data-folded-by`) so the operator can correlate the
+            row with the note above it. */}
         {visible.map((row) => (
           <div
             key={row.key}
-            className="row-wrap"
+            className={row.foldedBy === undefined ? 'row-wrap' : 'row-wrap row-folded'}
+            {...(row.foldedBy === undefined
+              ? {}
+              : { title: `hidden from the model by block ${row.foldedBy}`, 'data-folded-by': row.foldedBy })}
             ref={(node) => {
               if (node === null) nodesRef.current.delete(row.key);
               else nodesRef.current.set(row.key, node);

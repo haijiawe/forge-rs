@@ -79,6 +79,9 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
   // The turn is open while it waits for an approval too, so stopping stays
   // available there; only input closes, because the dialog owns the decision.
   const turnActive = running || state.status === 'awaiting_approval';
+  // Counted from the projection, not stored twice: `blocks` is what the log
+  // wrote, and the marks in `rows` are what those blocks hid.
+  const blocksLabel = `${String(state.blocks.length)} block${state.blocks.length === 1 ? '' : 's'} hidden from the model`;
 
   return (
     <main className="screen screen-session">
@@ -94,6 +97,14 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
             </span>
           )}
         </div>
+        {state.blocks.length > 0 && (
+          <span
+            className="session-compressed"
+            title={`block ids: ${state.blocks.map((block) => block.blockId).join(', ')}`}
+          >
+            {blocksLabel}
+          </span>
+        )}
       </header>
 
       {state.actionError !== null && (

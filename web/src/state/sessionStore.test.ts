@@ -5,10 +5,15 @@
 // No start() here on purpose: these are mutation paths, and the stream machine
 // is covered by api/stream.test.ts. Frame batching is neutralised with a
 // synchronous scheduleFrame so a failure is observable without timers.
+//
+// The compressed-block describe at the end is the exception: it drives start()
+// once, because building the block list is a flush-time job and the wiring from
+// log to marked row is exactly what it has to prove.
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
 import type { ForgeApi } from '../api/client';
 import type { EventsPage, SessionDetail } from '../api/types';
+import type { EventEnvelope } from '../api/events';
 import { SessionStore } from './sessionStore';
 
 const sessionDetail: SessionDetail = {
@@ -143,5 +148,125 @@ describe('SessionStore.cancelTurn', () => {
 
     await expect(store.cancelTurn()).resolves.toBe(false);
     expect(store.getSnapshot().actionError).toBe('not_found: session sess-1 does not exist');
+  });
+});
+
+/** A socket that never opens: these tests are about the flush, not the wire. */
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = [];
+  readonly url: string;
+  readyState = 0;
+  onopen: ((event: Event) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  constructor(url: string) {
+    this.url = url;
+    FakeWebSocket.instances.push(this);
+  }
+  send(): void {
+    // the store sends a resume frame at most; not under test here
+  }
+  close(): void {
+    this.readyState = 3;
+  }
+}
+
+function envelope(seq: number, type: string, payload?: unknown): EventEnvelope {
+  return {
+    v: 1,
+    seq,
+    id: `e${String(seq)}`,
+    ts: 1_700_000_000_000 + seq,
+    session: 'sess-1',
+    type,
+    ...(payload === undefined ? {} : { payload }),
+  };
+}
+
+async function until(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error('until: the condition never held');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+describe('SessionStore flush with compressed blocks', () => {
+  const BLOCK = 'ffffffffffffffffffffffffffffffff';
+
+  function pageOf(events: EventEnvelope[]): EventsPage {
+    const lastSeq = events.length;
+    return { sessionId: 'sess-1', from: 1, to: lastSeq, lastSeq, events, nextAfter: lastSeq };
+  }
+
+  function storeThatFlushes(api: ForgeApi): SessionStore {
+    return new SessionStore({
+      api,
+      sessionId: 'sess-1',
+      token: 'tok',
+      // A real macrotask: the flush happens off the loadInitial promise, so the
+      // test observes the same ordering the browser gets.
+      scheduleFrame: (callback) => setTimeout(callback, 0),
+    });
+  }
+
+  it('publishes the blocks and marks the rows they hide', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    try {
+      const api = fakeApi({
+        events: vi.fn(async () =>
+          pageOf([
+            envelope(1, 'user/message', { text: 'one' }),
+            envelope(2, 'user/message', { text: 'two' }),
+            envelope(3, 'user/message', { text: 'three' }),
+            envelope(4, 'context/compressed', { blockId: BLOCK, from: 2, to: 3, summary: 'a summary', messages: 2 }),
+          ]),
+        ),
+      });
+      const store = storeThatFlushes(api);
+      store.start();
+      await until(() => store.getSnapshot().rows.length >= 4);
+
+      const snapshot = store.getSnapshot();
+      expect(snapshot.blocks).toEqual([
+        { blockId: BLOCK, from: 2, to: 3, seq: 4, toBeyondHead: false, messages: 2 },
+      ]);
+      expect(snapshot.rows.map((row) => row.kind)).toEqual(['user', 'user', 'user', 'compressed']);
+      // The note itself is not a record the model was sent, so it is not marked.
+      expect(snapshot.rows.filter((row) => row.foldedBy !== undefined).map((row) => row.seq)).toEqual([2, 3]);
+      store.stop();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps a range that runs past lastSeq open instead of clamping it', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    try {
+      const api = fakeApi({
+        events: vi.fn(async () =>
+          pageOf([
+            envelope(1, 'user/message', { text: 'one' }),
+            envelope(2, 'user/message', { text: 'two' }),
+            // `to` is past every seq this window has been sent: the writer
+            // covered records that have not arrived here yet.
+            envelope(3, 'context/compressed', { blockId: BLOCK, from: 1, to: 9, summary: 'a summary' }),
+          ]),
+        ),
+      });
+      const store = storeThatFlushes(api);
+      store.start();
+      await until(() => store.getSnapshot().rows.length >= 3);
+
+      const snapshot = store.getSnapshot();
+      expect(snapshot.blocks[0]).toMatchObject({ from: 1, to: 9, toBeyondHead: true });
+      // Nothing is clamped: the seqs that do exist are marked, and the range stays
+      // as written so seqs 4..9 are marked when they arrive.
+      expect(snapshot.rows.filter((row) => row.foldedBy !== undefined).map((row) => row.seq)).toEqual([1, 2]);
+      store.stop();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -188,6 +188,25 @@ export interface CompactionPayload {
   replaces?: { from?: number; to?: number };
 }
 
+/**
+ * §4.0.3: the records in seq `from..to` inclusive were replaced, for this window
+ * only, by `summary`. Every member stays optional here even though the writer
+ * checks them: payload schemas are descriptive and not enforced (§4), so a
+ * reader renders what it finds instead of rejecting the event.
+ */
+export interface ContextCompressedPayload {
+  /** 32 lowercase hex; a key, never a path. */
+  blockId?: string;
+  /** First hidden seq, inclusive. */
+  from?: number;
+  /** Last hidden seq, inclusive. */
+  to?: number;
+  /** What the model reads instead of the range. */
+  summary?: string;
+  /** How many projected messages fell in the range: a diagnostic, not an address. */
+  messages?: number;
+}
+
 export interface ErrorPayload {
   message?: string;
   code?: string;
@@ -210,6 +229,7 @@ export interface KnownEventPayloads {
   'approval/request': ApprovalRequestPayload;
   'approval/decision': ApprovalDecisionPayload;
   'compaction/summary': CompactionPayload;
+  'context/compressed': ContextCompressedPayload;
   error: ErrorPayload;
 }
 
@@ -253,6 +273,7 @@ export const KNOWN_EVENT_TYPES: readonly KnownEventType[] = [
   'approval/request',
   'approval/decision',
   'compaction/summary',
+  'context/compressed',
   'error',
 ] as const;
 

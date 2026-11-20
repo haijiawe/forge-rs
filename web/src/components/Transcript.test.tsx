@@ -6,7 +6,7 @@
 // tree are real.
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { EventEnvelope } from '../api/events';
-import { RowAccumulator } from '../state/rows';
+import { RowAccumulator, compressedBlocks } from '../state/rows';
 import { Transcript } from './Transcript';
 import { mount } from '../test/render';
 
@@ -76,6 +76,50 @@ describe('Transcript virtualization', () => {
   it('shows the empty hint when there is nothing to render', () => {
     const view = mount(<Transcript rows={[]} rowKeys={[]} emptyHint="waiting for the first event…" />);
     expect(view.container.textContent).toContain('waiting for the first event…');
+    view.unmount();
+  });
+});
+
+describe('Transcript folded rows', () => {
+  const BLOCK = 'c'.repeat(32);
+
+  function rowsWithBlock(): ReturnType<typeof rowsOf> {
+    const events: EventEnvelope[] = [
+      userEvent(1),
+      userEvent(2),
+      userEvent(3),
+      {
+        v: 1,
+        seq: 4,
+        id: 'evt-4',
+        ts: 1_700_000_000_004,
+        session: 'sess-1',
+        type: 'context/compressed',
+        payload: { blockId: BLOCK, from: 2, to: 2, summary: 'a summary', messages: 1 },
+      },
+    ];
+    // The same two steps the store runs per flush: push the new events, then
+    // hand the accumulator the block list it derives from the whole log.
+    const accumulator = new RowAccumulator();
+    for (const event of events) accumulator.push(event);
+    accumulator.setBlocks(compressedBlocks(events));
+    return { rows: accumulator.rows, rowKeys: accumulator.rowKeys() };
+  }
+
+  it('marks the rows the model cannot see and names the block on the wrapper', () => {
+    const { rows, rowKeys } = rowsWithBlock();
+    const view = mount(<Transcript rows={rows} rowKeys={rowKeys} />);
+
+    const folded = [...view.container.querySelectorAll('.row-wrap.row-folded')];
+    expect(folded).toHaveLength(1);
+    expect(folded[0]?.getAttribute('data-folded-by')).toBe(BLOCK);
+    expect(folded[0]?.getAttribute('title')).toBe(`hidden from the model by block ${BLOCK}`);
+
+    // The neighbouring rows, and the note describing the block, are untouched.
+    const wrappers = [...view.container.querySelectorAll('.row-wrap')];
+    const unfolded = wrappers.filter((node) => !node.classList.contains('row-folded'));
+    expect(unfolded.map((node) => node.getAttribute('title'))).toEqual(unfolded.map(() => null));
+    expect(view.container.querySelector('.row-compressed')?.closest('.row-wrap')?.classList.contains('row-folded')).toBe(false);
     view.unmount();
   });
 });

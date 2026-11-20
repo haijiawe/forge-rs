@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use forge_cli::{reorder_flags, run, USAGE};
 
-const EXPECTED_USAGE: &str = "forge — an agent harness\n\nusage:\n  forge --version              print version (fast path, no config)\n  forge chat [flags] [prompt]  run one turn and stream the answer to stdout\n  forge \"<prompt>\"             shorthand for forge chat\n  forge web [flags]            serve the browser UI on loopback\n  forge session <command>      operate on a session log without running a turn\n  forge import <old-dir>       import a session tree from the old harness\n  forge index [flags]          rebuild or query the search index\n  forge goal <command>         record, inspect or close a goal\n  forge schedule <command>     record recurring prompts and run the ones due\n  forge plugin <command>       inspect the installed plugin set\n  forge expert <command>       list or show the expert roster\n  forge team <command>         list teams, or run one over a shared board\n  forge market <command>       install or remove plugin bundles\n  forge doctor [flags]         check the environment\n  forge help                   this message\n\ndocs: docs/README.md\n";
+const EXPECTED_USAGE: &str = "forge — an agent harness\n\nusage:\n  forge --version              print version (fast path, no config)\n  forge chat [flags] [prompt]  run one turn and stream the answer to stdout\n  forge \"<prompt>\"             shorthand for forge chat\n  forge web [flags]            serve the browser UI on loopback\n  forge session <command>      operate on a session log without running a turn\n  forge import <old-dir>       import a session tree from the old harness\n  forge index [flags]          rebuild or query the search index\n  forge goal <command>         record, inspect or close a goal\n  forge schedule <command>     record recurring prompts and run the ones due\n  forge plugin <command>       inspect the installed plugin set\n  forge expert <command>       list or show the expert roster\n  forge skill <command>        list or show the skills the model was offered\n  forge team <command>         list teams, or run one over a shared board\n  forge market <command>       install or remove plugin bundles\n  forge doctor [flags]         check the environment\n  forge help                   this message\n\ndocs: docs/README.md\n";
 
 fn env_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -129,7 +129,7 @@ fn unknown_command_is_exit_two_with_usage_on_stderr() {
 }
 
 #[test]
-fn doctor_json_has_the_stable_key_set_and_ten_checks_in_order() {
+fn doctor_json_has_the_stable_key_set_and_eleven_checks_in_order() {
     let dir = TempDir::new("doctor-json");
     dir.write(
         "config.json",
@@ -171,7 +171,8 @@ fn doctor_json_has_the_stable_key_set_and_ten_checks_in_order() {
             "model",
             "mcp",
             "proxy",
-            "pty"
+            "pty",
+            "office"
         ]
     );
     for check in checks {
@@ -184,6 +185,68 @@ fn doctor_json_has_the_stable_key_set_and_ten_checks_in_order() {
             "unexpected status {status}"
         );
     }
+}
+
+#[test]
+fn doctor_text_table_names_the_same_checks_in_the_same_order() {
+    let dir = TempDir::new("doctor-text");
+    dir.write(
+        "config.json",
+        r#"{"model": "", "sandbox": "workspace-write", "dataDir": ""}"#,
+    );
+    let _home = ForgeHome::set(&dir);
+    let (code, stdout, stderr) = run_cli(&["doctor"]);
+    assert_eq!(code, 0, "unexpected failure: {stdout}\n{stderr}");
+    // The table is the human form of the same report, so a check that only
+    // exists in `--json` would be invisible to the operator who runs
+    // `forge doctor`. A row starts with the status label; the name column is
+    // padded, so the name is the first run between two spaces.
+    let mut names: Vec<&str> = Vec::new();
+    for line in stdout.lines() {
+        let Some(status) = line.split_whitespace().next() else {
+            continue;
+        };
+        if !["OK", "WARN", "FAIL", "SKIP"].contains(&status) {
+            continue;
+        }
+        let rest = line[status.len()..].trim_start();
+        if let Some(name) = rest.split("  ").next() {
+            names.push(name.trim());
+        }
+    }
+    assert_eq!(
+        names,
+        vec![
+            "config",
+            "data dir",
+            "workspace",
+            "git",
+            "sandbox",
+            "disk",
+            "model",
+            "mcp",
+            "proxy",
+            "pty",
+            "office",
+        ],
+        "table: {stdout}"
+    );
+    // The office row must be honest about a machine without the libraries: it
+    // reports SKIP or WARN, never FAIL (the harness is fine, the program is not).
+    let office = stdout
+        .lines()
+        .find(|line| {
+            let Some(status) = line.split_whitespace().next() else {
+                return false;
+            };
+            ["OK", "WARN", "FAIL", "SKIP"].contains(&status)
+                && line[status.len()..].trim_start().starts_with("office")
+        })
+        .expect("an office row");
+    assert!(
+        !office.starts_with("FAIL"),
+        "an absent program is not a broken harness: {office}"
+    );
 }
 
 #[test]
