@@ -21,6 +21,11 @@ in before the Go tree was deleted on 2026-11-17.
 | [ci](ci.md) | what CI runs, and what was only rehearsed — workflow editor | delivered |
 | [dsh](dsh-comparison.md) | how this compares with original DSH — speed claims, rc.1 install | delivered |
 | [dsh vs forge](dsh-vs-forge.md) | how the two codebases actually differ — source-level, rc.5, all layers | delivered |
+| [agent comparison](agent-comparison.md) | how the two agent loops differ — two independently evolved designs (DSH→forge-go→forge-rs), rc.5 | delivered |
+| [agent gaps](agent-gaps.md) | what DSH has that forge-rs lacks, and how to close it — the next-wave backlog | delivered |
+| [agent parity](10-agent-parity.md) | the execution roadmap for closing those gaps: waves, language, acceptance | planned, not built |
+| [agent hooks](11-adr-agent-hooks.md) | ADR-0004: the two rewrite seams and the `hook/rewrite` audit row | delivered (W5) |
+| [subagent port](12-subagent-port.md) | what the deep subagent port delivered (S1–S5), including the out-of-process worker backend | delivered (S1–S5) |
 | [release](release.md) | what an artifact does and does not claim — release builder | delivered |
 | [web ui](web-ui.md) | does a 10k-event transcript hold 60 fps — transcript owner | delivered |
 | [office](office-run.md) | does the Office skill actually produce documents — skill editor | delivered |
@@ -51,8 +56,19 @@ now describe runs that actually happened, on hosted runners, with the run ids.
 shipped instructions produced, what was missing, and what was never verified.
 [dsh vs forge](dsh-vs-forge.md) states its version boundary up front — it reads
 rc.5 source but reuses rc.1 performance numbers, and says so before drawing any
-conclusion. Where this table and a document disagree, the document is the source
-of truth and the table is the bug.
+conclusion. [agent comparison](agent-comparison.md) narrows the same rc.5 source
+down to the agent execution layer: loop shape, inbox, extension points, stream
+accounting, cancellation, subagent, team/goal and compaction — the earlier
+[dsh vs forge](dsh-vs-forge.md) covers all layers. It reads `forge-rs` as a Rust
+port of `forge-go` (which was written by the DSH team), so where the two differ
+it is a difference between two independently evolved designs, not a porting bug;
+[agent gaps](agent-gaps.md) is the ledger of what DSH has and this tree does not,
+rated P0–P2, and is the one to open when planning the next wave. Where this table
+and a document disagree, the document is the source of truth and the table is the
+bug. [agent parity](10-agent-parity.md) is the execution roadmap that follows the
+gap ledger: it fixes the language choice (single Rust kernel, plugin bodies in any
+language, TypeScript front-end), splits the work into waves W1–W6, and states each
+wave's contract changes, tests and acceptance — **it is planned, not built**.
 
 ## Keeping this index from rotting
 

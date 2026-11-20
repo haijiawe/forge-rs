@@ -28,6 +28,7 @@
 
 pub mod block;
 pub mod ledger;
+pub mod prune;
 pub mod wire;
 
 pub use block::{
@@ -35,4 +36,8 @@ pub use block::{
     ERR_BLOCK_TOO_LARGE, ERR_EMPTY_SUMMARY, ERR_OVERLAP, MAX_SUMMARY_BYTES,
 };
 pub use ledger::{Hit, Ledger};
-pub use wire::{context_compressed, parse_block, EVENT_TYPE};
+pub use prune::{prune_tool_outputs, ToolOutput, Trim};
+pub use wire::{
+    context_compressed, context_compressed_with_surface, decode_surface_op, parse_block,
+    parse_record, parse_surface_op, CompressedRecord, SurfaceOp, EVENT_TYPE, SURFACE_REPLACE,
+};

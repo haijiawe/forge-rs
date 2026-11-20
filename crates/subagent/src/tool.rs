@@ -23,6 +23,9 @@ pub const TOOL_NAME: &str = "subagent";
 pub const CODE_FAILED: &str = "subagent_failed";
 /// Code returned by the depth-limited tool on every call.
 pub const CODE_DEPTH_EXCEEDED: &str = "depth_exceeded";
+/// Code returned when a schema was required but the child finished without
+/// calling `structured_output`. This is a failure, never a success.
+pub const CODE_BAD_OUTPUT: &str = "bad_output";
 
 const DESCRIPTION: &str = "Delegate a self-contained, small task to a fresh child agent that does not see this conversation. Use only for independent research you can specify from scratch; do NOT delegate tasks that need this conversation's context, tasks you can do directly, or tasks requiring approval (children fail closed and cannot ask).";
 
@@ -43,6 +46,22 @@ pub fn tool_schema() -> Value {
             "model": {
                 "type": "string",
                 "description": "Optional model override for this child only."
+            },
+            "schema": {
+                "type": "object",
+                "description": "Optional JSON schema (subset: type/required/properties/items). When present the child must finish by calling structured_output with arguments that satisfy it; the result comes back structured."
+            },
+            "continuable": {
+                "type": "boolean",
+                "description": "Create the child continuable: it stays resumable by its session id after it settles, so you can send it more work later with a tool that resumes it. Defaults to false (one-shot)."
+            },
+            "label": {
+                "type": "string",
+                "description": "Optional short label recorded on a continuable child's descriptor."
+            },
+            "resume": {
+                "type": "string",
+                "description": "Resume this continuable child (its session id) with `prompt` instead of starting a new one. The child must have been created with continuable:true and not have ended; its schema is fixed from creation, so `schema` may not be set here."
             }
         },
         "required": ["prompt"],
@@ -70,6 +89,20 @@ pub struct DelegateArgs {
     pub system: String,
     #[serde(default)]
     pub model: String,
+    /// Optional per-call result schema; overrides `Options::structured_schema`.
+    #[serde(default)]
+    pub schema: Option<Value>,
+    /// When true the child is created continuable: its log is left open (no
+    /// `session/end`) so a later `Runner::resume` can append another turn.
+    #[serde(default)]
+    pub continuable: bool,
+    /// Optional label stored on a continuable child's descriptor.
+    #[serde(default)]
+    pub label: String,
+    /// When set, resume this existing continuable child (its session id) with
+    /// `prompt` instead of creating a new child.
+    #[serde(default)]
+    pub resume: String,
 }
 
 impl DelegateArgs {
@@ -105,6 +138,58 @@ impl Tool for DelegateTool {
             return ToolResult::error(ERR_BAD_ARGS, "subagent: prompt must not be empty");
         }
 
+        // A resume continues an existing continuable child's log. It shares the
+        // cancellation and pool paths with a fresh delegation, but it cannot
+        // change the schema (that was fixed when the child was created) and it
+        // writes no new catalog row (the child already has one).
+        if !args.resume.trim().is_empty() {
+            if args.schema.is_some() {
+                return ToolResult::error(
+                    ERR_BAD_ARGS,
+                    "subagent: resume cannot set schema; the schema is fixed when the child is created",
+                );
+            }
+            let canceller = &self.runner.options().canceller;
+            if canceller.is_cancelled() {
+                return cancelled_result("");
+            }
+            let cancel = Cancel::default();
+            canceller.register(call.id.clone(), cancel.clone());
+            let unregister = UnregisterGuard {
+                canceller,
+                call_id: call.id.clone(),
+            };
+            if !self.runner.acquire(&cancel) {
+                return cancelled_result("");
+            }
+            let release = ReleaseGuard {
+                sem: self.runner.semaphore(),
+            };
+            let run =
+                self.runner
+                    .resume(args.resume.trim(), &args.prompt, &args.system, &args.model);
+            drop(release);
+            drop(unregister);
+            return match run {
+                Ok(out) => result(out, None, false),
+                Err(e) => {
+                    if forge_agent::is_cancelled(&e) {
+                        cancelled_result("")
+                    } else {
+                        result(ChildRun::default(), Some(e), false)
+                    }
+                }
+            };
+        }
+
+        // A per-call schema overrides whatever the runner was built with. The
+        // effective schema drives both the child's terminal tool and how this
+        // result is shaped (a missing submission becomes `bad_output`).
+        let schema = args
+            .schema
+            .clone()
+            .or_else(|| self.runner.options().structured_schema.clone());
+
         let canceller = &self.runner.options().canceller;
         if canceller.is_cancelled() {
             return cancelled_result("");
@@ -138,23 +223,39 @@ impl Tool for DelegateTool {
             },
         };
 
-        let run = self
-            .runner
-            .run(&ctx, &args.prompt, &args.system, &args.model);
+        let mode = if args.continuable {
+            crate::descriptor::Mode::Continuable
+        } else {
+            crate::descriptor::Mode::OneShot
+        };
+        let label = if args.label.trim().is_empty() {
+            None
+        } else {
+            Some(args.label.as_str())
+        };
+        let run = self.runner.run_child(
+            &ctx,
+            &args.prompt,
+            &args.system,
+            &args.model,
+            schema.clone(),
+            mode,
+            label,
+        );
         let out = match run {
             Ok(out) => out,
             Err(e) => {
                 if forge_agent::is_cancelled(&e) {
                     return cancelled_result("");
                 }
-                return result(ChildRun::default(), Some(e));
+                return result(ChildRun::default(), Some(e), schema.is_some());
             }
         };
 
         // Both guards drop here: release the serial slot, then unregister.
         drop(release);
         drop(unregister);
-        result(out, None)
+        result(out, None, schema.is_some())
     }
 }
 
@@ -183,9 +284,14 @@ impl Tool for DepthExceeded {
 }
 
 /// Shape the child's outcome into a tool result. Setup errors and loop errors
-/// are both `Code="subagent_failed"`; cancellation has its own code; empty
-/// text is a success that says what happened, not a failure.
-pub(crate) fn result(out: ChildRun, setup_error: Option<Error>) -> ToolResult {
+/// are both `Code="subagent_failed"`; cancellation has its own code; a required
+/// structured result that never arrived is `bad_output` (a failure); empty text
+/// without a schema is a success that says what happened, not a failure.
+pub(crate) fn result(
+    out: ChildRun,
+    setup_error: Option<Error>,
+    expects_structured: bool,
+) -> ToolResult {
     let mut meta = serde_json::Map::new();
     meta.insert("steps".into(), json!(out.steps));
     meta.insert("turns".into(), json!(out.turns));
@@ -194,6 +300,18 @@ pub(crate) fn result(out: ChildRun, setup_error: Option<Error>) -> ToolResult {
     }
     if !out.model.is_empty() {
         meta.insert("model".into(), json!(out.model));
+    }
+    if let Some(v) = &out.structured {
+        meta.insert("structured".into(), v.clone());
+    }
+    // The catalog row the parent loop must append. A tool never writes the
+    // parent log; it hands the loop a payload through `Result.meta`, exactly as
+    // `compress` hands it `contextBlock`.
+    if let Some(catalog) = &out.catalog {
+        meta.insert(crate::catalog::CATALOG_META.into(), catalog.clone());
+    }
+    if let Some(name) = &out.name {
+        meta.insert("name".into(), json!(name));
     }
 
     let mut r = if let Some(e) = setup_error {
@@ -219,6 +337,18 @@ pub(crate) fn result(out: ChildRun, setup_error: Option<Error>) -> ToolResult {
                 out.steps
             ),
         )
+    } else if expects_structured && out.structured.is_none() {
+        // A schema was supplied, so free text is not an acceptable answer even
+        // though the child ran fine. This is the whole point of the contract.
+        ToolResult::error(
+            CODE_BAD_OUTPUT,
+            format!(
+                "subagent: the child finished without calling structured_output, but a schema was required (session {})",
+                out.id
+            ),
+        )
+    } else if let Some(v) = &out.structured {
+        ToolResult::ok(serde_json::to_string(v).unwrap_or_else(|_| v.to_string()))
     } else if out.text.trim().is_empty() {
         ToolResult::ok(format!(
             "the child finished without any text; its session is {}",

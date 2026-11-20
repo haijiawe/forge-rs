@@ -51,6 +51,13 @@ pub type HiddenHook = Arc<dyn Fn(u64) -> bool + Send + Sync>;
 /// writer would race it into two sequences. So `compress` hands back the payload
 /// it wants written, exactly as an approver hands back a decision.
 pub const CONTEXT_BLOCK_META: &str = "contextBlock";
+/// The member of a tool result's `meta` that asks the loop to append a
+/// `subagent/catalog` record on this (the parent) log.
+///
+/// Same reason as [`CONTEXT_BLOCK_META`]: the subagent tool knows which child it
+/// started and under what name, but only the loop may write the parent log, so
+/// the tool hands back the row and the loop appends it.
+pub const SUBAGENT_CATALOG_META: &str = "subagentCatalog";
 /// Deterministic clock returning epoch milliseconds (injectable for goldens).
 pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
@@ -79,6 +86,10 @@ pub struct Options {
     /// Which seqs are behind a compressed block. `None` is the whole history,
     /// which is what every caller saw before blocks existed.
     pub hidden: Option<HiddenHook>,
+    /// The rewrite seams (`pre-step`, `request`). Empty by default: the loop is
+    /// inert and byte-for-byte what it was until a caller installs a hook. See
+    /// [ADR-0004](../../docs/11-adr-agent-hooks.md) and [`crate::hooks`].
+    pub hooks: crate::hooks::Hooks,
     pub clock: Clock,
     pub cancel: Cancel,
 }
@@ -108,6 +119,7 @@ impl Options {
             on_delta: None,
             attachments: None,
             hidden: None,
+            hooks: crate::hooks::Hooks::none(),
             clock: Arc::new(wall_clock_ms),
             cancel: Cancel::default(),
         }
@@ -281,6 +293,24 @@ impl Agent {
         self.record_error(err.message(), code_of(err), retryable_of(err));
     }
 
+    /// Record a hook rewrite as one `hook/rewrite` event, one line per phase that
+    /// actually changed something. `changed` is the list of hook names that
+    /// rewrote the request; an empty list means no hook changed anything and no
+    /// event is written (the inert case must stay silent).
+    fn record_hook_rewrite(&self, turn: u32, step: u32, phase: &str, changed: &[String]) {
+        if changed.is_empty() {
+            return;
+        }
+        let _ = self.emit(
+            turn,
+            step,
+            (
+                EventType::HOOK_REWRITE,
+                json!({"phase": phase, "hook": changed.join(","), "changed": changed.len()}),
+            ),
+        );
+    }
+
     fn record_tool_calls(&self, turn: u32, step: u32, calls: &[ToolCall]) {
         for c in calls {
             let args = if c.args.is_null() {
@@ -324,7 +354,8 @@ impl Agent {
                 }
             }
 
-            let out = self.step(turn, index as u32, history);
+            let step_no = index as u32; // 0-based payload index, same as step()
+            let out = self.step(turn, step_no, history);
             text.push_str(&out.text);
             if !out.text.is_empty() || !out.calls.is_empty() {
                 let mut m = Message::assistant(&out.text);
@@ -427,12 +458,61 @@ impl Agent {
             .as_ref()
             .map(|t| t.specs())
             .unwrap_or_default();
-        let req = Request {
+
+        // Seam 1 (`pre-step`): the message list the provider is about to receive.
+        // The rewrite is transient — it shapes this request, it does not edit the
+        // durable history, or a redaction would compound on every later step. No
+        // hook installed => `history.to_vec()` unchanged, byte-for-byte the loop
+        // this crate shipped before.
+        let mut messages = history.to_vec();
+        if !self.opt.hooks.is_empty() {
+            match self.opt.hooks.run_pre_step(turn, index, messages) {
+                Ok((next, changed)) => {
+                    self.record_hook_rewrite(turn, step_no, "pre-step", &changed);
+                    messages = next;
+                }
+                Err(e) => {
+                    self.record_error(e.message(), "hook_failed", false);
+                    let _ = self.emit(turn, step_no, step_end(index, STOP_ERROR));
+                    return StepOut {
+                        text: String::new(),
+                        stop: STOP_ERROR,
+                        calls: Vec::new(),
+                        error: Some(e),
+                    };
+                }
+            }
+        }
+
+        let mut req = Request {
             model: self.opt.model.clone(),
-            messages: history.to_vec(),
+            messages,
             tools: specs,
             ..Request::default()
         };
+
+        // Seam 2 (`request`): the fully built request, before it is sent. Only
+        // messages and tool descriptions may change; the model id is restored
+        // inside `run_request`, so a hook cannot pick a model.
+        if !self.opt.hooks.is_empty() {
+            match self.opt.hooks.run_request(turn, index, req) {
+                Ok((next, changed)) => {
+                    self.record_hook_rewrite(turn, step_no, "request", &changed);
+                    req = next;
+                }
+                Err(e) => {
+                    self.record_error(e.message(), "hook_failed", false);
+                    let _ = self.emit(turn, step_no, step_end(index, STOP_ERROR));
+                    return StepOut {
+                        text: String::new(),
+                        stop: STOP_ERROR,
+                        calls: Vec::new(),
+                        error: Some(e),
+                    };
+                }
+            }
+        }
+
         if let Err(e) = req.validate() {
             self.record_error(e.message(), "invalid_request", false);
             let _ = self.emit(turn, step_no, step_end(index, STOP_ERROR));
@@ -502,18 +582,38 @@ impl Agent {
                             error: Some(e),
                         };
                     }
-                    if !retryable_of(&e) || !text.is_empty() || attempt >= self.opt.max_retries {
-                        self.record_error_from(&e);
-                        return StreamOut {
-                            text,
-                            usage,
-                            calls: Vec::new(),
-                            stop: STOP_ERROR,
-                            error: Some(e),
-                        };
+                    // Transport policy: retry a retryable failure before any text.
+                    if retryable_of(&e) && text.is_empty() && attempt < self.opt.max_retries {
+                        self.wait_retry(&e);
+                        continue;
                     }
-                    self.wait_retry(&e);
-                    continue;
+                    // Opt-in override: a `request-error` hook may know a failure is
+                    // transient when its code does not say so.
+                    match self.hooks_request_retry(attempt, &e) {
+                        Ok(true) => {
+                            self.wait_retry(&e);
+                            continue;
+                        }
+                        Ok(false) => {}
+                        Err(hook_err) => {
+                            self.record_error_from(&hook_err);
+                            return StreamOut {
+                                text,
+                                usage,
+                                calls: Vec::new(),
+                                stop: STOP_ERROR,
+                                error: Some(hook_err),
+                            };
+                        }
+                    }
+                    self.record_error_from(&e);
+                    return StreamOut {
+                        text,
+                        usage,
+                        calls: Vec::new(),
+                        stop: STOP_ERROR,
+                        error: Some(e),
+                    };
                 }
             };
 
@@ -531,18 +631,39 @@ impl Agent {
             if let Some(e) = consumed.error {
                 // Only retry before the first text fragment; a retry after text
                 // would duplicate that fragment in the log.
-                if !retryable_of(&e) || !text.is_empty() || attempt >= self.opt.max_retries {
-                    self.record_error_from(&e);
-                    return StreamOut {
-                        text,
-                        usage,
-                        calls: Vec::new(),
-                        stop: STOP_ERROR,
-                        error: Some(e),
-                    };
+                if retryable_of(&e) && text.is_empty() && attempt < self.opt.max_retries {
+                    self.wait_retry(&e);
+                    continue;
                 }
-                self.wait_retry(&e);
-                continue;
+                // A retry after text would duplicate it, so the hook is consulted
+                // only when nothing has been streamed yet.
+                if text.is_empty() {
+                    match self.hooks_request_retry(attempt, &e) {
+                        Ok(true) => {
+                            self.wait_retry(&e);
+                            continue;
+                        }
+                        Ok(false) => {}
+                        Err(hook_err) => {
+                            self.record_error_from(&hook_err);
+                            return StreamOut {
+                                text,
+                                usage,
+                                calls: Vec::new(),
+                                stop: STOP_ERROR,
+                                error: Some(hook_err),
+                            };
+                        }
+                    }
+                }
+                self.record_error_from(&e);
+                return StreamOut {
+                    text,
+                    usage,
+                    calls: Vec::new(),
+                    stop: STOP_ERROR,
+                    error: Some(e),
+                };
             }
             let calls = match agg.finish() {
                 Ok(c) => c,
@@ -578,6 +699,21 @@ impl Agent {
                 "retry_exhausted",
             )),
         }
+    }
+
+    /// Consult a `request-error` hook for a retry the transport policy refused.
+    /// Inert (`false`) when no hook is installed or the retry budget is spent, so
+    /// the loop's behaviour with no hook is exactly the policy above.
+    fn hooks_request_retry(&self, attempt: usize, err: &Error) -> forge_core::Result<bool> {
+        if self.opt.hooks.is_empty() || attempt >= self.opt.max_retries {
+            return Ok(false);
+        }
+        self.opt.hooks.run_request_error(
+            self.cur_turn.load(Ordering::SeqCst),
+            self.cur_step.load(Ordering::SeqCst),
+            attempt as u32,
+            err.message(),
+        )
     }
 
     /// Read one stream to EOF (or cancellation/error), closing exactly once.
@@ -699,6 +835,12 @@ impl Agent {
                     .filter(|value| value.is_object())
                 {
                     self.emit(turn, step, (EventType::CONTEXT_COMPRESSED, block.clone()))?;
+                }
+                if let Some(row) = meta
+                    .get(SUBAGENT_CATALOG_META)
+                    .filter(|value| value.is_object())
+                {
+                    self.emit(turn, step, (EventType::SUBAGENT_CATALOG, row.clone()))?;
                 }
             }
             if res.code == CODE_CANCELLED {

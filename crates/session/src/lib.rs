@@ -19,9 +19,9 @@ pub mod store;
 pub use blobs::{is_valid_name, Blobs};
 pub use compact::{
     compact, compact_log, is_already_compacted, is_empty_summary, is_invalid_log, is_invalid_plan,
-    last_compacted_span, plan_compaction, CompactPlan, Summarizer, TruncatingSummarizer,
-    DEFAULT_KEEP_TURNS, DEFAULT_SUMMARY_BYTES, ERR_ALREADY_COMPACTED, ERR_EMPTY_SUMMARY,
-    ERR_INVALID_LOG, ERR_INVALID_PLAN,
+    last_compacted_span, open_compaction, plan_compaction, CompactPlan, Summarizer,
+    TruncatingSummarizer, DEFAULT_KEEP_TURNS, DEFAULT_SUMMARY_BYTES, ERR_ALREADY_COMPACTED,
+    ERR_EMPTY_SUMMARY, ERR_INVALID_LOG, ERR_INVALID_PLAN,
 };
 pub use decision::{Decision, DecisionWatcher};
 pub use fork::{fork, ForkOptions, ForkResult};

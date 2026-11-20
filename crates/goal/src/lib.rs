@@ -104,6 +104,12 @@ pub struct Goal {
     /// How many continuation rounds have been opened. Counted in the log, so a
     /// restart resumes at the same number instead of starting the budget over.
     pub rounds: u32,
+    /// How many times the goal has advanced. Counted in the log beside `rounds`,
+    /// so two entries that both folded the same goal see the same number and can
+    /// agree on which of them may write the next round. A log written before
+    /// this field existed folds to `0`, which is exactly what a fresh goal is, so
+    /// an old session resumes without a rewrite. See [`fold`].
+    pub revision: u64,
     pub status: Status,
 }
 
@@ -114,6 +120,7 @@ impl Goal {
             text: text.into(),
             max_rounds,
             rounds: 0,
+            revision: 0,
             status: Status::Active,
         }
     }
@@ -161,6 +168,99 @@ impl Goal {
             },
         }
     }
+
+    /// The identity of the round that [`Goal::next_action`] would open, or
+    /// `None` when the goal has stopped.
+    ///
+    /// This is the same decision as `next_action`, plus the `revision` the log
+    /// must still show for this caller to be the one that opens the round. A
+    /// writer that skips the check is a writer that lets two entries continue the
+    /// same goal at once; the log then counts two rounds for one turn of work.
+    pub fn next_action_identity(&self) -> Option<RoundIdentity> {
+        match self.next_action() {
+            Action::Continue { round } => Some(RoundIdentity {
+                goal_id: self.id.clone(),
+                revision: self.revision,
+                round,
+            }),
+            Action::Stop { .. } => None,
+        }
+    }
+}
+
+/// Which round of which revision of which goal a writer is about to open.
+///
+/// The `revision` is the fence: a continuation may only be written when the
+/// log's latest revision still equals the one the writer folded. See
+/// [`CasOutcome`] for the result of that comparison.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoundIdentity {
+    pub goal_id: String,
+    pub revision: u64,
+    pub round: u32,
+}
+
+/// The result of a compare-and-set append of `goal/continued`.
+///
+/// `Written` carries the new revision the log now shows; `Stale` means another
+/// entry advanced the goal first and this one must not write, so it returns the
+/// revision it expected and the one it found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CasOutcome {
+    Written(u64),
+    Stale { expected: u64, found: u64 },
+}
+
+/// A claim on one round, as the entry that opened it held it: "I am running
+/// round `round` of goal `goal_id` at revision `revision`". A runner carries this
+/// and re-checks it at each checkpoint so a round that was superseded (another
+/// entry opened the next round) or whose goal ended stops instead of spending
+/// another model call for work nobody is waiting for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reservation {
+    pub goal_id: String,
+    pub revision: u64,
+    pub round: u32,
+}
+
+/// What re-checking a [`Reservation`] against the log says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FenceOutcome {
+    /// Still the live round: keep going.
+    Valid,
+    /// The goal is no longer active (complete/blocked/cancelled/exhausted).
+    Ended { status: Status },
+    /// Another entry advanced the goal, or the reservation refers to no goal at
+    /// all. `revision`/`rounds` are the numbers the log shows now.
+    Stale { revision: u64, rounds: u32 },
+}
+
+/// Re-check a [`Reservation`] against a log. This is the race fence: it does not
+/// take a lock, it re-reads the one truth (the log) and compares. Two entries can
+/// both try; the one whose revision no longer matches folds to [`FenceOutcome::Stale`]
+/// and must not write another round.
+pub fn fence(events: &[Event], reservation: &Reservation) -> FenceOutcome {
+    let Some(goal) = fold(events) else {
+        return FenceOutcome::Stale {
+            revision: 0,
+            rounds: 0,
+        };
+    };
+    if goal.status != Status::Active {
+        return FenceOutcome::Ended {
+            status: goal.status,
+        };
+    }
+    if goal.id != reservation.goal_id
+        || goal.revision != reservation.revision
+        || goal.rounds != reservation.round
+    {
+        return FenceOutcome::Stale {
+            revision: goal.revision,
+            rounds: goal.rounds,
+        };
+    }
+    FenceOutcome::Valid
 }
 
 /// The decision the turn loop acts on.
@@ -171,11 +271,16 @@ pub enum Action {
 }
 
 /// `goal/created` — the operator asked for this, and the log now knows.
+///
+/// The payload carries `revision: 0`: a new goal has advanced zero times. The
+/// field is optional on read so a log written before it existed folds to the same
+/// zero (see [`fold`]).
 pub fn goal_created(session: &str, goal: &Goal) -> Event {
     let payload = serde_json::json!({
         "goalId": goal.id,
         "text": goal.text,
         "maxRounds": goal.max_rounds,
+        "revision": goal.revision,
     });
     Event::new(session, EventType::GOAL_CREATED, Some(payload))
 }
@@ -183,20 +288,27 @@ pub fn goal_created(session: &str, goal: &Goal) -> Event {
 /// `goal/continued` — the harness opened round `round` by itself.
 ///
 /// Written before the round runs, so a crash during the round leaves the
-/// expensive thing counted rather than free.
+/// expensive thing counted rather than free. Each continuation advances the
+/// revision by exactly one, which is what makes the CAS in
+/// `append_continued_if_current` a fence rather than a hint.
 pub fn goal_continued(session: &str, goal: &Goal, round: u32) -> Event {
     let payload = serde_json::json!({
         "goalId": goal.id,
         "round": round,
+        "revision": goal.revision + 1,
     });
     Event::new(session, EventType::GOAL_CONTINUED, Some(payload))
 }
 
 /// `goal/ended` — the goal stopped, with the reason a human would ask for.
+///
+/// `revision` is written unchanged: ending a goal does not advance it, it records
+/// the revision at which it ended.
 pub fn goal_ended(session: &str, goal: &Goal, reason: StopReason, note: Option<&str>) -> Event {
     let mut payload = Map::new();
     payload.insert("goalId".into(), Value::String(goal.id.clone()));
     payload.insert("reason".into(), Value::String(reason.as_str().to_string()));
+    payload.insert("revision".into(), Value::from(goal.revision));
     if let Some(note) = note {
         payload.insert("note".into(), Value::String(note.to_string()));
     }
@@ -217,6 +329,13 @@ pub fn continuation_prompt(goal: &Goal) -> String {
 /// the new one. A payload this build cannot read is skipped rather than
 /// refused: the log is data, and a line written by a future version must not
 /// take the reader down (AGENTS.md rule 2).
+///
+/// **`revision` is optional and a missing one reads as `0`.** A session written
+/// before this field existed has no `revision` on any `goal/*` payload; folding
+/// it as zero makes it look like a fresh, never-advanced goal, which is exactly
+/// how it behaves (its `rounds` still count, but its CAS fence starts at zero).
+/// Revision only ever rises, so it is folded with `max`: a later line cannot pull
+/// the count back down, and a stray old-style line in a new log changes nothing.
 pub fn fold(events: &[Event]) -> Option<Goal> {
     let mut current: Option<Goal> = None;
 
@@ -243,7 +362,10 @@ pub fn fold(events: &[Event]) -> Option<Goal> {
                     .and_then(Value::as_u64)
                     .map(|value| value.min(u32::MAX as u64) as u32)
                     .unwrap_or(DEFAULT_MAX_ROUNDS);
-                current = Some(Goal::new(id, text, max_rounds));
+                let mut goal = Goal::new(id, text, max_rounds);
+                // Missing revision means zero: an old log starts the fence here.
+                goal.revision = payload_revision(object);
+                current = Some(goal);
             }
             "goal/continued" => {
                 let round = match object.get("round").and_then(Value::as_u64) {
@@ -252,9 +374,11 @@ pub fn fold(events: &[Event]) -> Option<Goal> {
                     // ignoring it would report a budget larger than was spent.
                     None => continue,
                 };
+                let revision = payload_revision(object);
                 if let Some(goal) = current.as_mut() {
                     if goal.id == id {
                         goal.rounds = goal.rounds.max(round);
+                        goal.revision = goal.revision.max(revision);
                     }
                 }
             }
@@ -267,9 +391,11 @@ pub fn fold(events: &[Event]) -> Option<Goal> {
                     Some(reason) => reason,
                     None => continue,
                 };
+                let revision = payload_revision(object);
                 if let Some(goal) = current.as_mut() {
                     if goal.id == id {
                         goal.status = reason.status();
+                        goal.revision = goal.revision.max(revision);
                     }
                 }
             }
@@ -278,6 +404,14 @@ pub fn fold(events: &[Event]) -> Option<Goal> {
     }
 
     current
+}
+
+/// The `revision` a `goal/*` payload declares, or `0` when it is absent.
+///
+/// Absent is not corrupt: it is a log from before the field existed, and zero is
+/// both its true value and the value a fresh goal has today.
+fn payload_revision(object: &Map<String, Value>) -> u64 {
+    object.get("revision").and_then(Value::as_u64).unwrap_or(0)
 }
 
 /// Reject a goal that could never make sense, before it is written.
@@ -301,4 +435,106 @@ pub fn validate(goal: &Goal) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn revision_starts_at_zero_and_rises_by_one_per_continuation() {
+        let goal = Goal::new("g1", "keep the build green", 4);
+        assert_eq!(goal.revision, 0, "a fresh goal has advanced zero times");
+
+        let created = goal_created("s", &goal);
+        let folded = fold(std::slice::from_ref(&created)).expect("created folds");
+        assert_eq!(folded.revision, 0);
+
+        // The writer folded revision 0, so its continuation claims revision 1.
+        let first = goal_continued("s", &folded, 1);
+        let folded = fold(&[created.clone(), first]).expect("one continuation folds");
+        assert_eq!(folded.revision, 1, "one continuation is revision 1");
+        assert_eq!(folded.rounds, 1);
+
+        // The next writer must fold 1 and claim 2 — never 1 again.
+        let second = goal_continued("s", &folded, 2);
+        let folded = fold(&[created, second]).expect("two continuations fold");
+        assert_eq!(folded.revision, 2);
+        assert_eq!(folded.rounds, 2);
+    }
+
+    #[test]
+    fn missing_revision_reads_as_zero() {
+        // A log from before the field existed: no `revision` on any payload.
+        let created = Event::new(
+            "s",
+            EventType::GOAL_CREATED,
+            Some(json!({ "goalId": "g1", "text": "old log", "maxRounds": 3 })),
+        );
+        let continued = Event::new(
+            "s",
+            EventType::GOAL_CONTINUED,
+            Some(json!({ "goalId": "g1", "round": 1 })),
+        );
+        let folded = fold(&[created, continued]).expect("old log folds");
+        assert_eq!(folded.revision, 0, "absent revision is 0, not an error");
+        assert_eq!(folded.rounds, 1, "rounds still count without revision");
+    }
+
+    #[test]
+    fn revision_never_folds_backwards() {
+        // A stray old-style ended line (no revision) after a continued(rev 5)
+        // must not pull the fence back down to zero.
+        let created = Event::new(
+            "s",
+            EventType::GOAL_CREATED,
+            Some(json!({ "goalId": "g1", "text": "x", "maxRounds": 9, "revision": 0 })),
+        );
+        let continued = Event::new(
+            "s",
+            EventType::GOAL_CONTINUED,
+            Some(json!({ "goalId": "g1", "round": 5, "revision": 5 })),
+        );
+        let ended = Event::new(
+            "s",
+            EventType::GOAL_ENDED,
+            Some(json!({ "goalId": "g1", "reason": "complete" })),
+        );
+        let folded = fold(&[created, continued, ended]).expect("folds");
+        assert_eq!(folded.revision, 5, "max keeps the highest revision seen");
+    }
+
+    #[test]
+    fn next_identity_carries_the_current_revision() {
+        let mut goal = Goal::new("g1", "do the thing", 5);
+        goal.revision = 7;
+        let identity = goal
+            .next_action_identity()
+            .expect("active goal opens a round");
+        assert_eq!(
+            identity,
+            RoundIdentity {
+                goal_id: "g1".to_string(),
+                revision: 7,
+                round: 1,
+            }
+        );
+
+        goal.status = Status::Complete;
+        assert_eq!(
+            goal.next_action_identity(),
+            None,
+            "a stopped goal opens no round"
+        );
+    }
+
+    #[test]
+    fn cancelled_reason_folds_to_cancelled_status() {
+        let goal = Goal::new("g1", "x", 3);
+        let created = goal_created("s", &goal);
+        let ended = goal_ended("s", &goal, StopReason::Cancelled, Some("paused"));
+        let folded = fold(&[created, ended]).expect("folds");
+        assert_eq!(folded.status, Status::Cancelled);
+    }
 }

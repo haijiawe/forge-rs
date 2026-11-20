@@ -27,6 +27,7 @@ pub mod context_tools;
 pub mod doctor;
 pub mod expertcmd;
 pub mod goalcmd;
+pub mod goalfence;
 pub mod grants;
 pub mod importcmd;
 pub mod indexcmd;
@@ -37,6 +38,7 @@ pub mod pluginscaffold;
 pub mod schedulecmd;
 pub mod sessioncmd;
 pub mod skillcmd;
+pub mod subagentcmd;
 pub mod teamcmd;
 pub mod web;
 pub mod wiring;
@@ -194,6 +196,7 @@ usage:
   forge plugin <command>       inspect the installed plugin set
   forge expert <command>       list or show the expert roster
   forge skill <command>        list or show the skills the model was offered
+  forge subagent <command>     list, resume, interrupt, or run a child
   forge team <command>         list teams, or run one over a shared board
   forge market <command>       install or remove plugin bundles
   forge doctor [flags]         check the environment
@@ -272,6 +275,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
         "plugin" => plugincmd::run(&args[1..], stdout, stderr),
         "expert" => expertcmd::run(&args[1..], stdout, stderr),
         "skill" => skillcmd::run(&args[1..], stdout, stderr),
+        "subagent" => subagentcmd::run(&args[1..], stdout, stderr),
         "team" => teamcmd::run(&args[1..], stdout, stderr),
         "market" => marketcmd::run(&args[1..], stdout, stderr),
         "import" => importcmd::run(&args[1..], stdout, stderr),

@@ -48,6 +48,28 @@ impl EventType {
     pub const GOAL_CONTINUED: EventType = EventType("goal/continued");
     pub const GOAL_ENDED: EventType = EventType("goal/ended");
     pub const CONTEXT_COMPRESSED: EventType = EventType("context/compressed");
+    /// One line per pre-step/request rewrite a hook actually applied. See
+    /// docs/11-adr-agent-hooks.md: the loop may be extended, so the rewrite must
+    /// be on the record — a log with no `hook/rewrite` proves none happened.
+    pub const HOOK_REWRITE: EventType = EventType("hook/rewrite");
+    /// One row per direct child a parent session created: the stable identity a
+    /// name, a resumable child, and `forge subagent list` all hang off. Written
+    /// on the parent log, by the loop, from `Result.meta["subagentCatalog"]`.
+    pub const SUBAGENT_CATALOG: EventType = EventType("subagent/catalog");
+    /// The child's own record of what it was started as (provider/model/label and
+    /// the composer's knobs). Written once on the child log, log-only, never in
+    /// model history, and deliberately free of depth and output schema.
+    pub const SUBAGENT_DESCRIPTOR: EventType = EventType("subagent/descriptor");
+    /// Opens a compaction transaction, before the summarizer runs. Pairs with
+    /// `compaction/end`: a `start` with no `end` is a compaction that died in
+    /// flight, which a reader can report instead of trusting a half-written range.
+    pub const COMPACTION_START: EventType = EventType("compaction/start");
+    /// Closes a compaction transaction. `payload.ok` says whether a summary
+    /// actually landed, so a failed round is on the record and not silent.
+    pub const COMPACTION_END: EventType = EventType("compaction/end");
+    /// A summary that could not be produced (provider error, or empty output).
+    /// The history stays visible: a failure to summarize must never hide events.
+    pub const COMPACTION_SUMMARY_ERROR: EventType = EventType("compaction/summary-error");
 
     /// Every type this build knows. A test asserts it matches the contract
     /// document, and the reader uses it to decide what it can fold.
@@ -71,6 +93,12 @@ impl EventType {
         EventType::GOAL_CONTINUED,
         EventType::GOAL_ENDED,
         EventType::CONTEXT_COMPRESSED,
+        EventType::HOOK_REWRITE,
+        EventType::SUBAGENT_CATALOG,
+        EventType::SUBAGENT_DESCRIPTOR,
+        EventType::COMPACTION_START,
+        EventType::COMPACTION_END,
+        EventType::COMPACTION_SUMMARY_ERROR,
     ];
 
     pub fn as_str(self) -> &'static str {

@@ -1,0 +1,109 @@
+{
+  "name": "ok_compaction_txn",
+  "description": "The three event types that turn a compaction into a transaction: compaction/start (opened before the summarizer runs), compaction/end (closed with ok true or false), and compaction/summary-error (a summary that could not be produced, so the history stays visible). Additive — no envelope change, no version bump (AGENTS.md rule 2). A start with no end is a compaction that died in flight; this case pins that a reader accepts the bracket and reproduces its bytes.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "c1c2d3e4f5a60718293a4b5c6d7e8fc1",
+      "ts": 1794787200100,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "compaction/start",
+      "payload": {
+        "from": 12,
+        "to": 40
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "c1c2d3e4f5a60718293a4b5c6d7e8fc2",
+      "ts": 1794787200101,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "compaction/summary",
+      "payload": {
+        "summary": "seq 12..40 folded",
+        "replaces": {
+          "from": 12,
+          "to": 40
+        }
+      }
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "id": "c1c2d3e4f5a60718293a4b5c6d7e8fc3",
+      "ts": 1794787200102,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "compaction/end",
+      "payload": {
+        "ok": true
+      }
+    },
+    {
+      "v": 1,
+      "seq": 4,
+      "id": "c1c2d3e4f5a60718293a4b5c6d7e8fc4",
+      "ts": 1794787200103,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "compaction/summary-error",
+      "payload": {
+        "reason": "empty",
+        "message": "the model returned no text"
+      }
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "c1c2d3e4f5a60718293a4b5c6d7e8fc1",
+      "ts": 1794787200100,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "compaction/start",
+      "payload": {
+        "from": 12,
+        "to": 40
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "c1c2d3e4f5a60718293a4b5c6d7e8fc2",
+      "ts": 1794787200101,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "compaction/summary",
+      "payload": {
+        "summary": "seq 12..40 folded",
+        "replaces": {
+          "from": 12,
+          "to": 40
+        }
+      }
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "id": "c1c2d3e4f5a60718293a4b5c6d7e8fc3",
+      "ts": 1794787200102,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "compaction/end",
+      "payload": {
+        "ok": true
+      }
+    },
+    {
+      "v": 1,
+      "seq": 4,
+      "id": "c1c2d3e4f5a60718293a4b5c6d7e8fc4",
+      "ts": 1794787200103,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "compaction/summary-error",
+      "payload": {
+        "reason": "empty",
+        "message": "the model returned no text"
+      }
+    }
+  ]
+}

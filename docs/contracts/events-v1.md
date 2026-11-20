@@ -143,7 +143,7 @@ the condition, and the substring above is what the conformance suite asserts.
 
 ## 4. Event types
 
-The v1 type catalogue is **open**. These nineteen types have producers in `forge` today:
+The v1 type catalogue is **open**. These twenty-five types have producers in `forge` today:
 
 | `type` | Emitted when | Payload members in current producers |
 | --- | --- | --- |
@@ -162,10 +162,26 @@ The v1 type catalogue is **open**. These nineteen types have producers in `forge
 | `approval/decision` | the user answered | `approvalId`, `callId`, `decision` (`allow` \| `deny`), `decidedBy`, optional `note` |
 | `compaction/summary` | history is compacted | `summary`, `replaces` (`{from,to}` seq range) |
 | `error` | the harness failed a step | `message`, optional `code`, `retryable` |
-| `goal/created` | a goal begins: keep working until it is done or blocked | `goalId`, `text`, `maxRounds` |
-| `goal/continued` | a continuation round is opened by the harness, not by a person | `goalId`, `round` |
-| `goal/ended` | the goal stops | `goalId`, `reason` (`complete` | `blocked` | `cancelled` | `exhausted`), optional `note` |
-| `context/compressed` | a seq range is replaced, for this window only, by a summary the model can name | `blockId`, `from`, `to` (inclusive seq), `summary`, optional `messages` (§4.0.3) |
+| `goal/created` | a goal begins: keep working until it is done or blocked | `goalId`, `text`, `maxRounds`, optional `revision` (u64) |
+| `goal/continued` | a continuation round is opened by the harness, not by a person | `goalId`, `round`, optional `revision` (u64) |
+| `goal/ended` | the goal stops | `goalId`, `reason` (`complete` | `blocked` | `cancelled` | `exhausted`), optional `note`, optional `revision` (u64) |
+| `context/compressed` | a seq range is replaced, for this window only, by a summary the model can name | `blockId`, `from`, `to` (inclusive seq), `summary`, optional `messages`, optional `surfaceOp` (§4.0.3) |
+| `hook/rewrite` | a hook changed what the provider is about to receive (§4.0.4) | `phase` (`pre-step` \| `request`), `hook` (the names that changed something, comma-separated), `changed` (how many hooks did) |
+| `subagent/catalog` | the loop records that this session started a child (§4.0.5) | `version` (3), `childId`, `mode` (`one-shot` \| `continuable`), optional `label`, optional `name` |
+| `subagent/descriptor` | a child session records how it was created, once, inside its first turn (§4.0.5) | `version` (3), `mode`, `provider`, optional `label`, optional `agentProvider` \| `agentModel` \| `agentReasoningEffort` \| `persona` \| `toolFilter` |
+| `compaction/start` | a compaction transaction opens, before the summarizer runs (§4.0.6) | `from`, `to` (the seq range the transaction intends to fold) |
+| `compaction/end` | the transaction closes | `ok` (bool), optional `reason` (`empty` \| `error` \| `already-compacted`) |
+| `compaction/summary-error` | a summary could not be produced, so the history stays visible (§4.0.6) | `reason` (`empty` \| `error`), `message` |
+
+The optional `revision` on the three `goal/*` payloads is the version a
+multi-writer continuation uses to decide, *before it writes*, whether it is still
+the one advancing the goal: a writer reads the log's latest `revision` and
+appends `goal/continued` (carrying `revision + 1`) only when its local copy still
+matches — otherwise it is `Stale` and writes nothing, so two entrants cannot
+double-run one goal. **Any `goal/*` event that omits `revision` reads as `0`** —
+old logs have none, and a reader must not refuse them for it. `goal/created`
+writes `0`, `goal/continued` writes the incremented value, `goal/ended` writes the
+version it stops at, and `fold` never lets the value go backwards.
 
 **Exactly one `approval/decision` per `approvalId`, written by whoever decided.** `approval/request` is always written by the agent loop — only it knows the turn and the step the consent belongs to. The decision is written by the surface that produced the answer: the CLI approvers answer inside the loop (`--approve=always`, `--approve=prompt`), so the loop records them; the browser answers over HTTP, so the request handler appends the decision *before* it replies — the consent has to be in the log before a 200 is sent, or a restart between the click and the response would lose the answer the log exists to preserve. An approver that records its own decision declares that with `tool.DecisionRecorder`, and the loop then writes only the request. Two writers would turn one click into two records and leave an audit unable to say how many times a human was asked. A *timeout* is still recorded by the loop as a `deny` with a `note`: "nobody answered" is the loop failing to get an answer, not a decision by anyone.
 
@@ -289,6 +305,18 @@ history: the safe direction. What it carries is an address, not a copy.
 | `to` | number | last `seq` the block hides, inclusive, not before `from` |
 | `summary` | string | what the model reads instead; 1 byte to 8 KiB |
 | `messages` | number, optional | how many projected messages fell in the range when the block was made — a diagnostic, never an address |
+| `surfaceOp` | object, optional | how the block is surfaced: absent means `hide`; `{"op":"replace","startSeq":N,"endSeq":M}` stands a summary message in for the range instead of leaving a silent gap |
+
+`surfaceOp` is the one optional member that changes what the model *sees* rather
+than how the block is described. It is absent in every block written before the
+field existed, and absent means **hide** — the historic behaviour — so a reader
+that ignores it reads the log exactly as it always did. When present, `op` must
+be `"replace"` (an unknown op is an error, not a silent `hide`: the writer meant
+to surface something, and losing it quietly is worse than failing), and
+`startSeq`/`endSeq` are inclusive and must fall inside `[from..to]` — a summary
+for a range the block does not cover is a claim the ledger cannot answer on
+restore. There is still no begin/summary/commit trio: the block is one event, so
+it is atomic by construction (a half-written block cannot be observed).
 
 Four invariants, each of which a writer must check before appending:
 
@@ -306,6 +334,117 @@ Restoring a block is a **read**, never a rewrite: the originals are still in the
 log a few records earlier, so `decompress` returns them from the same file. The
 log therefore never shrinks, and a block is never edited — a block that was a
 mistake is still there, and the way to stop paying for it is to restore it.
+
+### 4.0.4 `hook/rewrite` records
+
+A hook is an extension point that may change what the provider receives, without
+changing the log it was derived from. Two rewrite phases exist: `pre-step` (the
+message list about to be sent) and `request` (the fully built request, after tools
+are attached). A hook returns either "unchanged" or a rewritten value; the loop
+resolves hooks in installation order, each later hook seeing earlier changes.
+
+A third phase, `request-error`, does **not** rewrite and is **not** recorded here:
+after a request attempt fails and the transport policy would give up, a hook may
+answer only "retry or not" (`HookOutcome::Retry`). It changes nothing durable, so
+there is no `hook/rewrite` row for it — the retry it forces shows up as the next
+`llm/call`.
+
+`hook/rewrite` is the audit record. Every phase that actually changed something
+writes exactly one row, naming the hooks that changed it:
+
+| Member | Type | Meaning |
+| --- | --- | --- |
+| `phase` | string | `pre-step` or `request`. |
+| `hook` | string | The names of the hooks that changed something, comma-separated. |
+| `changed` | integer | How many hooks did. |
+
+The inert case is silent: a step where no hook changed anything writes no
+`hook/rewrite`. This is what lets a reader say "the log had no rewrite" and mean
+it — the loop cannot rewrite what the provider sees without leaving a row. The
+record does **not** carry the before/after text. Logging the difference would put
+the very bytes a hook may have redacted back into the log, defeating the hook.
+The row asserts *that* a rewrite happened and *who* did it; the content is
+recoverable only by re-running the same hooks over the same prefix, which is the
+same footing `context/compressed` stands on.
+
+A hook may not change the model id (the loop restores it after the call) and may
+not append events itself — the loop is the only writer. A hook that fails is not
+swallowed: the step ends `error` with `code: hook_failed`, so a broken extension
+is loud rather than silently absent.
+
+### 4.0.5 `subagent/catalog` and `subagent/descriptor` records
+
+A subagent is a child session with a durable identity, so a later turn can name
+it again after a restart. Two rows record that identity, and each has exactly one
+writer:
+
+- `subagent/catalog` is written **on the parent log** by the loop, once per child
+  it starts, when the child's tool result comes back. The `subagent` tool never
+  writes it — it hands the loop a payload through `Result.meta["subagentCatalog"]`,
+  the same channel `compress` uses for `contextBlock`, because the loop is the
+  parent log's only writer.
+- `subagent/descriptor` is written **on the child's own log** by the child's
+  runner, once, inside its first turn, right after `session/start`. It is
+  log-only: it never enters the model's history and survives compaction.
+
+| Member | Type | Meaning |
+| --- | --- | --- |
+| `version` | integer | `3`. A reader that does not know this version folds to "no descriptor", not an error. |
+| `childId` | string | (`catalog` only) the child session id. |
+| `mode` | string | `one-shot` or `continuable`. |
+| `provider` | string | (`descriptor` only) the backend that ran the child. |
+| `label` | string | optional, human-facing. |
+| `name` | string | (`catalog` only) the child's durable sibling name, e.g. `agent-2`; see below. |
+| `agentProvider` / `agentModel` / `agentReasoningEffort` / `persona` / `toolFilter` | optional | (`descriptor`, `continuable` only) the composition the child was created with. |
+
+**Names.** A child's name is unique among its siblings, matches
+`^[a-z][a-z0-9-]{0,31}$`, and is never `lead` (the root's name). When the caller
+does not ask for one, the runner picks the first free `agent-N`. The name lives in
+the catalog row; the tool also echoes it in `Result.meta["name"]` for the model's
+eyes, but the log row is the source of truth.
+
+**Folding.** A catalog is the ordered list of its rows (a bad row is skipped, not
+fatal — unknown types are data). A descriptor fold reads the **first**
+`subagent/descriptor` on the log and ignores later ones; a version it does not
+know folds to `None` rather than throwing, so an old reader meeting a future
+descriptor degrades instead of refusing the log.
+
+**One-shot vs continuable.** A `one-shot` child is terminal: when its run
+finishes it writes `session/end`, and nothing may append to it again. A
+`continuable` child never writes `session/end` at rest — its last `turn/end` is
+the resting state — so a later `Runner::resume(childId, prompt, …)` may append
+another turn to the same log, driven entirely by the durable log rather than by
+any in-memory activation. Resuming a one-shot child, a child that already wrote
+`session/end`, or an id not shaped like a child id fails before a single event is
+written. This is what lets a child survive a restart: the log carries it, not a
+live process.
+
+### 4.0.6 `compaction/start`, `compaction/end` and `compaction/summary-error`
+
+A compaction is not one append: the summarizer runs between deciding a range and
+writing the summary, and a process can die in that gap. Three additive rows turn
+it into an inspectable transaction on the same append-only log:
+
+- `compaction/start{from,to}` opens the transaction **before** the summarizer is
+  asked for text. The seq range it names is the plan's range.
+- `compaction/summary` (the existing record) lands the summary when one is
+  produced.
+- `compaction/end{ok,reason?}` closes the transaction. `ok:true` means a summary
+  landed; `ok:false` records a round that folded nothing (`reason` is `empty`,
+  `error`, or `already-compacted` when a concurrent compactor won the range).
+- `compaction/summary-error{reason,message}` records a summary that could not be
+  produced (provider error, or empty output). It replaces nothing.
+
+**A failed compaction hides nothing.** When the summarizer errors or returns only
+whitespace, the writer records `summary-error` + `end{ok:false}` and appends no
+`compaction/summary`; the covered events stay visible to the model. This is the
+one place where "give the model more" is the safe direction: an empty summary
+would otherwise become the permanent record of what those events said.
+
+**Orphans are detectable, not silent.** A `compaction/start` with no following
+`compaction/end` is a compaction that died in flight; `open_compaction()` reports
+its seq. A reader that trusts a half-written range would treat a partial summary
+as the whole story, so the bracket exists precisely to make that state visible.
 
 ### 4.1 Forked logs
 

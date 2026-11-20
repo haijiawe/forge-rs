@@ -1,0 +1,63 @@
+{
+  "name": "ok_goal_revision",
+  "description": "goal/* payloads may carry an optional `revision` (u64) used for multi-writer CAS: a writer appends goal/continued with revision+1 only when the log's latest revision still matches its local copy. A v1 reader that does not know the field keeps it byte-for-byte across decode/encode; a payload without it (old logs) is equally valid because absent reads as 0.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "e1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "goal/created",
+      "payload": {
+        "goalId": "f1b2c3d4e5f60718293a4b5c6d7e8f92",
+        "text": "keep the build green",
+        "maxRounds": 5,
+        "revision": 0
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "e1b2c3d4e5f60718293a4b5c6d7e8f91",
+      "ts": 1794787260000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "goal/continued",
+      "payload": {
+        "goalId": "f1b2c3d4e5f60718293a4b5c6d7e8f92",
+        "round": 1,
+        "revision": 1
+      }
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "e1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "ts": 1794787200000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "goal/created",
+      "payload": {
+        "goalId": "f1b2c3d4e5f60718293a4b5c6d7e8f92",
+        "text": "keep the build green",
+        "maxRounds": 5,
+        "revision": 0
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "e1b2c3d4e5f60718293a4b5c6d7e8f91",
+      "ts": 1794787260000,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "goal/continued",
+      "payload": {
+        "goalId": "f1b2c3d4e5f60718293a4b5c6d7e8f92",
+        "round": 1,
+        "revision": 1
+      }
+    }
+  ]
+}

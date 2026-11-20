@@ -30,6 +30,9 @@ pub type NowFn = Arc<dyn Fn() -> i64 + Send + Sync>;
 pub const DEFAULT_MAX_DEPTH: usize = 1;
 /// Go's `agent` default when `max_steps` is zero.
 pub const DEFAULT_MAX_STEPS: usize = 24;
+/// Default concurrency: 1 — the serial behaviour the Go oracle pins. DSH's
+/// `SubagentRuntime` defaults to 8; set [`Options::max_active`] to raise it.
+pub const DEFAULT_MAX_ACTIVE: usize = 1;
 
 /// A deliberately tiny logging seam. No `tracing`/`log` crate is in the
 /// workspace dependency budget, so the default is a no-op and embedders can
@@ -84,14 +87,19 @@ impl Canceller {
         Self::notify(&self.wake);
     }
 
-    /// Stop one delegation, identified by the model's `callId`.
-    pub fn cancel_call(&self, call_id: &str) {
+    /// Stop one delegation, identified by the model's `callId`. Returns whether a
+    /// live token was found and tripped, so a control surface can tell "stopped
+    /// it" from "nothing was running under that id".
+    pub fn cancel_call(&self, call_id: &str) -> bool {
+        let mut found = false;
         if let Ok(active) = self.active.lock() {
             if let Some(cancel) = active.get(call_id) {
                 cancel.cancel();
+                found = true;
             }
         }
         Self::notify(&self.wake);
+        found
     }
 
     /// Register a fresh per-call token. A duplicate `callId` replaces the old
@@ -134,7 +142,18 @@ pub struct Options {
     pub depth: usize,
     /// Zero selects [`DEFAULT_MAX_DEPTH`].
     pub max_depth: usize,
+    /// How many children may run at the same time; the rest wait their turn.
+    /// Zero selects [`DEFAULT_MAX_ACTIVE`] (1 — the serial behaviour the Go
+    /// oracle pins). Raise it for concurrency (DSH defaults to 8). Unlike DSH, a
+    /// call over the limit queues rather than failing `ACTIVATION_LIMIT_REACHED`:
+    /// the tool is synchronous, so queueing is the honest behaviour for a model
+    /// that asked for the work.
+    pub max_active: usize,
     pub parent_session_id: String,
+    /// The parent session's log file, when there is one. The runner reads it to
+    /// reserve a sibling name and to build the catalog row the loop will append;
+    /// it never writes it (the loop is the parent log's only writer).
+    pub parent_log: Option<PathBuf>,
     pub clock: Clock,
     pub now: NowFn,
     pub logger: Arc<dyn Logger>,
@@ -143,6 +162,27 @@ pub struct Options {
     pub policy: Option<Arc<dyn Policy>>,
     pub limits: Limits,
     pub canceller: Canceller,
+    /// Optional JSON-schema subset the child must satisfy by calling
+    /// `structured_output` before it finishes. `None` (the default) keeps the
+    /// free-text behaviour. A per-call `schema` on the `subagent` tool overrides
+    /// this value for that one delegation.
+    pub structured_schema: Option<serde_json::Value>,
+    /// Where a child runs. `None` (the default) runs it in this process, as it
+    /// always has. `Some` hands the child to another place — the one shipped
+    /// implementation spawns our own binary in worker mode over stdio. See
+    /// [`crate::backend`]. The in-process pool and depth limits still apply on
+    /// this side; the backend only decides *where* a permitted child runs.
+    pub backend: Option<Arc<dyn crate::backend::Backend>>,
+    /// Named external providers, looked up by [`Options::backend_name`]. A caller
+    /// registers a [`crate::backend::Backend`] here (or on a clone of this
+    /// handle, since [`crate::providers::Providers`] is shared) and refers to it
+    /// by name. Empty means "in-process" unless `backend` is set directly.
+    pub providers: crate::providers::Providers,
+    /// Resolve the child's backend from [`Options::providers`] by this name.
+    /// Ignored when `backend` is set. A name that is not registered is an error,
+    /// not a silent fallback: a typo must not turn "run in a worker" into "run
+    /// here".
+    pub backend_name: Option<String>,
 }
 
 impl Options {
@@ -164,13 +204,19 @@ impl Options {
             max_steps: 0,
             depth: 0,
             max_depth: 0,
+            max_active: 0,
             parent_session_id: String::new(),
+            parent_log: None,
             clock: Arc::new(wall_clock_ms),
             now: Arc::new(wall_clock_ms),
             logger: Arc::new(NoopLogger),
             policy: None,
             limits: Limits::default(),
             canceller: Canceller::default(),
+            structured_schema: None,
+            backend: None,
+            providers: crate::providers::Providers::new(),
+            backend_name: None,
         }
     }
 

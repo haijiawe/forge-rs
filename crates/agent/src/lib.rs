@@ -10,6 +10,7 @@ pub mod agent;
 pub mod cancel;
 pub mod err;
 pub mod history;
+pub mod hooks;
 pub mod payload;
 pub mod summarizer;
 pub mod tool;
@@ -23,6 +24,7 @@ pub use err::{
     retryable_of, ProviderFailure,
 };
 pub use history::{next_turn, open_turn, to_llm_messages, to_llm_messages_with_parts};
+pub use hooks::{is_hook_phase, Hook, HookCall, HookOutcome, Hooks, HOOK_PHASES};
 pub use payload::{
     clip_system, error_event, llm_call, normalize_stop, step_end, step_start, stop_with_calls,
     turn_end, turn_reason, turn_start, usage_payload, user_message, CODE_CANCELLED,

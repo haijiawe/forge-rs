@@ -293,6 +293,52 @@ fn retry_before_text_succeeds() {
     );
 }
 
+/// A non-retryable failure is normally fatal, but a `request-error` hook may know
+/// the failure is transient and ask the loop to retry it anyway.
+#[test]
+fn a_request_error_hook_can_override_a_non_retryable_failure() {
+    use forge_agent::{Hook, HookCall, HookOutcome, Hooks};
+
+    let path = temp_log("hook-retry");
+    let store = open_store(&path);
+    let provider = Arc::new(ScriptedProvider::new(vec![
+        // Refused is not retryable by the transport policy, so only a hook can
+        // bring this turn back.
+        Response::StartErr(forge_core::Error::new(
+            forge_core::ErrorKind::Refused,
+            "policy refused",
+        )),
+        Response::Deltas(vec![
+            Delta {
+                text: "recovered".into(),
+                ..Default::default()
+            },
+            Delta {
+                stop_reason: Some("stop".into()),
+                ..Default::default()
+            },
+        ]),
+    ]));
+    let mut hooks = Hooks::none();
+    hooks.push(Hook::new("transient", |call| match call {
+        HookCall::RequestError { .. } => Ok(HookOutcome::Retry),
+        _ => Ok(HookOutcome::Unchanged),
+    }));
+    let mut opt = Options::new(provider.clone(), Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.clock = fixed_clock();
+    opt.hooks = hooks;
+    let agent = Agent::new(opt).expect("new agent");
+
+    let (result, error) = agent.run("retry via hook");
+    assert!(error.is_none(), "turn failed: {:?}", error);
+    assert_eq!(result.text, "recovered");
+    assert_eq!(
+        provider.requests().len(),
+        2,
+        "the hook forced exactly one retry"
+    );
+}
+
 /// A retryable failure after text must NOT retry (would duplicate text), and
 /// must write one partial assistant/message with stopReason error + an error
 /// event + turn/end error.

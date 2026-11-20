@@ -340,3 +340,60 @@ fn an_explicitly_empty_sandbox_access_object_keeps_the_other_members_alone() {
     assert!(config.sandbox_access.network.is_none());
     assert!(!config.sandbox_allow_net());
 }
+
+// ---------------------------------------------------------------------------
+// subagent.maxActive
+// ---------------------------------------------------------------------------
+
+#[test]
+fn subagent_max_active_defaults_to_zero_and_is_omitted_from_json() {
+    // Zero is the package default (one child at a time, the Go oracle's serial
+    // behaviour). It must not serialize, so an untouched file stays untouched.
+    let config = Config::defaults();
+    assert_eq!(config.subagent.max_active, 0);
+    let value = serde_json::to_value(&config).expect("config serializes");
+    let subagent = value
+        .get("subagent")
+        .and_then(|inner| inner.as_object())
+        .expect("subagent object");
+    assert!(
+        !subagent.contains_key("maxActive"),
+        "an unset maxActive must not serialize: {value}"
+    );
+}
+
+#[test]
+fn subagent_max_active_reads_from_json_and_round_trips() {
+    let dir = TempDir::new("subagent-max-active");
+    let path = dir.file("config.json", r#"{"subagent": {"maxActive": 4}}"#);
+    let config = load(&path);
+    assert_eq!(config.subagent.max_active, 4);
+    let value = serde_json::to_value(&config).expect("config serializes");
+    assert_eq!(
+        value["subagent"]["maxActive"], 4,
+        "maxActive must round-trip under its camelCase name"
+    );
+}
+
+#[test]
+fn a_negative_subagent_max_active_is_a_typed_error() {
+    // A negative pool size has no meaning; refusing it at validate time beats
+    // silently reading it as zero (which would mean "the package default").
+    let dir = TempDir::new("subagent-max-active-negative");
+    let path = dir.file("config.json", r#"{"subagent": {"maxActive": -1}}"#);
+    let config = load(&path);
+    let err = config
+        .validate()
+        .expect_err("negative maxActive must be refused");
+    assert_eq!(err.kind(), ErrorKind::Invalid);
+    assert!(
+        err.message().contains("subagent.maxActive"),
+        "message names the key: {}",
+        err.message()
+    );
+    assert!(
+        err.message().contains("negative"),
+        "message says why: {}",
+        err.message()
+    );
+}

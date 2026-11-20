@@ -114,6 +114,10 @@ pub struct WiredTools {
     /// plugin, and a plugin tool that outlived its host would fail on its first
     /// call with "not loaded".
     plugins: Option<Arc<forge_plugin::Host>>,
+    /// The rewrite seams contributed by loaded plugins. Empty when no enabled
+    /// plugin claims `before_turn`, and empty is inert: the loop then never
+    /// consults a hook and writes no `hook/rewrite`.
+    hooks: forge_agent::Hooks,
 }
 
 impl WiredTools {
@@ -145,6 +149,12 @@ impl WiredTools {
     /// to ask a plugin something out of band — the tools hold their own `Arc`.
     pub fn plugins(&self) -> Option<&Arc<forge_plugin::Host>> {
         self.plugins.as_ref()
+    }
+
+    /// The hook seams a loaded plugin contributed. Empty means the loop runs
+    /// with no extension point installed — the inert case.
+    pub fn hooks(&self) -> &forge_agent::Hooks {
+        &self.hooks
     }
 
     /// Close every MCP client. Idempotent; children are killed here, so it must
@@ -828,6 +838,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
     // plugin that fails to load is a note rather than a failed turn: one broken
     // third-party process must not cost the operator their session.
     let mut plugin_host: Option<Arc<forge_plugin::Host>> = None;
+    let mut plugin_hooks = forge_agent::Hooks::none();
     if !options.cfg.plugins.enabled.is_empty() {
         let mut host = forge_plugin::Host::start(options.cfg.plugin_root());
         // Read market-installed bundles too, so a plugin enabled by name is found
@@ -865,6 +876,12 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
                             parts.join(", ")
                         }
                     ));
+                    // A plugin that claims `before_turn` gets a hook on the loop's
+                    // `pre-step` seam. One that does not claims nothing, and
+                    // calling it would make its capability list meaningless.
+                    if capabilities.runs_hook("before_turn") {
+                        plugin_hooks.push(bridges::plugin_hook(Arc::clone(&host), name));
+                    }
                 }
                 Err(err) => notes.push(format!("plugin {name} skipped: {err}")),
             }
@@ -1059,7 +1076,20 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
         sub.system = options.system.clone();
         sub.tools = Some(Arc::clone(&parent_runner));
         sub.max_depth = options.cfg.subagent.max_depth as usize;
+        // Zero means "the package default" (one, serial). A higher number lets the
+        // model fan out; excess children queue on the runner's pool.
+        sub.max_active = options.cfg.subagent.max_active.max(0) as usize;
         sub.parent_session_id = options.parent_session.clone();
+        if !options.parent_session.is_empty() {
+            // The parent log, so the runner can reserve a sibling name and hand
+            // the loop a catalog row. The runner only reads this path.
+            sub.parent_log = Some(
+                options
+                    .data_dir
+                    .join("sessions")
+                    .join(format!("{}.jsonl", options.parent_session)),
+            );
+        }
         sub.logger = Arc::new(logger.clone());
         sub.policy = Some(Arc::clone(&policy));
         sub.limits = options.limits;
@@ -1085,6 +1115,7 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
         workspace: options.workspace,
         clients,
         plugins: plugin_host,
+        hooks: plugin_hooks,
     }
 }
 
@@ -1122,6 +1153,10 @@ fn build_worker_runner(
     // A worker is one level deep, whatever `subagent.maxDepth` says: the roster
     // said how many workers, not how many generations of workers.
     sub.max_depth = 1;
+    // Team parallelism lives in the team runner's permits, but the subagent
+    // runner has its own pool. Give it room for the whole team, or the pool
+    // (default one) would serialise workers the team meant to run together.
+    sub.max_active = options.cfg.team.max_parallel.max(1) as usize;
     sub.logger = Arc::new(logger);
     sub.limits = options.limits;
     Ok(Arc::new(forge_subagent::Runner::new(sub)?))
@@ -1162,6 +1197,7 @@ fn mcp_spec(name: &str, server: &str, remote: &str, def: &ToolDef) -> ToolSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use forge_agent::{Agent, Options as AgentOptions};
     use forge_config::SANDBOX_WORKSPACE_WRITE;
     use forge_mcp::Error as McpError;
     use forge_tool::DefaultLimits;
@@ -1689,6 +1725,194 @@ mod tests {
             .call(Call::new("c1", "reference.echo", json!({"text":"hi"}), "."));
         assert!(!out.is_error, "{}", out.output);
         assert_eq!(out.output, "hi");
+
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    /// A provider that records the last request it was handed, so a test can
+    /// see the exact text the loop sent after the hook seam ran.
+    struct RecordingProvider {
+        last: Mutex<Vec<forge_llm::Message>>,
+    }
+
+    /// One delta, then end. `SilentStream` above is for building a registry (no
+    /// turn is ever run through it); a stream that never returns `None` would
+    /// keep the loop reading deltas forever.
+    struct OnceStream {
+        sent: bool,
+    }
+
+    impl forge_llm::Stream for OnceStream {
+        fn recv(&mut self) -> std::result::Result<Option<forge_llm::Delta>, forge_core::Error> {
+            if self.sent {
+                return Ok(None);
+            }
+            self.sent = true;
+            Ok(Some(forge_llm::Delta {
+                text: "done".to_string(),
+                stop_reason: Some("stop".to_string()),
+                ..Default::default()
+            }))
+        }
+        fn close(&mut self) {}
+    }
+
+    impl RecordingProvider {
+        fn new() -> Self {
+            Self {
+                last: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn last_user_text(&self) -> String {
+            let guard = self.last.lock().expect("recording provider lock");
+            guard
+                .iter()
+                .rev()
+                .find(|m| m.role == forge_llm::Role::User)
+                .map(|m| m.content.clone())
+                .unwrap_or_default()
+        }
+    }
+
+    impl forge_llm::Provider for RecordingProvider {
+        fn stream(
+            &self,
+            request: &forge_llm::Request,
+        ) -> std::result::Result<Box<dyn forge_llm::Stream>, forge_core::Error> {
+            *self.last.lock().expect("recording provider lock") = request.messages.clone();
+            Ok(Box::new(OnceStream { sent: false }))
+        }
+    }
+
+    fn read_events(store: &forge_session::Store) -> Vec<forge_core::Event> {
+        let mut events = Vec::new();
+        store
+            .read_from(0, |event| {
+                events.push(event.clone());
+                Ok(())
+            })
+            .expect("read the session log");
+        events
+    }
+
+    #[test]
+    fn a_plugin_before_turn_hook_rewrites_the_turn_and_is_logged() {
+        if !node_available() {
+            eprintln!("SKIPPED: node is not on PATH, so no plugin can start");
+            return;
+        }
+        let root = plugin_root("hookplugins");
+        let data_dir = root.parent().expect("root has a parent").to_path_buf();
+        let mut cfg = Config::defaults();
+        cfg.plugins.enabled = vec!["reference".to_string()];
+        cfg.plugins.dir = root.to_str().expect("utf-8 path").to_string();
+
+        let wired = build(build_options(&cfg, &data_dir, "."));
+        // The reference plugin claims `before_turn`, so wiring installs exactly
+        // one hook on the loop's pre-step seam.
+        assert_eq!(
+            wired.hooks().len(),
+            1,
+            "the reference plugin claims before_turn; notes: {:?}",
+            wired.notes
+        );
+
+        let log_path = data_dir.join("s_hook.jsonl");
+        let store = Arc::new(
+            forge_session::Store::open(&log_path, forge_session::Options::default())
+                .expect("open the store"),
+        );
+        let recorder = Arc::new(RecordingProvider::new());
+        let mut opts = AgentOptions::new(
+            recorder.clone(),
+            Arc::clone(&store) as Arc<dyn forge_agent::EventLog>,
+            "fake-model".to_string(),
+            "s_hook".to_string(),
+            ".".to_string(),
+        );
+        opts.hooks = wired.hooks().clone();
+        let agent = Agent::new(opts).expect("build the agent");
+        let (result, err) = agent.run("hello");
+        assert!(
+            err.is_none(),
+            "run error: {}",
+            err.expect("no error").message()
+        );
+        assert_eq!(result.reason, forge_agent::TURN_COMPLETED);
+
+        // The provider saw the rewritten text: the reference plugin's before_turn
+        // appends one newline to the turn's text.
+        assert_eq!(
+            recorder.last_user_text(),
+            "hello\n",
+            "the plugin's before_turn hook must rewrite the text the provider gets"
+        );
+
+        // And the log records that a rewrite happened, naming the plugin.
+        let events = read_events(&store);
+        let rewrite = events
+            .iter()
+            .find(|e| e.typ == forge_core::EventType::HOOK_REWRITE.as_str())
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected a hook/rewrite row; got {:?}",
+                    events.iter().map(|e| e.typ.as_str()).collect::<Vec<_>>()
+                )
+            });
+        let payload = rewrite.payload.as_ref().expect("payload");
+        assert_eq!(
+            payload.get("phase").and_then(Value::as_str),
+            Some("pre-step")
+        );
+        assert_eq!(
+            payload.get("hook").and_then(Value::as_str),
+            Some("reference")
+        );
+        assert_eq!(payload.get("changed").and_then(Value::as_u64), Some(1));
+
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn without_a_hook_plugin_the_log_has_no_rewrite_and_the_text_is_untouched() {
+        let root = scratch("nohookplugins");
+        let data_dir = root.clone();
+        let cfg = Config::defaults();
+
+        let wired = build(build_options(&cfg, &data_dir, "."));
+        assert!(
+            wired.hooks().is_empty(),
+            "no plugin is enabled, so there is no hook seam"
+        );
+
+        let log_path = data_dir.join("s_plain.jsonl");
+        let store = Arc::new(
+            forge_session::Store::open(&log_path, forge_session::Options::default())
+                .expect("open the store"),
+        );
+        let recorder = Arc::new(RecordingProvider::new());
+        let mut opts = AgentOptions::new(
+            recorder.clone(),
+            Arc::clone(&store) as Arc<dyn forge_agent::EventLog>,
+            "fake-model".to_string(),
+            "s_plain".to_string(),
+            ".".to_string(),
+        );
+        opts.hooks = wired.hooks().clone();
+        let agent = Agent::new(opts).expect("build the agent");
+        let (result, err) = agent.run("hello");
+        assert!(err.is_none());
+        assert_eq!(result.reason, forge_agent::TURN_COMPLETED);
+
+        assert_eq!(recorder.last_user_text(), "hello");
+        let events = read_events(&store);
+        assert!(
+            !events
+                .iter()
+                .any(|e| e.typ == forge_core::EventType::HOOK_REWRITE.as_str()),
+            "an inert loop writes no hook/rewrite"
+        );
 
         let _ = std::fs::remove_dir_all(&data_dir);
     }

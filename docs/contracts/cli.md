@@ -70,6 +70,7 @@ a bug, not contract. `forge` does not use exit code `1` for "unknown command".
 | `forge plugin <command>` | — | a generated skeleton, a manifest listing, a handshake, tool output or a doctor report on stdout | `0`, `1` or `2` |
 | `forge expert <command>` | — | a roster table, one prompt, or JSON on stdout | `0`, `1` or `2` |
 | `forge skill <command>` | — | a skill table, one skill body, or JSON on stdout | `0`, `1` or `2` |
+| `forge subagent <command>` | — | children of a session, resume one, interrupt one, or run the worker | `0`, `1` or `2` |
 | `forge team <command>` | — | team listings or a worker report on stdout | `0`, `1` or `2` |
 | `forge market <command>` | — | installed bundles, search hits, an install result or drift on stdout | `0`, `1` or `2` |
 | `forge help` | `-h`, `--help`, no arguments at all | usage text on stdout | `0` |
@@ -1336,3 +1337,102 @@ forge skill: no skill named "nope"; known: office
 $ echo $?
 1
 ```
+
+## 10. `forge subagent <command>`
+
+```text
+usage: forge subagent <command> [flags]
+```
+
+`forge subagent` has four commands. `list` reads the **direct children** a
+session started, from the `subagent/catalog` events on that session's log
+(events-v1 §4.0.5) — the durable identity a later turn would use to name the
+same child again. `prompt` appends a turn to a `continuable` child. `interrupt`
+asks a *running* child to stop from a different process. `worker` is
+the other end of the out-of-process backend: it reads one request line on stdin
+and writes one response line on stdout, running that child in *this* process.
+`list` never starts anything; `prompt` resumes only a child that already exists;
+`interrupt` writes a marker file that a `Runner` running that child honours;
+`worker` is normally spawned by the harness, not typed by a person.
+
+### `forge subagent list --session <id> [--json] [--data-dir <dir>]`
+
+`--session <id>` is required: a child belongs to one parent log, and listing
+"all children anywhere" is a different (and unscoped) question. The log is
+`<dataDir>/sessions/<id>.jsonl`.
+
+Text output is a table with one row per child:
+
+```text
+name	child	session	mode	label
+agent-1	20261120-143012-ab12cd34	—	one-shot	—
+```
+
+The columns are `name` (durable sibling name), `child` (child session id, and the
+`session` cell repeats it for a `continuable` child), `mode` (`one-shot` or
+`continuable`), and `label`.
+
+`--json` prints a JSON array of catalog payloads, each `{version, childId, mode,
+label?, name?}` — the row shape from events-v1 §4.0.5.
+
+### `forge subagent prompt <child> --text <prompt> [--model <name>] [--data-dir <dir>]`
+
+Appends one turn to a **continuable** child and prints its answer. This is the
+same cold resume the `subagent` tool's `resume` argument performs (a child is
+driven entirely by its durable log, so a different process can continue it). A
+`one-shot` child, a child that already wrote `session/end`, or an id that is not
+a child id all fail before a single event is written. `--text` is required.
+
+### `forge subagent interrupt <child> [--data-dir <dir>]`
+
+Asks a **running** child to stop. `Runner::interrupt` cancels a child running in
+the same process by tripping its cancel token; a `forge subagent interrupt`
+invocation is a different process and cannot see that token, so it drops a marker
+file at `<dataDir>/sessions/<child>.cancel` instead. A `Runner` that is running
+that child polls for the marker and trips its own token — the same path the
+in-process interrupt takes — then removes the marker, so it cannot cancel a later
+run of the same child. The command prints the marker path and exits 0. It cannot
+reach a child running in a `worker` process (that process is short-lived); it is
+for a long-lived local `Runner`, such as the one a `forge chat` turn drives.
+
+### `forge subagent worker`
+
+The worker half of the process backend. It reads one JSON request line on stdin:
+
+```text
+{"v":1,"op":"run","prompt":"…","system":"…","model":"…","workspace":"…","schema":{…},"mode":"one-shot"}
+```
+
+and writes exactly one JSON response line on stdout:
+
+```text
+{"v":1,"ok":true,"sessionId":"…","text":"…","structured":{…},"turns":2,"steps":3}
+```
+
+or, on failure, `{"v":1,"ok":false,"error":"…","code":"…"}`. A protocol version
+this build does not speak is refused, never coerced. The worker always writes a
+response line — a failure is a `ok:false` line, not a bare exit — so a caller
+never mistakes a crash for a hung child. It runs one-shot children only: a
+`continuable` child that a *later* process must resume is the local path, because
+this worker's process is gone the moment the line is written.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The listing or the child's answer was printed (worker: a response line was written). |
+| `1` | `--session` points at no session log, the log could not be read, the child could not be resumed, or no provider could be built. |
+| `2` | Usage error: unknown command or flag, `list` without `--session`, `prompt` without a child id or `--text`, `interrupt` without a child id, or a malformed worker request. |
+
+### Example
+
+```text
+$ forge subagent list --session 20261120-142900-9f3c1a2b
+name     child                       session   mode       label
+agent-1  20261120-143012-ab12cd34    —         one-shot   —
+$ forge subagent list --session nope
+forge subagent: no such session log: …\sessions\nope.jsonl
+$ echo $?
+1
+```
+

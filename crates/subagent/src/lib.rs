@@ -12,14 +12,40 @@
 
 #![forbid(unsafe_code)]
 
+pub mod backend;
+pub mod cancel_file;
+pub mod catalog;
 pub mod child;
+pub mod continuation;
+pub mod descriptor;
+pub mod list;
+pub mod lock;
+pub mod names;
 pub mod options;
+pub mod providers;
 pub mod runner;
+pub mod structured;
 pub mod tool;
 
-pub use child::{child_log_path, format_stamp, ChildRun};
-pub use options::{
-    Canceller, Clock, Logger, NoopLogger, NowFn, Options, DEFAULT_MAX_DEPTH, DEFAULT_MAX_STEPS,
+pub use backend::{
+    Backend, BackendOutcome, BackendRequest, ProcessBackend, BACKEND_PROTOCOL_VERSION,
+    DEFAULT_BACKEND_TIMEOUT,
 };
-pub use runner::{CallContext, Runner};
-pub use tool::{spec, tool_schema, DelegateArgs, CODE_DEPTH_EXCEEDED, CODE_FAILED, TOOL_NAME};
+pub use catalog::{CatalogEntry, CATALOG_META, SUBAGENT_CATALOG_VERSION};
+pub use child::{child_log_path, format_stamp, is_child_id, ChildRun};
+pub use continuation::{
+    agent_message, settlement_notice, settlement_summary, with_result_guidance, RESULT_GUIDANCE,
+};
+pub use descriptor::{Descriptor, Mode, ToolFilter, SUBAGENT_DESCRIPTOR_VERSION};
+pub use lock::ChildLock;
+pub use names::{is_agent_name, join_agent_path, parent_agent_path, NameError, ROOT_AGENT_NAME};
+pub use options::{
+    Canceller, Clock, Logger, NoopLogger, NowFn, Options, DEFAULT_MAX_ACTIVE, DEFAULT_MAX_DEPTH,
+    DEFAULT_MAX_STEPS,
+};
+pub use providers::Providers;
+pub use runner::{CallContext, Delivery, Runner};
+pub use structured::{spec as structured_spec, CODE_TERMINATED, STRUCTURED_OUTPUT_TOOL};
+pub use tool::{
+    spec, tool_schema, DelegateArgs, CODE_BAD_OUTPUT, CODE_DEPTH_EXCEEDED, CODE_FAILED, TOOL_NAME,
+};

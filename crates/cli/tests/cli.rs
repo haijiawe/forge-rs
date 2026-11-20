@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use forge_cli::{reorder_flags, run, USAGE};
 
-const EXPECTED_USAGE: &str = "forge — an agent harness\n\nusage:\n  forge --version              print version (fast path, no config)\n  forge chat [flags] [prompt]  run one turn and stream the answer to stdout\n  forge \"<prompt>\"             shorthand for forge chat\n  forge web [flags]            serve the browser UI on loopback\n  forge session <command>      operate on a session log without running a turn\n  forge import <old-dir>       import a session tree from the old harness\n  forge index [flags]          rebuild or query the search index\n  forge goal <command>         record, inspect or close a goal\n  forge schedule <command>     record recurring prompts and run the ones due\n  forge plugin <command>       inspect the installed plugin set\n  forge expert <command>       list or show the expert roster\n  forge skill <command>        list or show the skills the model was offered\n  forge team <command>         list teams, or run one over a shared board\n  forge market <command>       install or remove plugin bundles\n  forge doctor [flags]         check the environment\n  forge help                   this message\n\ndocs: docs/README.md\n";
+const EXPECTED_USAGE: &str = "forge — an agent harness\n\nusage:\n  forge --version              print version (fast path, no config)\n  forge chat [flags] [prompt]  run one turn and stream the answer to stdout\n  forge \"<prompt>\"             shorthand for forge chat\n  forge web [flags]            serve the browser UI on loopback\n  forge session <command>      operate on a session log without running a turn\n  forge import <old-dir>       import a session tree from the old harness\n  forge index [flags]          rebuild or query the search index\n  forge goal <command>         record, inspect or close a goal\n  forge schedule <command>     record recurring prompts and run the ones due\n  forge plugin <command>       inspect the installed plugin set\n  forge expert <command>       list or show the expert roster\n  forge skill <command>        list or show the skills the model was offered\n  forge subagent <command>     list, resume, interrupt, or run a child\n  forge team <command>         list teams, or run one over a shared board\n  forge market <command>       install or remove plugin bundles\n  forge doctor [flags]         check the environment\n  forge help                   this message\n\ndocs: docs/README.md\n";
 
 fn env_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -339,4 +339,45 @@ fn double_dash_terminator_keeps_the_rest_positional() {
         reorder_flags(&args, &["model"]),
         vec!["--", "chat", "hi", "--model", "x"]
     );
+}
+
+#[test]
+fn subagent_list_reads_catalog_rows_from_a_session_log() {
+    let dir = TempDir::new("subagent-list");
+    let sessions = dir.path.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let log = sessions.join("s1.jsonl");
+    let lines = [
+        r#"{"v":1,"seq":1,"id":"e1","ts":1700000000000,"session":"s1","type":"session/start","payload":{"workspace":".","model":"m","startedBy":"cli"}}"#,
+        r#"{"v":1,"seq":2,"id":"e2","ts":1700000000001,"session":"s1","type":"subagent/catalog","payload":{"version":3,"childId":"child-1","mode":"one-shot","name":"agent-1"}}"#,
+    ];
+    std::fs::write(&log, lines.join("\n") + "\n").unwrap();
+
+    let (code, stdout, stderr) = run_cli(&[
+        "subagent",
+        "list",
+        "--session",
+        "s1",
+        "--data-dir",
+        dir.path.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert!(stdout.contains("agent-1"), "{stdout}");
+    assert!(stdout.contains("child-1"), "{stdout}");
+}
+
+#[test]
+fn subagent_list_of_a_missing_session_is_a_failure_not_an_empty_table() {
+    let dir = TempDir::new("subagent-missing");
+    let (code, stdout, stderr) = run_cli(&[
+        "subagent",
+        "list",
+        "--session",
+        "nope",
+        "--data-dir",
+        dir.path.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 1);
+    assert!(stdout.is_empty(), "no table on failure: {stdout}");
+    assert!(stderr.contains("no such session log"), "{stderr}");
 }

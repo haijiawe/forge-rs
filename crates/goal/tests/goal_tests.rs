@@ -188,26 +188,29 @@ fn the_event_builders_write_the_documented_payload() {
     assert_eq!(head.session, SESSION);
     assert_eq!(
         head.payload.expect("created carries a payload"),
-        json!({"goalId": "g1", "text": "finish the port", "maxRounds": 7})
+        json!({"goalId": "g1", "text": "finish the port", "maxRounds": 7, "revision": 0})
     );
 
     let round = goal_continued(SESSION, &goal, 2);
     assert_eq!(round.typ, "goal/continued");
     assert_eq!(
         round.payload.expect("continued carries a payload"),
-        json!({"goalId": "g1", "round": 2})
+        json!({"goalId": "g1", "round": 2, "revision": 1})
     );
 
     let done = goal_ended(SESSION, &goal, StopReason::Blocked, Some("needs a runner"));
     assert_eq!(done.typ, "goal/ended");
     assert_eq!(
         done.payload.expect("ended carries a payload"),
-        json!({"goalId": "g1", "reason": "blocked", "note": "needs a runner"})
+        json!({"goalId": "g1", "reason": "blocked", "note": "needs a runner", "revision": 0})
     );
 
     let quiet = goal_ended(SESSION, &goal, StopReason::Complete, None);
     let payload = quiet.payload.expect("ended carries a payload");
-    assert_eq!(payload, json!({"goalId": "g1", "reason": "complete"}));
+    assert_eq!(
+        payload,
+        json!({"goalId": "g1", "reason": "complete", "revision": 0})
+    );
     assert!(
         payload.get("note").is_none(),
         "an absent note must not be written as null"

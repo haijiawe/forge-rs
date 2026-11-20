@@ -75,13 +75,19 @@ fn every_case_file_is_present() {
     // lifecycle case is the first one this tree added, because P2 introduced
     // three event types and AGENTS.md rule 2 says a new type ships with a case.
     // The context case is the second, for the same reason (P4 added
-    // `context/compressed`). A file that silently disappears would otherwise
-    // show up as "everything passes".
+    // `context/compressed`). The goal-revision case is the third: W3 made
+    // `revision` an optional `goal/*` member and rule 2 wants a case pinning that
+    // an added optional field survives a round trip. The subagent-identity case is
+    // the fourth: S1 added `subagent/catalog` and `subagent/descriptor`, and two
+    // new types need a case naming both. The compaction-transaction case is the
+    // fifth: C-wave added `compaction/start`, `compaction/end` and
+    // `compaction/summary-error`, three more additive types. A file that silently
+    // disappears would otherwise show up as "everything passes".
     let found = cases();
     assert_eq!(
         found.len(),
-        23,
-        "expected 23 conformance cases, found {}: {:?}",
+        27,
+        "expected 27 conformance cases, found {}: {:?}",
         found.len(),
         found.iter().map(|c| c.name.as_str()).collect::<Vec<_>>()
     );

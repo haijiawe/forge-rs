@@ -364,6 +364,8 @@ fn run_inner(
             &workspace_str,
             approve,
             false,
+            forge_agent::Cancel::default(),
+            None,
             stdout,
             stderr,
         );
@@ -463,10 +465,40 @@ fn execute_goal(
     };
 
     let mut round_prompt = prompt.to_string();
+    // A pause is a request to stop, not a crash: the handler only flips a flag,
+    // and the loop below turns it into a `goal/ended{reason:"cancelled"}` before
+    // the next round starts. `ctrlc` may already be installed by another caller
+    // (or a second goal in one process); if so we keep the first handler, which
+    // is the one this run's token is not, so a failed install is not fatal.
+    let pause = forge_agent::Cancel::default();
+    {
+        let pause = pause.clone();
+        let _ = ctrlc::set_handler(move || pause.cancel());
+    }
     loop {
+        // Before a round begins, honour a pause that arrived during the last one.
+        // The round in flight has already stopped (execute_turn returned
+        // cancelled); starting another would be exactly the "keeps running after
+        // being told to stop" the operator is trying to avoid.
+        if pause.is_cancelled() {
+            goalcmd::cancel_open_goal(&log, session_id, Some("paused by operator")).map_err(
+                |e| runtime_error_str(stderr, &format!("record goal: {}", one_line(e.message()))),
+            )?;
+            let _ = writeln!(
+                stderr,
+                "forge chat: goal {} paused; ended as cancelled",
+                goal.id
+            );
+            return Ok(EXIT_INTERRUPTED);
+        }
         let before = goalcmd::read_events(&log)
             .map(|events| events.last().map(|e| e.seq).unwrap_or(0))
             .unwrap_or(0);
+        let reservation = forge_goal::Reservation {
+            goal_id: goal.id.clone(),
+            revision: goal.revision,
+            round: goal.rounds,
+        };
         let code = execute_turn(
             opts,
             cfg,
@@ -477,13 +509,31 @@ fn execute_goal(
             workspace,
             approve,
             true,
+            pause.clone(),
+            Some(reservation),
             stdout,
             stderr,
         )?;
         // A cancelled or failed turn is not a decision about the goal: the
         // operator or the provider stopped, and guessing a verdict would write a
-        // conclusion nobody reached.
+        // conclusion nobody reached. A cancel in particular still ends the goal,
+        // so a resumed session does not think it is mid-round.
         if code != EXIT_OK {
+            if code == EXIT_INTERRUPTED {
+                goalcmd::cancel_open_goal(&log, session_id, Some("paused by operator")).map_err(
+                    |e| {
+                        runtime_error_str(
+                            stderr,
+                            &format!("record goal: {}", one_line(e.message())),
+                        )
+                    },
+                )?;
+                let _ = writeln!(
+                    stderr,
+                    "forge chat: goal {} paused; ended as cancelled",
+                    goal.id
+                );
+            }
             return Ok(code);
         }
 
@@ -516,17 +566,40 @@ fn execute_goal(
 
         match goal.next_action() {
             forge_goal::Action::Continue { round } => {
-                goalcmd::continue_goal(&log, session_id, &goal, round).map_err(|e| {
-                    runtime_error_str(stderr, &format!("record goal: {}", one_line(e.message())))
-                })?;
-                goal.rounds = round;
-                let _ = writeln!(
-                    stderr,
-                    "forge chat: goal {} round {}/{max_rounds}",
-                    goal.id,
-                    round + 1
-                );
-                round_prompt = forge_goal::continuation_prompt(&goal);
+                // Open the round only if no other entry advanced this goal since
+                // we folded it. Two `forge chat --goal` processes on one session
+                // both reach here with the same revision; the loser must not run
+                // a second turn for work the winner is already doing.
+                match goalcmd::append_continued_at(&log, session_id, &goal, round) {
+                    Ok(forge_goal::CasOutcome::Written(revision)) => {
+                        goal.revision = revision;
+                        goal.rounds = round;
+                        let _ = writeln!(
+                            stderr,
+                            "forge chat: goal {} round {}/{max_rounds}",
+                            goal.id,
+                            round + 1
+                        );
+                        round_prompt = forge_goal::continuation_prompt(&goal);
+                    }
+                    Ok(forge_goal::CasOutcome::Stale { expected, found }) => {
+                        // Another entry already opened this round. We stop here
+                        // rather than double-run; it owns the goal now.
+                        let _ = writeln!(
+                            stderr,
+                            "forge chat: goal {} was advanced by another entry (expected revision {expected}, found {found}); not opening round {}",
+                            goal.id,
+                            round + 1
+                        );
+                        return Ok(EXIT_OK);
+                    }
+                    Err(e) => {
+                        return Err(runtime_error_str(
+                            stderr,
+                            &format!("record goal: {}", one_line(e.message())),
+                        ));
+                    }
+                }
             }
             forge_goal::Action::Stop { reason } => {
                 goalcmd::end_goal(&log, session_id, &goal, reason, None).map_err(|e| {
@@ -925,6 +998,15 @@ fn execute_turn(
     workspace: &str,
     approve: ApproveMode,
     goal_open: bool,
+    // The operator's pause switch for this turn. The non-goal path has nobody to
+    // pause it, so it passes `forge_agent::Cancel::default()`; a goal run passes
+    // the token its Ctrl-C handler flips, so a pause stops the round in flight
+    // and the loop can then end the goal before the next one begins.
+    cancel: forge_agent::Cancel,
+    // When this turn is a goal round, the reservation the loop opened it with.
+    // A `pre-step` hook re-checks it against the log before every model call, so
+    // a superseded or ended goal stops the round instead of spending more calls.
+    fence: Option<forge_goal::Reservation>,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> std::result::Result<i32, i32> {
@@ -1157,6 +1239,9 @@ fn execute_turn(
     );
     agent_opts.system = opts.system.clone();
     agent_opts.tools = tools;
+    // The loop checks this between steps; a pause set here stops the round at its
+    // next boundary rather than at the next process boundary.
+    agent_opts.cancel = cancel;
     // An attachment is stored, not understood, until something reads the blob
     // back for the model. This is that something; without it the bytes are
     // recorded and never seen.
@@ -1168,6 +1253,17 @@ fn execute_turn(
     // window shrinks here and nowhere else. Read once per turn, before the run:
     // what a turn sends is decided at that moment.
     agent_opts.hidden = Some(Arc::new(crate::context_tools::hidden_hook(&log_path)));
+    // A loaded plugin may have contributed a `before_turn` hook; the seam is
+    // inert (and writes no `hook/rewrite`) when the set is empty.
+    agent_opts.hooks = wired.hooks().clone();
+    // A goal round carries its reservation; the fence re-checks it at each step.
+    if let Some(reservation) = fence {
+        if goal_open {
+            agent_opts
+                .hooks
+                .push(crate::goalfence::hook(&log_path, reservation));
+        }
+    }
     if !opts.json {
         agent_opts.on_delta = Some(on_delta);
     }

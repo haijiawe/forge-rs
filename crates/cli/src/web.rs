@@ -480,6 +480,9 @@ impl TurnRunner for WebRunner {
         // earlier turn wrote, so a long session costs the same here as in the
         // terminal.
         opts.hidden = Some(Arc::new(crate::context_tools::hidden_hook(&log_path)));
+        // A plugin-contributed `before_turn` hook lives on the same seam in the
+        // browser turn as in the terminal one; empty is inert.
+        opts.hooks = wired.hooks().clone();
         opts.on_delta = Some(on_delta);
         opts.steering = Some(steering);
         opts.cancel = cancel;

@@ -74,10 +74,17 @@ fn marker(workspace: &Path, name: &str) -> PathBuf {
 
 #[cfg(windows)]
 fn wait_for(path: &Path, timeout: Duration) -> bool {
+    // Wait for a non-empty marker, not merely an existing file. The helper creates
+    // the file before it connects and writes the verdict after, so under parallel
+    // load an empty file can exist for a moment; treating that as "ready" would read
+    // a blank verdict and report a false failure. The assertion still requires the
+    // real outcome, so this only removes the race, it does not weaken the check.
     let start = Instant::now();
     while start.elapsed() < timeout {
-        if path.exists() {
-            return true;
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if !text.trim().is_empty() {
+                return true;
+            }
         }
         std::thread::sleep(Duration::from_millis(25));
     }

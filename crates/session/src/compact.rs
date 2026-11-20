@@ -727,22 +727,133 @@ pub fn compact_log(
 
     // No fallback text: a summary that is not the model's words would become the
     // permanent record of what those events said.
-    let summary = summarizer.summarize(&covered)?;
+    //
+    // The transaction is opened on the record *before* anyone is asked for text. If
+    // the process dies here, a reader sees a `compaction/start` with no matching
+    // `compaction/end` and knows a compaction was in flight — [`open_compaction`]
+    // reports exactly that orphan, instead of a silent half-write.
+    let session_id = events
+        .first()
+        .map(|event| event.session.clone())
+        .unwrap_or_default();
+    append_control(
+        store,
+        &session_id,
+        EventType::COMPACTION_START,
+        json!({"from": plan.from, "to": plan.to}),
+    )?;
+
+    // A summarizer error or an empty summary must never hide events: an empty
+    // summary would become the permanent record of what the range said, and a
+    // failure is the one case where giving the model *more* context is correct. So
+    // the round is recorded as a failed transaction (`summary-error` + `end{ok:false}`)
+    // and the history stays visible; the turn proceeds because compaction is best
+    // effort and the log is already correct.
+    let summary = match summarizer.summarize(&covered) {
+        Ok(text) if !text.trim().is_empty() => text,
+        Ok(_) => {
+            append_control(
+                store,
+                &session_id,
+                EventType::COMPACTION_SUMMARY_ERROR,
+                json!({"reason": "empty", "message": "the summarizer returned no text"}),
+            )?;
+            append_control(
+                store,
+                &session_id,
+                EventType::COMPACTION_END,
+                json!({"ok": false, "reason": "empty"}),
+            )?;
+            return Ok(false);
+        }
+        Err(err) => {
+            append_control(
+                store,
+                &session_id,
+                EventType::COMPACTION_SUMMARY_ERROR,
+                json!({"reason": "error", "message": err.message()}),
+            )?;
+            append_control(
+                store,
+                &session_id,
+                EventType::COMPACTION_END,
+                json!({"ok": false, "reason": "error"}),
+            )?;
+            return Ok(false);
+        }
+    };
 
     // A real clock, never zero: the summary is a normal log record, and a zero ts
     // would make it the first event on every timestamp-ordered reader.
     match compact(store, &plan, &summary, None) {
-        Ok(()) => Ok(true),
+        Ok(()) => {
+            append_control(
+                store,
+                &session_id,
+                EventType::COMPACTION_END,
+                json!({"ok": true}),
+            )?;
+            Ok(true)
+        }
         // The plan and the append are not one atomic step: another compactor can
         // write a summary for the same range between our read and our append. That
         // is the "already done" outcome — an expected race, not a broken log, so the
         // caller must not fail the turn over it.
-        Err(err) if is_already_compacted(&err) => Ok(false),
-        Err(err) => Err(Error::new(
-            err.kind(),
-            format!("session: compact log {}: {}", store.path().display(), err),
-        )),
+        Err(err) if is_already_compacted(&err) => {
+            append_control(
+                store,
+                &session_id,
+                EventType::COMPACTION_END,
+                json!({"ok": false, "reason": "already-compacted"}),
+            )?;
+            Ok(false)
+        }
+        Err(err) => {
+            append_control(
+                store,
+                &session_id,
+                EventType::COMPACTION_END,
+                json!({"ok": false, "reason": "error"}),
+            )?;
+            Err(Error::new(
+                err.kind(),
+                format!("session: compact log {}: {}", store.path().display(), err),
+            ))
+        }
     }
+}
+
+/// Appends one control event of a compaction transaction. The session id comes from
+/// the log being compacted, so the bracket lands in the same stream as the summary
+/// it describes.
+fn append_control(
+    store: &Store,
+    session_id: &str,
+    typ: EventType,
+    payload: serde_json::Value,
+) -> Result<()> {
+    let event = Event::new(session_id, typ, Some(payload));
+    store.append(&event)?;
+    Ok(())
+}
+
+/// The seq of a `compaction/start` that never got its `compaction/end`: a compaction
+/// that died in flight. Returns `None` when every transaction on the log is closed.
+///
+/// This is the only thing an operator can see from a crash mid-compaction; a reader
+/// that trusts a half-written range would otherwise treat a partial summary as the
+/// whole story. It reads, it does not repair — the log is append-only.
+pub fn open_compaction(store: &Store) -> Result<Option<u64>> {
+    let mut open: Option<u64> = None;
+    store.read_from(1, |event| {
+        if event.typ == EventType::COMPACTION_START.as_str() {
+            open = Some(event.seq);
+        } else if event.typ == EventType::COMPACTION_END.as_str() {
+            open = None;
+        }
+        Ok(())
+    })?;
+    Ok(open)
 }
 
 /// The seq range the newest compaction summary in the log replaces, for telling an

@@ -7,10 +7,11 @@
 
 use std::path::PathBuf;
 
-use forge_core::{new_id, Event, EventType, Result};
+use forge_core::{new_id, Error, ErrorKind, Event, EventType, Result};
 use forge_session::Store;
 use serde_json::{json, Map, Value};
 
+use crate::descriptor::{Descriptor, Mode};
 use crate::options::Options;
 
 /// Outcome of one child run. Text and turns come from the log, never from the
@@ -23,10 +24,30 @@ pub struct ChildRun {
     pub steps: usize,
     pub turns: usize,
     pub text: String,
+    /// The object the child submitted through `structured_output`, recovered
+    /// from its own log. `None` when the child never submitted one (or when no
+    /// schema was requested for this delegation).
+    pub structured: Option<Value>,
     /// Set when the agent loop started and then failed. Setup failures are
     /// returned as `Err` from `Runner::run` instead.
     pub error: Option<forge_core::Error>,
     pub cancelled: bool,
+    /// The sibling name reserved in the parent catalog, when there was a parent
+    /// log to reserve it against.
+    pub name: Option<String>,
+    /// The `subagent/catalog` payload the parent loop must append, if any. The
+    /// runner fills this so the tool can hand it up in `Result.meta` — a tool
+    /// never writes the parent log itself.
+    pub catalog: Option<Value>,
+    /// How this child was started: `OneShot` is terminal at the end of its run;
+    /// `Continuable` stays open so [`crate::runner::Runner::resume`] can append
+    /// another turn to the same log.
+    pub mode: Mode,
+    /// The delegation depth at which this child was created (0 for a child of the
+    /// root). Read back from `session/start`'s `delegationDepth`, so a cold resume
+    /// in a new process counts depth from the header, not from 0 — otherwise a
+    /// resumed child could spawn grandchildren past `maxDepth`.
+    pub depth: usize,
 }
 
 /// `<data_dir>/sessions/<child_id>.jsonl`.
@@ -77,6 +98,10 @@ pub(crate) fn new_child_id(now_ms: i64) -> Result<String> {
 
 /// Create `<data_dir>/sessions` and open a fresh log. Retries id minting on a
 /// path collision, exactly like the Go implementation.
+// The lineage (workspace/model/system/parent/depth) plus the creation mode and
+// label is the full head a child must record; splitting it would only relocate
+// the arguments.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn open_child_log(
     opt: &Options,
     workspace: &str,
@@ -84,6 +109,8 @@ pub(crate) fn open_child_log(
     system: &str,
     parent: &str,
     depth: usize,
+    mode: Mode,
+    label: Option<&str>,
 ) -> Result<(ChildRun, Store)> {
     let sessions = opt.data_dir.join("sessions");
     std::fs::create_dir_all(&sessions).map_err(|e| {
@@ -115,11 +142,22 @@ pub(crate) fn open_child_log(
             },
         )?;
         write_head(&store, &id, workspace, model, system, parent, depth)?;
+        // The child's own record of what it was started as. Written here, right
+        // after the head, so the descriptor precedes every turn: this process is
+        // the child log's only writer until `Agent::run` takes over, then again
+        // for `write_end`, so there is no race to sequence around.
+        let descriptor = match mode {
+            Mode::OneShot => Descriptor::one_shot("local"),
+            Mode::Continuable => Descriptor::continuable("local", label.unwrap_or("")),
+        };
+        store.append(&descriptor.event(&id))?;
         return Ok((
             ChildRun {
                 id,
                 path,
                 model: model.to_string(),
+                mode,
+                depth,
                 ..ChildRun::default()
             },
             store,
@@ -150,6 +188,10 @@ pub(crate) fn write_head(
     payload.insert("model".into(), json!(model));
     payload.insert("startedBy".into(), json!("subagent"));
     payload.insert("depth".into(), json!(depth));
+    // The header is the authoritative, monotone floor for depth (DSH's
+    // `delegationDepthOf` takes `max(header, options)`). A resuming process must
+    // read this rather than start counting from zero.
+    payload.insert("delegationDepth".into(), json!(depth));
     if !parent.is_empty() {
         payload.insert("parent".into(), json!(parent));
     }
@@ -206,4 +248,109 @@ pub(crate) fn read_child_facts(store: &Store) -> (usize, String) {
         return (turns, text);
     }
     (turns, text)
+}
+
+/// True when `id` is shaped like a child id (`<stamp>-<hex>`) and is safe to
+/// join onto `<data_dir>/sessions`. Rejects separators and `..` before any path
+/// is built, so a caller can never turn a resume into a directory escape.
+pub fn is_child_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        && id != "."
+        && id != ".."
+}
+
+/// Reopen an existing child log for a cold resume. Fails when the id is not a
+/// child id, the log is missing, the child was one-shot, or it already wrote a
+/// terminal `session/end` — in each case with a different, honest reason.
+pub(crate) fn reopen_child_log(opt: &Options, child_id: &str) -> Result<(ChildRun, Store)> {
+    if !is_child_id(child_id) {
+        return Err(Error::new(
+            ErrorKind::Invalid,
+            format!("subagent: not a child id: {child_id:?}"),
+        ));
+    }
+    let path = child_log_path(&opt.data_dir, child_id);
+    if !path.exists() {
+        return Err(Error::new(
+            ErrorKind::NotFound,
+            format!("subagent: no such child session: {}", path.display()),
+        ));
+    }
+    let store = Store::open(
+        &path,
+        forge_session::Options {
+            no_fsync: true,
+            ..forge_session::Options::default()
+        },
+    )?;
+
+    let mut events: Vec<Event> = Vec::new();
+    store.read_from(0, |event: &Event| {
+        events.push(event.clone());
+        Ok(())
+    })?;
+
+    let mut model = String::new();
+    let mut ended = false;
+    let mut depth = 0usize;
+    for event in &events {
+        match event.typ.as_str() {
+            t if t == EventType::SESSION_START.as_str() => {
+                if let Some(payload) = &event.payload {
+                    model = payload
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    // `delegationDepth` is the authoritative field; fall back to the
+                    // older `depth` for logs written before it existed.
+                    depth = payload
+                        .get("delegationDepth")
+                        .or_else(|| payload.get("depth"))
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0) as usize;
+                }
+            }
+            t if t == EventType::SESSION_END.as_str() => ended = true,
+            _ => {}
+        }
+    }
+    if ended {
+        return Err(Error::new(
+            ErrorKind::Refused,
+            format!("subagent: child {child_id} already wrote session/end and cannot be resumed"),
+        ));
+    }
+    match crate::descriptor::fold(&events) {
+        Some(descriptor) if descriptor.mode == Mode::Continuable => {}
+        Some(_) => {
+            return Err(Error::new(
+                ErrorKind::Refused,
+                format!("subagent: child {child_id} was started as one-shot and cannot be resumed"),
+            ))
+        }
+        None => {
+            return Err(Error::new(
+                ErrorKind::NotFound,
+                format!("subagent: child {child_id} has no descriptor; it cannot be resumed"),
+            ))
+        }
+    }
+
+    let (turns, text) = read_child_facts(&store);
+    Ok((
+        ChildRun {
+            id: child_id.to_string(),
+            path,
+            model,
+            turns,
+            text,
+            mode: Mode::Continuable,
+            depth,
+            ..ChildRun::default()
+        },
+        store,
+    ))
 }

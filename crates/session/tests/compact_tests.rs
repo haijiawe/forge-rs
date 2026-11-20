@@ -15,8 +15,8 @@ use serde_json::{json, Value};
 
 use forge_session::compact::{
     compact, compact_log, is_already_compacted, is_empty_summary, is_invalid_log, is_invalid_plan,
-    last_compacted_span, plan_compaction, Summarizer, TruncatingSummarizer, DEFAULT_KEEP_TURNS,
-    DEFAULT_SUMMARY_BYTES,
+    last_compacted_span, open_compaction, plan_compaction, Summarizer, TruncatingSummarizer,
+    DEFAULT_KEEP_TURNS, DEFAULT_SUMMARY_BYTES,
 };
 use forge_session::projection::{Projection, MESSAGE_SUMMARY};
 use forge_session::store::{Options, Store};
@@ -474,11 +474,19 @@ fn last_compacted_span_reports_the_newest_range() {
         second.1 > first.1,
         "the newest summary covers more history: {second:?} vs {first:?}"
     );
-    assert_eq!(
-        second.0,
-        first.1 + 1 + 9,
-        "the second range starts after the first summary marker and the turns it kept: \
-         first {first:?}, second {second:?}"
+    // The second range must begin strictly after the first summary marker: the first
+    // pass hid everything up to `first.1` and kept the recent turns verbatim, so the
+    // new range can only start past that. (The exact offset also counts the
+    // compaction transaction markers — `compaction/start` before the summary and
+    // `compaction/end` after it — so it is not a fixed literal; the ordering is what
+    // this test pins.)
+    assert!(
+        second.0 > first.1 + 1,
+        "the second range starts after the first summary marker: first {first:?}, second {second:?}"
+    );
+    assert!(
+        second.1 > first.1,
+        "the newest range covers history past the first: first {first:?}, second {second:?}"
     );
 }
 
@@ -663,4 +671,115 @@ fn planning_ten_thousand_events_stays_within_the_budget() {
             "plan_compaction over 10k events took {best:?} (budget 50 ms; soft on a loaded box)"
         );
     }
+}
+
+/// A summarizer that always fails, to prove a failed compaction hides nothing.
+struct FailingSummarizer;
+
+impl Summarizer for FailingSummarizer {
+    fn summarize(&self, _events: &[Event]) -> forge_core::Result<String> {
+        Err(forge_core::Error::new(
+            forge_core::ErrorKind::Refused,
+            "summary provider is down",
+        ))
+    }
+}
+
+fn type_names(store: &Store) -> Vec<String> {
+    read_all(store).into_iter().map(|event| event.typ).collect()
+}
+
+#[test]
+fn a_successful_compaction_is_bracketed_by_start_and_end() {
+    let dir = TempDir::new("compact-txn-ok");
+    let store = seeded(&dir, 9);
+    let summarizer = TruncatingSummarizer::default();
+    assert!(compact_log(&store, &summarizer, 0, 1).expect("compact"));
+
+    let names = type_names(&store);
+    let start = names
+        .iter()
+        .position(|t| t == "compaction/start")
+        .expect("start");
+    let summary = names
+        .iter()
+        .position(|t| t == "compaction/summary")
+        .expect("summary");
+    let end = names
+        .iter()
+        .rposition(|t| t == "compaction/end")
+        .expect("end");
+    assert!(start < summary && summary < end, "bracket order: {names:?}");
+    assert_eq!(
+        open_compaction(&store).expect("open"),
+        None,
+        "the transaction is closed"
+    );
+
+    let events = read_all(&store);
+    let end_event = events
+        .iter()
+        .rev()
+        .find(|e| e.typ == "compaction/end")
+        .unwrap();
+    assert_eq!(
+        end_event.payload.as_ref().unwrap().get("ok"),
+        Some(&Value::Bool(true)),
+        "a landed summary closes the transaction as ok"
+    );
+}
+
+#[test]
+fn a_summarizer_failure_is_recorded_and_hides_nothing() {
+    let dir = TempDir::new("compact-txn-fail");
+    let store = seeded(&dir, 9);
+
+    let wrote = compact_log(&store, &FailingSummarizer, 0, 1).expect("best effort");
+    assert!(!wrote, "a failed summary writes no summary record");
+
+    let names = type_names(&store);
+    assert!(
+        !names.iter().any(|t| t == "compaction/summary"),
+        "no summary on failure: {names:?}"
+    );
+    assert!(
+        names.iter().any(|t| t == "compaction/summary-error"),
+        "the failure is on the record: {names:?}"
+    );
+    assert_eq!(
+        open_compaction(&store).expect("open"),
+        None,
+        "end is written even when the summary failed"
+    );
+    assert_eq!(
+        last_compacted_span(&store),
+        None,
+        "history stays visible when the summary failed"
+    );
+}
+
+#[test]
+fn an_open_transaction_is_reported_as_an_orphan() {
+    let dir = TempDir::new("compact-txn-orphan");
+    let store = seeded(&dir, 3);
+    let session = read_all(&store)
+        .first()
+        .map(|event| event.session.clone())
+        .expect("a session");
+    let event = Event::new(
+        session,
+        EventType::COMPACTION_START,
+        Some(json!({"from": 1, "to": 2})),
+    );
+    store.append(&event).expect("append start");
+
+    let last_seq = read_all(&store)
+        .last()
+        .map(|event| event.seq)
+        .expect("events");
+    assert_eq!(
+        open_compaction(&store).expect("open"),
+        Some(last_seq),
+        "a start with no end is an orphan"
+    );
 }

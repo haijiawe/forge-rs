@@ -116,6 +116,11 @@ pub struct SubagentConfig {
     /// number is not restated here.
     #[serde(skip_serializing_if = "is_zero_i32")]
     pub max_depth: i32,
+    /// How many children may run at once. Zero means the subagent package's own
+    /// default (one, the historical serial behaviour); a higher number lets the
+    /// model fan out. Excess children queue rather than fail.
+    #[serde(skip_serializing_if = "is_zero_i32")]
+    pub max_active: i32,
 }
 
 /// The `"sandboxAccess"` object: what the sandboxed child may touch outside its
@@ -352,6 +357,9 @@ impl Config {
             if let Some(max_depth) = subagent.max_depth {
                 self.subagent.max_depth = max_depth;
             }
+            if let Some(max_active) = subagent.max_active {
+                self.subagent.max_active = max_active;
+            }
         }
         if let Some(access) = raw.sandbox_access {
             if access.read.is_some() {
@@ -421,6 +429,15 @@ impl Config {
                 format!(
                     "config: subagent.maxDepth {} is negative (0 means the subagent package default)",
                     self.subagent.max_depth
+                ),
+            ));
+        }
+        if self.subagent.max_active < 0 {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                format!(
+                    "config: subagent.maxActive {} is negative (0 means the subagent package default)",
+                    self.subagent.max_active
                 ),
             ));
         }
@@ -754,6 +771,7 @@ struct RawSkillsConfig {
 #[serde(default, rename_all = "camelCase")]
 struct RawSubagentConfig {
     max_depth: Option<i32>,
+    max_active: Option<i32>,
 }
 
 #[derive(Debug, Default, Deserialize)]

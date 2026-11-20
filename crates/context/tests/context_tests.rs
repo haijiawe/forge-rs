@@ -1,11 +1,13 @@
 //! What a compressed block has to guarantee before anything trusts it.
 
 use forge_context::{
-    is_bad_block, is_block_too_large, is_empty_summary, is_overlap, parse_block, Block, Ledger,
-    MAX_SUMMARY_BYTES,
+    context_compressed, context_compressed_with_surface, is_bad_block, is_block_too_large,
+    is_empty_summary, is_overlap, parse_block, parse_record, parse_surface_op, prune_tool_outputs,
+    Block, Ledger, SurfaceOp, ToolOutput, MAX_SUMMARY_BYTES,
 };
 use forge_core::event::{parse_log, Event, EventType};
 use forge_core::ErrorKind;
+use std::collections::BTreeSet;
 
 const SESSION: &str = "s_01jya7c9q3r5t7v9w1x3y5z7";
 const BLOCK_ID: &str = "d1b2c3d4e5f60718293a4b5c6d7e8f93";
@@ -29,7 +31,16 @@ fn block(from: u64, to: u64) -> Block {
 }
 
 fn compressed(seq: u64, block: &Block) -> Event {
-    let mut event = forge_context::context_compressed(SESSION, block).expect("encodes");
+    let mut event = context_compressed(SESSION, block).expect("encodes");
+    event.seq = seq;
+    event.id = format!("{seq:032x}");
+    event.ts = 1_794_787_200_000 + seq as i64;
+    event
+}
+
+fn compressed_with(seq: u64, block: &Block, surface: SurfaceOp) -> Event {
+    let mut event =
+        context_compressed_with_surface(SESSION, block, surface).expect("encodes with surface");
     event.seq = seq;
     event.id = format!("{seq:032x}");
     event.ts = 1_794_787_200_000 + seq as i64;
@@ -227,4 +238,182 @@ fn a_malformed_block_event_is_an_error_not_a_skip() {
     let err = Ledger::from_events(&[broken]).expect_err("fail closed");
     assert_eq!(err.kind(), ErrorKind::Invalid);
     assert!(err.message().contains("\"to\""), "{}", err.message());
+}
+
+#[test]
+fn a_block_without_surface_op_reads_as_hide() {
+    let original = block(3, 9);
+    let written = compressed(12, &original);
+    // The historic payload has no surfaceOp member at all: a reader that knows
+    // about the field must still see the old records exactly as before.
+    let payload = written
+        .payload
+        .as_ref()
+        .expect("payload")
+        .as_object()
+        .unwrap();
+    assert!(
+        !payload.contains_key("surfaceOp"),
+        "hide must not write surfaceOp: {payload:?}"
+    );
+    assert_eq!(
+        parse_surface_op(&written).expect("parses").expect("type"),
+        SurfaceOp::Hide
+    );
+    let record = parse_record(&written).expect("parses").expect("type");
+    assert_eq!(record.surface, SurfaceOp::Hide);
+    assert_eq!(record.block, original);
+}
+
+#[test]
+fn a_replace_surface_op_round_trips() {
+    let original = block(3, 9);
+    let written = compressed_with(
+        12,
+        &original,
+        SurfaceOp::Replace {
+            start_seq: 4,
+            end_seq: 8,
+        },
+    );
+    let record = parse_record(&written).expect("parses").expect("type");
+    assert_eq!(record.block, original, "the block half is unchanged");
+    assert_eq!(
+        record.surface,
+        SurfaceOp::Replace {
+            start_seq: 4,
+            end_seq: 8
+        }
+    );
+    // parse_block still answers with a plain Block, so the ledger path is
+    // untouched by the new field.
+    assert_eq!(parse_block(&written).expect("parses"), Some(original));
+}
+
+#[test]
+fn an_unknown_surface_op_is_refused_not_treated_as_hide() {
+    let broken = event(
+        5,
+        EventType::CONTEXT_COMPRESSED,
+        serde_json::json!({
+            "blockId": BLOCK_ID,
+            "from": 1,
+            "to": 4,
+            "summary": "s",
+            "surfaceOp": {"op": "append", "startSeq": 1, "endSeq": 2},
+        }),
+    );
+    let err = parse_record(&broken).expect_err("unknown op fails closed");
+    assert_eq!(err.kind(), ErrorKind::Invalid);
+    assert!(err.message().contains("append"), "{}", err.message());
+}
+
+#[test]
+fn a_surface_op_outside_the_block_range_is_refused() {
+    let block = block(3, 9);
+    let err = context_compressed_with_surface(
+        SESSION,
+        &block,
+        SurfaceOp::Replace {
+            start_seq: 2,
+            end_seq: 8,
+        },
+    )
+    .expect_err("startSeq before the block is refused");
+    assert_eq!(err.kind(), ErrorKind::Invalid);
+    assert!(err.message().contains("outside block"), "{}", err.message());
+}
+
+#[test]
+fn an_inverted_surface_range_is_refused() {
+    let block = block(3, 9);
+    assert!(context_compressed_with_surface(
+        SESSION,
+        &block,
+        SurfaceOp::Replace {
+            start_seq: 8,
+            end_seq: 4,
+        },
+    )
+    .is_err());
+}
+
+fn output(seq: u64, call_id: &str, text: impl Into<String>) -> ToolOutput {
+    ToolOutput {
+        seq,
+        call_id: call_id.into(),
+        output: text.into(),
+    }
+}
+
+fn calls(ids: &[&str]) -> BTreeSet<String> {
+    ids.iter().map(|id| id.to_string()).collect()
+}
+
+#[test]
+fn the_pruner_shortens_old_outputs_and_keeps_the_live_edge_whole() {
+    let deep = "x".repeat(200);
+    let outputs = vec![
+        output(10, "a", deep.clone()),
+        output(20, "b", deep.clone()),
+        output(30, "c", deep.clone()),
+    ];
+    let trims = prune_tool_outputs(&outputs, &calls(&["a", "b", "c"]), 1, 40);
+    // Only the two older results are eligible; the newest is the live edge.
+    assert_eq!(trims.len(), 2);
+    assert_eq!(trims[0].seq, 10);
+    assert_eq!(trims[1].seq, 20);
+    for trim in &trims {
+        assert!(trim.output.len() < deep.len());
+        assert!(trim.output.contains("pruned"), "{}", trim.output);
+        assert!(trim.output.len() <= 40 + 32, "{}", trim.output.len());
+    }
+}
+
+#[test]
+fn a_result_under_the_threshold_is_left_alone() {
+    let outputs = vec![output(1, "a", "short"), output(2, "b", "tiny")];
+    let trims = prune_tool_outputs(&outputs, &calls(&["a", "b"]), 0, 100);
+    assert!(trims.is_empty(), "nothing exceeds the threshold: {trims:?}");
+}
+
+#[test]
+fn an_orphan_result_is_never_pruned_because_its_call_is_gone() {
+    // The pairing guard: a result whose call has no assistant record is left
+    // as-is, so pruning cannot manufacture a "result with no call" that the
+    // provider would reject.
+    let deep = "y".repeat(500);
+    let outputs = vec![output(1, "ghost", deep.clone()), output(2, "b", deep)];
+    let trims = prune_tool_outputs(&outputs, &calls(&["b"]), 0, 10);
+    assert_eq!(trims.len(), 1);
+    assert_eq!(trims[0].seq, 2, "only the paired result is trimmed");
+    assert!(
+        !trims.iter().any(|trim| trim.seq == 1),
+        "the orphan result must survive untouched"
+    );
+}
+
+#[test]
+fn the_pruner_never_removes_a_record() {
+    let deep = "z".repeat(100);
+    let outputs = vec![output(1, "a", deep), output(2, "b", "ok".to_string())];
+    let trims = prune_tool_outputs(&outputs, &calls(&["a", "b"]), 0, 10);
+    // Every trim is a replacement for a seq, never a deletion: the seq set the
+    // caller has is unchanged, only the text of seq 1 changes.
+    assert_eq!(
+        trims.iter().map(|trim| trim.seq).collect::<Vec<_>>(),
+        vec![1]
+    );
+}
+
+#[test]
+fn pruning_cuts_on_a_char_boundary() {
+    // Every char is three bytes; a byte budget of 4 must not split one.
+    let text = "日本語".repeat(20); // 180 bytes
+    let outputs = vec![output(1, "a", text)];
+    let trims = prune_tool_outputs(&outputs, &calls(&["a"]), 0, 4);
+    assert_eq!(trims.len(), 1);
+    // 4 is not a boundary; it walks back to 3 (one whole char).
+    assert!(trims[0].output.starts_with("日"));
+    assert!(trims[0].output.is_char_boundary(0));
 }

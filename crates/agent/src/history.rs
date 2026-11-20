@@ -35,6 +35,23 @@ pub fn to_llm_messages_with_parts(
     to_llm_messages_hiding(snap, system, parts_for, &|_| false)
 }
 
+/// How a compressed block changes the model's view.
+///
+/// The two modes own the same pairing rule; they differ only in what stands in
+/// for the records they take out.
+#[derive(Debug, Clone, Copy)]
+pub enum SurfaceMode<'a> {
+    /// The historic behaviour: the selected records are left out and nothing is
+    /// put in their place.
+    Hide,
+    /// Replace the selected records with one `user` message carrying `summary`.
+    ///
+    /// An empty or whitespace-only summary means "do not replace": the block is
+    /// ignored and every record stays visible. That is the conservative
+    /// direction — send the model more rather than a request it cannot use.
+    Replace { summary: &'a str },
+}
+
 /// The same list, with the seq ranges a compressed block hides left out.
 ///
 /// `hidden` is the seam: the ledger lives with the surface that owns the log, so
@@ -51,53 +68,129 @@ pub fn to_llm_messages_hiding(
     parts_for: &dyn Fn(&ProjectedMessage) -> Vec<ContentPart>,
     hidden: &dyn Fn(u64) -> bool,
 ) -> Vec<Message> {
-    let hidden_seq = closed_hidden_set(snap, hidden);
-    let mut out = Vec::with_capacity(snap.messages.len() + 1);
+    to_llm_messages_with_mode(snap, system, parts_for, hidden, SurfaceMode::Hide)
+}
+
+/// The same list, with the hidden records **replaced** by one summary message.
+///
+/// The summary is inserted where the first replaced record sat, so the turn
+/// order the model reads is the same as the order it actually happened in. The
+/// replaced set is closed over tool-call pairs exactly as [`SurfaceMode::Hide`]
+/// does it, so a selected call brings its result and a selected result brings
+/// its call: the request never carries half a pair.
+pub fn to_llm_messages_replacing(
+    snap: &Snapshot,
+    system: &str,
+    parts_for: &dyn Fn(&ProjectedMessage) -> Vec<ContentPart>,
+    hidden: &dyn Fn(u64) -> bool,
+    summary: &str,
+) -> Vec<Message> {
+    to_llm_messages_with_mode(
+        snap,
+        system,
+        parts_for,
+        hidden,
+        SurfaceMode::Replace { summary },
+    )
+}
+
+/// The one implementation both public shims call. `mode` decides whether the
+/// closed set is dropped (`Hide`) or stood in for by a summary (`Replace`).
+pub fn to_llm_messages_with_mode(
+    snap: &Snapshot,
+    system: &str,
+    parts_for: &dyn Fn(&ProjectedMessage) -> Vec<ContentPart>,
+    hidden: &dyn Fn(u64) -> bool,
+    mode: SurfaceMode<'_>,
+) -> Vec<Message> {
+    let mut skip = closed_hidden_set(snap, hidden);
+    let mut summary_message: Option<&str> = None;
+    if let SurfaceMode::Replace { summary } = mode {
+        if summary.trim().is_empty() || skip.is_empty() {
+            // Nothing safe to stand in for: show the originals. A replacement
+            // with no summary, or with an empty selection, would otherwise add
+            // a message and hide nothing useful.
+            skip.clear();
+        } else {
+            summary_message = Some(summary);
+        }
+    }
+    let insert_at = summary_message.map(|_| insertion_index(snap, &skip));
+    let mut out = Vec::with_capacity(snap.messages.len() + 2);
     if !system.is_empty() {
         out.push(Message::system(system));
     }
-    for m in &snap.messages {
-        if hidden_seq.contains(&m.seq) {
+    for (index, m) in snap.messages.iter().enumerate() {
+        if Some(index) == insert_at {
+            if let Some(text) = summary_message {
+                out.push(Message::user(text));
+            }
+        }
+        if skip.contains(&m.seq) {
             continue;
         }
-        match m.kind.as_str() {
-            MESSAGE_USER => {
-                let mut msg = Message::user(&m.text);
-                let parts = parts_for(m);
-                if !parts.is_empty() {
-                    msg = msg.with_parts(parts);
-                }
-                out.push(msg);
-            }
-            MESSAGE_ASSISTANT => {
-                let mut msg = Message::assistant(&m.text);
-                msg.tool_calls = m
-                    .tool_calls
-                    .iter()
-                    .map(|c| ToolCall {
-                        id: c.id.clone(),
-                        name: c.name.clone(),
-                        args: c.args.clone().unwrap_or_else(|| serde_json::json!({})),
-                    })
-                    .collect();
-                out.push(msg);
-            }
-            MESSAGE_TOOL => {
-                let mut msg = Message::tool_result(&m.call_id, &m.text);
-                // A tool that fetched bytes had to leave them out of its text
-                // (a tool message is text-only), so its parts come back the
-                // same way a user message's do: through the caller's store.
-                let parts = parts_for(m);
-                if !parts.is_empty() {
-                    msg = msg.with_parts(parts);
-                }
-                out.push(msg);
-            }
-            MESSAGE_SUMMARY => out.push(Message::system(&m.text)),
-            _ => {} // errors and unknown kinds never reach the model
+        push_message(&mut out, m, parts_for);
+    }
+    if let Some(text) = summary_message {
+        if insert_at == Some(snap.messages.len()) {
+            out.push(Message::user(text));
         }
     }
     out
+}
+
+/// Where the summary message goes: the index of the first record it replaces.
+/// `skip` is non-empty whenever a summary is being inserted, so a matching
+/// index always exists.
+fn insertion_index(snap: &Snapshot, skip: &BTreeSet<u64>) -> usize {
+    snap.messages
+        .iter()
+        .position(|m| skip.contains(&m.seq))
+        .unwrap_or(snap.messages.len())
+}
+
+/// Renders one projected message into the model list.
+fn push_message(
+    out: &mut Vec<Message>,
+    m: &ProjectedMessage,
+    parts_for: &dyn Fn(&ProjectedMessage) -> Vec<ContentPart>,
+) {
+    match m.kind.as_str() {
+        MESSAGE_USER => {
+            let mut msg = Message::user(&m.text);
+            let parts = parts_for(m);
+            if !parts.is_empty() {
+                msg = msg.with_parts(parts);
+            }
+            out.push(msg);
+        }
+        MESSAGE_ASSISTANT => {
+            let mut msg = Message::assistant(&m.text);
+            msg.tool_calls = m
+                .tool_calls
+                .iter()
+                .map(|c| ToolCall {
+                    id: c.id.clone(),
+                    name: c.name.clone(),
+                    args: c.args.clone().unwrap_or_else(|| serde_json::json!({})),
+                })
+                .collect();
+            out.push(msg);
+        }
+        MESSAGE_TOOL => {
+            let mut msg = Message::tool_result(&m.call_id, &m.text);
+            // A tool that fetched bytes had to leave them out of its text
+            // (a tool message is text-only), so its parts come back the
+            // same way a user message's do: through the caller's store.
+            let parts = parts_for(m);
+            if !parts.is_empty() {
+                msg = msg.with_parts(parts);
+            }
+            out.push(msg);
+        }
+        MESSAGE_SUMMARY => out.push(Message::system(&m.text)),
+        _ => {} // errors and unknown kinds never reach the model
+    }
 }
 
 /// The seqs to leave out, closed over tool-call pairs.

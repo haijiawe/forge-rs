@@ -606,3 +606,71 @@ pub fn plugin_tool_names(host: &forge_plugin::Host) -> BTreeMap<String, Vec<Stri
 pub fn empty_schema() -> Value {
     json!({"type":"object","properties":{}})
 }
+
+/// A plugin's `before_turn` hook, exposed as the loop's `pre-step` seam.
+///
+/// The plugin protocol's `before_turn` payload is `{turn, step, text}` where
+/// `text` is the turn's originating user message; a hook returns the same object
+/// with `text` replaced. We map "the turn's text" to the most recent `user`
+/// message rather than the last message in the list, because on steps after the
+/// first the last message is a tool result — taking the last user message keeps
+/// the hook editing the same string every step of the turn, which is what "the
+/// turn's text" means and what a redactor must see.
+///
+/// `after_tool` is not bridged: it has no seam in the loop's two phases, so a
+/// plugin that claims only `after_tool` contributes no hook (and says so via its
+/// own capability list). A hook that returns the same text is reported as
+/// `Unchanged`, so the log gets no `hook/rewrite` row for a no-op.
+pub fn plugin_hook(host: Arc<forge_plugin::Host>, plugin: impl Into<String>) -> forge_agent::Hook {
+    let plugin = plugin.into();
+    let name = plugin.clone();
+    forge_agent::Hook::new(name, move |call| run_plugin_hook(&host, &plugin, call))
+}
+
+fn run_plugin_hook(
+    host: &forge_plugin::Host,
+    plugin: &str,
+    call: &forge_agent::HookCall<'_>,
+) -> forge_core::Result<forge_agent::HookOutcome> {
+    let (turn, step, messages) = match call {
+        forge_agent::HookCall::PreStep {
+            turn,
+            step,
+            messages,
+        } => (*turn, *step, *messages),
+        // A plugin hook has no request-phase surface: it edits the turn's text,
+        // not the assembled tool list.
+        forge_agent::HookCall::Request { .. } => return Ok(forge_agent::HookOutcome::Unchanged),
+        // Nor a retry-decision surface: a plugin asks for retries by failing, not
+        // by voting on the harness's transport policy.
+        forge_agent::HookCall::RequestError { .. } => {
+            return Ok(forge_agent::HookOutcome::Unchanged)
+        }
+    };
+    let Some(index) = messages
+        .iter()
+        .rposition(|m| m.role == forge_llm::Role::User)
+    else {
+        // No user message to edit: a plugin cannot invent one.
+        return Ok(forge_agent::HookOutcome::Unchanged);
+    };
+    let before = messages[index].content.clone();
+    let payload = json!({ "turn": turn, "step": step, "text": before });
+    let returned = host.run_hook(plugin, "before_turn", payload).map_err(|e| {
+        // A host error (dead child, timeout, protocol) is loud: the loop turns
+        // this into `hook_failed`, so a broken extension does not look like a
+        // clean turn.
+        forge_core::Error::new(
+            forge_core::ErrorKind::Refused,
+            format!("plugin hook {plugin}: {}", e.message()),
+        )
+    })?;
+    match returned.get("text").and_then(|v| v.as_str()) {
+        Some(text) if text != before => {
+            let mut next = messages.to_vec();
+            next[index].content = text.to_string();
+            Ok(forge_agent::HookOutcome::Messages(next))
+        }
+        _ => Ok(forge_agent::HookOutcome::Unchanged),
+    }
+}

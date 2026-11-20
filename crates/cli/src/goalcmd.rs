@@ -15,7 +15,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use forge_core::Result as CoreResult;
-use forge_goal::{Action, Goal, Status, StopReason};
+use forge_goal::{Action, CasOutcome, Goal, Status, StopReason};
 use forge_session::{Options as StoreOptions, Store};
 
 use crate::{one_line, write_json, EXIT_FAILURE, EXIT_OK, EXIT_USAGE};
@@ -237,6 +237,71 @@ pub fn end_goal(
     )
 }
 
+/// Open the next round only if the log still shows the revision we folded.
+///
+/// The two entries that race for one goal each hold a `Goal` with the same
+/// `revision`. This re-reads the log through the same handle that will write, so
+/// whichever writes second sees `found != expected` and is turned away with
+/// `Stale` instead of opening a second continuation for a single turn of work.
+///
+/// `expected` is `goal.revision`; on success the new revision is `expected + 1`,
+/// matching the `+1` [`forge_goal::goal_continued`] puts in the payload.
+pub fn append_continued_if_current(
+    store: &Store,
+    session_id: &str,
+    goal: &Goal,
+    round: u32,
+) -> CoreResult<CasOutcome> {
+    // Read the whole log from disk (not the handle's cached seq): the other entry
+    // may have written through a different handle since we folded.
+    let mut events = Vec::new();
+    store.read_from(0, |event| {
+        events.push(event.clone());
+        Ok(())
+    })?;
+    let found = forge_goal::fold(&events)
+        .map(|current| current.revision)
+        .unwrap_or(0);
+    if found != goal.revision {
+        return Ok(CasOutcome::Stale {
+            expected: goal.revision,
+            found,
+        });
+    }
+    store.append(&forge_goal::goal_continued(session_id, goal, round))?;
+    Ok(CasOutcome::Written(goal.revision + 1))
+}
+
+/// Path convenience for [`append_continued_if_current`]: open, check, write, drop.
+pub fn append_continued_at(
+    path: &Path,
+    session_id: &str,
+    goal: &Goal,
+    round: u32,
+) -> CoreResult<CasOutcome> {
+    let store = open_for_write(path)?;
+    append_continued_if_current(&store, session_id, goal, round)
+}
+
+/// Close an open goal because the operator paused the run.
+///
+/// Writes `goal/ended{reason:"cancelled"}` — `cancelled` is an end reason the
+/// goal crate already parses to [`Status::Cancelled`], so a resumed session sees
+/// the goal as stopped rather than still asking for another round. Returns
+/// `true` when it wrote and `false` when there was nothing open to end, which
+/// makes a pause that arrives twice harmless: the second call writes no second
+/// `goal/ended`.
+pub fn cancel_open_goal(path: &Path, session_id: &str, note: Option<&str>) -> CoreResult<bool> {
+    let Some(goal) = open_goal(path)? else {
+        return Ok(false);
+    };
+    if goal.status != Status::Active {
+        return Ok(false);
+    }
+    end_goal(path, session_id, &goal, StopReason::Cancelled, note)?;
+    Ok(true)
+}
+
 pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     let Some(command) = args.first() else {
         let _ = stderr.write_all(USAGE.as_bytes());
@@ -367,6 +432,7 @@ fn status(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i3
                     "text": goal.text,
                     "maxRounds": goal.max_rounds,
                     "rounds": goal.rounds,
+                    "revision": goal.revision,
                     "status": goal.status.as_str(),
                 },
             }),
@@ -380,6 +446,9 @@ fn status(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i3
             let _ = writeln!(stdout, "goal      {}", goal.text);
             let _ = writeln!(stdout, "id        {}", goal.id);
             let _ = writeln!(stdout, "status    {}", goal.status.as_str());
+            // The CAS fence: two entries that both folded this revision must
+            // agree on it before either opens a round, so it is worth showing.
+            let _ = writeln!(stdout, "revision  {}", goal.revision);
             // The log records continuations, so a goal whose first turn is
             // running has zero of them; the turn it is on is one more. Printing
             // the raw count would tell the operator a goal with a two-turn
@@ -679,5 +748,87 @@ mod tests {
             tool_result(2, serde_json::json!({"goalEnd": "probably-fine"})),
         ];
         assert_eq!(round_verdict(&events), None);
+    }
+
+    /// Two entries both fold the goal, then both try to open round 1. Only the
+    /// one whose expected revision still matches the log is allowed to write; the
+    /// other is told it is stale and writes nothing. This is the single-goal
+    /// race the CAS fence exists to lose safely on the second entrant.
+    #[test]
+    fn two_entrants_at_one_revision_only_the_first_writes() {
+        let path = temp_dir("cas").join("s.jsonl");
+        let _ = start_goal(&path, "s", "ship P3", 5).expect("start");
+
+        // Two independent handles on the same log, each folded before any write.
+        let entrant_a = Store::open(&path, StoreOptions::default()).expect("open a");
+        let entrant_b = Store::open(&path, StoreOptions::default()).expect("open b");
+        let goal_a = open_goal(&path).expect("read a").expect("present");
+        let goal_b = open_goal(&path).expect("read b").expect("present");
+        assert_eq!(goal_a.revision, 0);
+        assert_eq!(goal_b.revision, 0);
+
+        let first = append_continued_if_current(&entrant_a, "s", &goal_a, 1).expect("cas a");
+        assert_eq!(first, CasOutcome::Written(1), "the first entrant wins");
+
+        let second = append_continued_if_current(&entrant_b, "s", &goal_b, 1).expect("cas b");
+        assert_eq!(
+            second,
+            CasOutcome::Stale {
+                expected: 0,
+                found: 1
+            },
+            "the second sees the advance and refuses"
+        );
+
+        // Exactly one continuation is in the log: the stale entrant wrote none.
+        let events = read_events(&path).expect("events");
+        let continued = events
+            .iter()
+            .filter(|e| e.typ == forge_core::EventType::GOAL_CONTINUED.as_str())
+            .count();
+        assert_eq!(continued, 1, "a stale entrant must not append");
+        let folded = open_goal(&path).expect("read").expect("present");
+        assert_eq!(folded.revision, 1);
+        assert_eq!(folded.rounds, 1);
+    }
+
+    /// A pause arriving while a goal is running stops it: the next round must not
+    /// begin, and the log says why so a resumed session does not keep going.
+    #[test]
+    fn a_pause_mid_run_ends_the_goal_as_cancelled() {
+        let path = temp_dir("pause").join("s.jsonl");
+        let goal = start_goal(&path, "s", "keep going", 4).expect("start");
+        continue_goal(&path, "s", &goal, 1).expect("round 1 is running");
+
+        assert!(
+            cancel_open_goal(&path, "s", Some("paused by operator")).expect("cancel"),
+            "an open goal must be ended by a pause"
+        );
+
+        let folded = open_goal(&path).expect("read").expect("present");
+        assert_eq!(folded.status, Status::Cancelled);
+        assert!(!folded.is_open(), "a cancelled goal asks for no round");
+
+        let events = read_events(&path).expect("events");
+        let ended: Vec<_> = events
+            .iter()
+            .filter(|e| e.typ == forge_core::EventType::GOAL_ENDED.as_str())
+            .collect();
+        assert_eq!(ended.len(), 1, "pause writes exactly one goal/ended");
+        assert_eq!(
+            ended[0]
+                .payload
+                .as_ref()
+                .and_then(|p| p.get("reason"))
+                .and_then(|v| v.as_str()),
+            Some("cancelled"),
+            "the reason a human reads must be cancelled"
+        );
+
+        // Idempotent: a second pause arriving after the first writes nothing.
+        assert!(
+            !cancel_open_goal(&path, "s", None).expect("second pause"),
+            "an already-ended goal must not be ended twice"
+        );
     }
 }

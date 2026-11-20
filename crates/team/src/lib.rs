@@ -31,20 +31,38 @@
 //! one worker's `ok=false`, because a team that returns `Err` after three of
 //! five workers finished leaves the caller with nothing to report. Only the
 //! board's own I/O errors propagate as `Err`, and those are the callers' doing.
+//!
+//! Two smaller pieces complete the picture without changing the three above:
+//!
+//! * [`task_graph`] — refuses a plan whose tasks have a missing, duplicated or
+//!   cyclic dependency *before* it is submitted, naming both tasks in every
+//!   error. The board's own `board_problems` is an after-the-fact report; this
+//!   is the pre-flight refusal.
+//! * [`journal`] — `<root>/journal/<lead>.jsonl`, one append-only file per Lead,
+//!   recording the order of that Lead's operations. It does not replace the
+//!   board's CAS: CAS decides who wins a concurrent write, the journal fixes the
+//!   order of one Lead's writes. Neither substitutes for the other.
 
 #![forbid(unsafe_code)]
 
 pub mod board;
+pub mod journal;
 pub mod mailbox;
 pub mod run;
+#[path = "task-graph.rs"]
+pub mod task_graph;
 pub mod worker;
 
 pub use board::{
     Board, NewTask, Problem, ProblemKind, ScopeWarning, Status, Task, TaskPatch, BOARD_FILE,
     BOARD_VERSION,
 };
+pub use journal::{Entry, Journal, JournalRead, LeadTxn, JOURNAL_DIR};
 pub use mailbox::{Drain, Mailbox, Message, INBOX_DIR};
 pub use run::{Plan, Report, TaskCounts, WorkerReport, DEFAULT_MAX_PARALLEL, WORKERS_DIR};
+pub use task_graph::{
+    validate_board, validate_plan, validate_tasks, TeamTaskGraphError, TeamTaskGraphViolation,
+};
 pub use worker::{Call, CommandRunner, RecordingRunner, WorkerResult, WorkerRunner, WorkerSpec};
 
 use std::sync::atomic::{AtomicU64, Ordering};

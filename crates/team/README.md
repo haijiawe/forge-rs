@@ -2,7 +2,7 @@
 dir: crates/team
 layer: L2
 role: parallel workers over a shared task board with a per-worker mailbox
-public: [Board, NewTask, Task, TaskPatch, Status, Problem, ProblemKind, ScopeWarning, Message, Drain, Mailbox, Plan, Report, TaskCounts, WorkerReport, WorkerSpec, WorkerResult, WorkerRunner, Call, RecordingRunner, CommandRunner, run, valid_name, MAX_NAME_LEN, BOARD_FILE, BOARD_VERSION, INBOX_DIR, WORKERS_DIR, DEFAULT_MAX_PARALLEL]
+public: [Board, NewTask, Task, TaskPatch, Status, Problem, ProblemKind, ScopeWarning, Message, Drain, Mailbox, Plan, Report, TaskCounts, WorkerReport, WorkerSpec, WorkerResult, WorkerRunner, Call, RecordingRunner, CommandRunner, run, valid_name, MAX_NAME_LEN, BOARD_FILE, BOARD_VERSION, INBOX_DIR, WORKERS_DIR, DEFAULT_MAX_PARALLEL, Journal, Entry, JournalRead, LeadTxn, JOURNAL_DIR, TeamTaskGraphError, TeamTaskGraphViolation, validate_tasks, validate_board, validate_plan]
 may_import: [forge-core, forge-exec]
 must_not:
   - write session events or open a session log for writing
@@ -24,6 +24,10 @@ gate: cargo test -p forge-team --offline
 
 三件东西分开的原因：任务板不关心谁在跑，邮箱不关心任务板，调度不关心模型。`WorkerRunner` 是唯一的接缝，因此并发上界、CAS、邮箱投递都能在没有 provider、没有网络、没有 token 预算的情况下被断言。
 
+**提交前的依赖校验、以及 per-Lead 的操作顺序，是另外两件正交的事。** `task_graph` 在 plan 落盘之前就拒绝三类依赖缺陷——missing（被依赖的任务不在板上）、duplicate（同一 blocker 列了两次）、cycle（含自依赖）——并且每个错误都点名**两个**任务：missing 点名依赖方与被依赖方，duplicate 点名重复的两个，cycle 点名环上相邻的两个。board 自己的 `board_problems` 是**事后**报告，不是提交前的拒绝；`task_graph` 才是。`journal` 给每个 Lead 一个 `<root>/journal/<lead>.jsonl` 追加文件，记录该 Lead 的操作在**哪个顺序**发生，`seq` 每个 Lead 从 1 递增。
+
+**CAS 防并发写，journal 定顺序，两者不互替。** CAS 决定两个并发写谁赢（旧的 `expected_revision` 被拒），它不关心同一 Lead 的先后；journal 不给任何写排他，只把同一个 Lead 的多次操作按调用顺序编号落盘，它对两个 worker 抢同一任务是沉默的。用 journal 代替 CAS，会让两个 worker 互相覆盖认领；用 CAS 代替 journal，则会让同一 Lead 的后续操作被重排到前面——两次写都"成功"，记录却错了。
+
 **`<root>/workers/<name>.jsonl` 不是会话日志。** 法则 1 是"一个日志只有一个写者"：会话事件只能由 `forge-session` 的 `Store` 追加，本 crate 一个字节都不写。worker 转录是**团队文件**——路径里没有会话 id，`forge-session` 从不打开它，也没有任何事件投影到它上面；它每个 worker 一个文件、由那个 worker 的线程独占写，所以"一个日志一个写者"对它同样成立，只是"日志"指的不是会话日志。把团队转录塞进 `sessions/` 会同时破坏两件事：会话日志的读者会看到不认识的记录，而本 crate 会以为自己被允许写事件。
 
 ## 公开面
@@ -33,6 +37,8 @@ gate: cargo test -p forge-team --offline
 - 调度：`run`、`Plan`（`worker`/`member`/`max_parallel`/`mailbox`/`parallelism`）、`WorkerSpec`（`new`/`task`/`validate`）、`Report { tasks, workers, scopes, problems }`、`TaskCounts { claimed, completed, failed }`、`WorkerReport { name, ok, exit, note }`，常量 `WORKERS_DIR`、`DEFAULT_MAX_PARALLEL`。
 - runner 接缝：`trait WorkerRunner`、`Call`（`spec`/`task`/`root`/`transcript`/`mail`）、`WorkerResult`（`ok`/`failed`/`exit`/`text`）。随包两个实现：`RecordingRunner`（测试替身，用计数器测量真实并发重叠）与 `CommandRunner`（经 `forge-exec` 起一个进程，提示词走 stdin）。
 - 名字校验：`valid_name`、`MAX_NAME_LEN`。名字会变成文件名，所以这是安全边界而不是格式偏好：`..`、分隔符、盘符、Windows 设备名一律拒绝，不静默清洗（清洗会让两个不同的 plan 撞进同一个邮箱）。
+- 依赖校验：`validate_tasks`（`&[Task]`）、`validate_board`（`&Board`）、`validate_plan`（`&Plan`，会打开 plan 根下的 board）。错误枚举 `TeamTaskGraphError`（`Missing`/`Duplicate`/`Cycle`）带 `violation()`/`dependent()`/`dependency()`/`tasks()`/`message()`，分类枚举 `TeamTaskGraphViolation`（`missing`/`duplicate`/`cycle`）。每个错误都带两个任务 id；`validate_plan` 把图缺陷映射成 `ErrorKind::Invalid`。
+- journal：`Journal`（`open`/`record`/`transact`/`entries`/`read`/`last_seq`/`path`），`Entry { lead, seq, op, detail, ts }`，`JournalRead { entries, skipped, torn_tail }`，事务体 `LeadTxn`（`record`/`next_seq`），常量 `JOURNAL_DIR`。`transact` 在同一个 Lead 的锁内缓冲条目，`Ok` 才一次 `write_all` 落盘，`Err` 则整笔丢弃。
 
 ## 依赖与边界
 
@@ -49,6 +55,7 @@ gate: cargo test -p forge-team --offline
 - **不要把写作用域警告变成锁。** 两个 worker 动相邻文件经常没问题、有时是故意的（一个写测试、一个写实现）。因为一条警告就拒绝认领，会教会所有调用方忽略警告，那么真正要紧的那一次就没人读了。所以它只出现在报告里。
 - **不要用 `warned_scopes` 当"并发安全"的证明。** 它是前缀比较的**提示**：`crates/team/src` 与 `crates/team/src/board.rs` 会命中，`src/a` 与 `src/ab` 不会（按路径分量比较，不是字符串前缀）；非 Windows 上大小写敏感，Windows 上不敏感。它读不懂真正的文件、也不做任何解析。
 - **不要指望任务板是跨机器的。** 它靠"临时文件 + rename"原子替换，加上进程内的 `Mutex`；对同一台机器上的多个进程成立（CAS 在每次迁移里重新读文件），对网络共享不承诺。
+- **不要把 journal 当锁，也不要拿它当状态源。** journal 只回答"某个 Lead 的操作按什么顺序发生"，它不排他、不阻止并发写、也不是任务当前状态的真相（真相在 board）。同理，**不要指望 journal 的 `seq` 在跨进程时唯一**：同一进程内每个 Lead 一把锁，`seq` 严格递增；两个进程同时给同一 Lead 记录可能挑到同一个 `seq`——这与任务板对跨进程不做仲裁是同一个诚实边界。
 - **不要以为认领发生在 worker 线程里。** `run` 在起线程**之前**按名字顺序替整个 roster 认领，然后才并发跑；否则同一份 plan 每次会给不同的 worker 拿到那件任务，团队结果就依赖线程调度了。CAS 的竞态在它该被测的地方测——`Board::claim` 上两个线程抢同一 revision，恰好一个 `Ok` 一个 `conflict`。跨进程同时 `run` 仍然会撞在 CAS 上，`conflict` 会进报告，但没有任何退避或重试。
 - **不要以为空 roster 是成功。** `Report::ok()` 对"一个 worker 都没跑"返回 `false`：没发生的事不能被读成做完了。
 - **不要指望 `Report::problems` 做结构化判断。** 它是给人读的、已排序去重的字符串；要分支就读 `Board::board_problems()` 的 `Problem`。
