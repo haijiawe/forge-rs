@@ -311,6 +311,13 @@ bridges and the configured platform capabilities contribute, so `tools={n}` on
 stderr — the count of everything in the registry — is at least ten and grows with
 configuration:
 
+- three more on any surface that writes a session log — which is `forge chat`
+  and `forge web`, so a conversation advertises thirteen: `compress`,
+  `decompress`, and `search_context` answer questions about the log being
+  written and never edit it (§4.0.3 of [`events-v1`](events-v1.md)). A caller
+  that hands wiring no log gets none of them, because a block is an address into
+  a specific log and a tool that cannot resolve one is a trap;
+
 - one tool per MCP tool, named `mcp__<server>__<tool>` with `_` escaped to `__`
   and `.` to `_dot_` (§5 of [`m5-surface`](m5-surface.md)), policy `ask` in every
   mode;
@@ -333,7 +340,7 @@ model reads the tool list and knows what this turn can do. A bad `caFile` costs
 `--json` `tools` is the sorted name list of everything advertised, bridges
 included. A misconfigured MCP server or skill root is never fatal: that bridge
 contributes nothing and writes one warning to stderr. The table below is the
-policy for the ten unconditional tools.
+policy for the ten unconditional tools and the three that ride on a session log.
 
 | Tool | Sandbox policy `read-only` | `workspace-write` | `full-access` |
 | --- | --- | --- | --- |
@@ -342,6 +349,7 @@ policy for the ten unconditional tools.
 | `todo_write` | deny | allow | allow |
 | `shell`, `worktree` | deny | **ask** | allow |
 | `present` | allow | allow | allow |
+| `compress`, `decompress`, `search_context` | allow | allow | allow |
 | `web_fetch`, `web_search` | **ask** | **ask** | allow |
 | anything not listed | deny | deny | allow |
 

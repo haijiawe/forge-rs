@@ -718,6 +718,32 @@ Why this is last rather than first, in three lines:
    zero kernel risk, doable at any time. It sits last because it is not urgent,
    not because it is hard.
 
+*Status: `forge-context` delivered; Office and the document writers are not
+started.* What shipped is the addressing model the ADR asked for, and nothing
+above it:
+
+- a block is a **closed `seq` interval plus a summary**, written as one
+  `context/compressed` event (`crates/context/src/block.rs`, `wire.rs`). The
+  interval must already exist in the log — a block cannot point at records that
+  have not been written — and blocks may not overlap, so "what covers this seq"
+  is a single answer rather than a policy;
+- the **ledger** folds those events back into ranges (`ledger.rs`), which is what
+  makes a block survive a restart: nothing is held in memory between turns;
+- `to_llm_messages_hiding` (`crates/agent/src/history.rs`) drops hidden records
+  **and closes the set over tool pairing** — hiding a call also hides its result
+  and vice versa, because a request carrying a tool message with no call is
+  rejected by every provider. This is the part that would have leaked a 400 to
+  the user on the first long session;
+- `compress` / `decompress` / `search_context` live in `crates/cli` and never
+  write: the loop is the only writer, so `compress` returns the payload in
+  `result.meta.contextBlock` and the loop appends it, exactly as an approver
+  returns a decision. Restoring is a read; the log never shrinks.
+
+*Evidence: `forge-context` 14 tests, `forge-cli` 133 lib tests (8 of them for the
+three tools), a conformance case for the new event type (23 cases), and
+`archcheck: ok`. The block tools are `allow` in every mode because they neither
+touch the workspace, the network, nor a child process.*
+
 **Revisit trigger.** If long sessions lose detail before the model's window is
 full, `forge-context` moves ahead of P2 — the loss is in the context window, not
 in rendering (10,001 events already scroll at 60 fps, measured in `docs/web-ui.md`).

@@ -11,7 +11,7 @@ as provenance for the behaviour in question; the frozen contracts in
 `docs/contracts/` and the corpora under `tests/` are what `cargo test` checks
 against.
 
-The workspace is arranged as twenty-three product crates, one per boundary that should be
+The workspace is arranged as twenty-four product crates, one per boundary that should be
 violated loudly, plus `tools/archcheck` and `tools/bench` gates. `architecture.yaml`
 states the layer map, and `tools/archcheck` fails the build when a `Cargo.toml`
 dependency points to a higher layer or a crate has no boundary README. Cargo

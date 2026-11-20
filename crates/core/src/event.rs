@@ -47,6 +47,7 @@ impl EventType {
     pub const GOAL_CREATED: EventType = EventType("goal/created");
     pub const GOAL_CONTINUED: EventType = EventType("goal/continued");
     pub const GOAL_ENDED: EventType = EventType("goal/ended");
+    pub const CONTEXT_COMPRESSED: EventType = EventType("context/compressed");
 
     /// Every type this build knows. A test asserts it matches the contract
     /// document, and the reader uses it to decide what it can fold.
@@ -69,6 +70,7 @@ impl EventType {
         EventType::GOAL_CREATED,
         EventType::GOAL_CONTINUED,
         EventType::GOAL_ENDED,
+        EventType::CONTEXT_COMPRESSED,
     ];
 
     pub fn as_str(self) -> &'static str {

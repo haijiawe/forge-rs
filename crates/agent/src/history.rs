@@ -4,6 +4,8 @@
 //! Every turn re-reads it and re-projects it through `forge_session`; the agent
 //! never keeps its own history between turns.
 
+use std::collections::BTreeSet;
+
 use forge_llm::{ContentPart, Message, ToolCall};
 use forge_session::projection::{
     Message as ProjectedMessage, MESSAGE_ASSISTANT, MESSAGE_SUMMARY, MESSAGE_TOOL, MESSAGE_USER,
@@ -30,11 +32,34 @@ pub fn to_llm_messages_with_parts(
     system: &str,
     parts_for: &dyn Fn(&ProjectedMessage) -> Vec<ContentPart>,
 ) -> Vec<Message> {
+    to_llm_messages_hiding(snap, system, parts_for, &|_| false)
+}
+
+/// The same list, with the seq ranges a compressed block hides left out.
+///
+/// `hidden` is the seam: the ledger lives with the surface that owns the log, so
+/// this crate is told which seqs are behind a summary rather than shown one.
+///
+/// Hiding is **not** a plain filter, because a tool call and its result are two
+/// records that only mean something together. Hiding one and keeping the other
+/// produces a request every provider rejects: a tool message with no call, or a
+/// call with no result. So the set is closed first — a hidden call takes its
+/// result with it, and a hidden result takes its call — and only then applied.
+pub fn to_llm_messages_hiding(
+    snap: &Snapshot,
+    system: &str,
+    parts_for: &dyn Fn(&ProjectedMessage) -> Vec<ContentPart>,
+    hidden: &dyn Fn(u64) -> bool,
+) -> Vec<Message> {
+    let hidden_seq = closed_hidden_set(snap, hidden);
     let mut out = Vec::with_capacity(snap.messages.len() + 1);
     if !system.is_empty() {
         out.push(Message::system(system));
     }
     for m in &snap.messages {
+        if hidden_seq.contains(&m.seq) {
+            continue;
+        }
         match m.kind.as_str() {
             MESSAGE_USER => {
                 let mut msg = Message::user(&m.text);
@@ -73,6 +98,44 @@ pub fn to_llm_messages_with_parts(
         }
     }
     out
+}
+
+/// The seqs to leave out, closed over tool-call pairs.
+///
+/// Two passes are enough: the first collects the records a block names, and the
+/// second pulls in the partner of any tool call or result that is already out.
+/// A third would find nothing new — a partner's partner is the record itself.
+fn closed_hidden_set(snap: &Snapshot, hidden: &dyn Fn(u64) -> bool) -> BTreeSet<u64> {
+    let mut seqs: BTreeSet<u64> = BTreeSet::new();
+    let mut call_ids: BTreeSet<String> = BTreeSet::new();
+    for m in &snap.messages {
+        if !hidden(m.seq) {
+            continue;
+        }
+        seqs.insert(m.seq);
+        if m.kind == MESSAGE_ASSISTANT {
+            for call in &m.tool_calls {
+                call_ids.insert(call.id.clone());
+            }
+        }
+        if m.kind == MESSAGE_TOOL && !m.call_id.is_empty() {
+            call_ids.insert(m.call_id.clone());
+        }
+    }
+    if call_ids.is_empty() {
+        return seqs;
+    }
+    for m in &snap.messages {
+        let partner = match m.kind.as_str() {
+            MESSAGE_TOOL => call_ids.contains(&m.call_id),
+            MESSAGE_ASSISTANT => m.tool_calls.iter().any(|call| call_ids.contains(&call.id)),
+            _ => false,
+        };
+        if partner {
+            seqs.insert(m.seq);
+        }
+    }
+    seqs
 }
 
 /// The number of the next turn: one more than the last recorded turn, or 1.

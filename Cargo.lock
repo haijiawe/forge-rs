@@ -129,6 +129,7 @@ dependencies = [
  "ctrlc",
  "forge-agent",
  "forge-config",
+ "forge-context",
  "forge-core",
  "forge-experts",
  "forge-goal",
@@ -159,6 +160,15 @@ dependencies = [
 
 [[package]]
 name = "forge-config"
+version = "0.1.0"
+dependencies = [
+ "forge-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "forge-context"
 version = "0.1.0"
 dependencies = [
  "forge-core",

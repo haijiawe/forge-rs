@@ -1089,6 +1089,7 @@ fn execute_turn(
     // drift about which tools exist or which of them ask first.
     let wired = crate::wiring::build(crate::wiring::BuildOptions {
         cfg,
+        log: Some(log_path.clone()),
         provider: Arc::clone(&provider),
         model: model.to_string(),
         data_dir: data_dir.clone(),
@@ -1163,6 +1164,10 @@ fn execute_turn(
         &data_dir,
         Some(PathBuf::from(workspace)),
     )));
+    // Blocks written by an earlier turn are addresses into this log, so the
+    // window shrinks here and nowhere else. Read once per turn, before the run:
+    // what a turn sends is decided at that moment.
+    agent_opts.hidden = Some(Arc::new(crate::context_tools::hidden_hook(&log_path)));
     if !opts.json {
         agent_opts.on_delta = Some(on_delta);
     }

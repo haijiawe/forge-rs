@@ -19,7 +19,7 @@ use crate::cancel::Cancel;
 use crate::err::{
     cancelled_error, code_of, is_cancelled, refusal_error, retry_after_of, retryable_of,
 };
-use crate::history::{next_turn, open_turn, to_llm_messages, to_llm_messages_with_parts};
+use crate::history::{next_turn, open_turn, to_llm_messages_hiding};
 use crate::payload::{
     clip_system, error_event, llm_call, normalize_stop, step_end, step_start, stop_with_calls,
     turn_end, turn_reason, turn_start, usage_payload, user_message, CODE_CANCELLED,
@@ -39,6 +39,18 @@ pub type SteeringHook = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
 /// type written twice, and the option around it reads as noise either way.
 pub type AttachmentHook =
     Arc<dyn Fn(&forge_session::projection::Message) -> Vec<ContentPart> + Send + Sync>;
+/// Answers whether a projected message's seq sits behind a compressed block.
+///
+/// The ledger that knows lives with the surface owning the log, so the loop is
+/// told which seqs are hidden instead of being handed a log to fold.
+pub type HiddenHook = Arc<dyn Fn(u64) -> bool + Send + Sync>;
+/// The member of a tool result's `meta` that asks the loop to append a
+/// `context/compressed` record.
+///
+/// The tool cannot append it itself: the loop is the only writer, and a second
+/// writer would race it into two sequences. So `compress` hands back the payload
+/// it wants written, exactly as an approver hands back a decision.
+pub const CONTEXT_BLOCK_META: &str = "contextBlock";
 /// Deterministic clock returning epoch milliseconds (injectable for goldens).
 pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
@@ -64,6 +76,9 @@ pub struct Options {
     /// caller has no bytes for it. `None` is the text-only loop this crate
     /// shipped before attachments could reach the model.
     pub attachments: Option<AttachmentHook>,
+    /// Which seqs are behind a compressed block. `None` is the whole history,
+    /// which is what every caller saw before blocks existed.
+    pub hidden: Option<HiddenHook>,
     pub clock: Clock,
     pub cancel: Cancel,
 }
@@ -92,6 +107,7 @@ impl Options {
             on_text: None,
             on_delta: None,
             attachments: None,
+            hidden: None,
             clock: Arc::new(wall_clock_ms),
             cancel: Cancel::default(),
         }
@@ -170,9 +186,11 @@ impl Agent {
         // Attachments arrive as bodies in the caller's blob store, so the loop
         // only asks for the parts it was told it can supply. With no hook this
         // is byte for byte the text-only history it has always built.
+        let hidden = self.opt.hidden.clone();
+        let hide = move |seq: u64| hidden.as_ref().map(|hook| hook(seq)).unwrap_or(false);
         let mut history = match &self.opt.attachments {
-            Some(hook) => to_llm_messages_with_parts(&snap, &self.opt.system, hook.as_ref()),
-            None => to_llm_messages(&snap, &self.opt.system),
+            Some(hook) => to_llm_messages_hiding(&snap, &self.opt.system, hook.as_ref(), &hide),
+            None => to_llm_messages_hiding(&snap, &self.opt.system, &|_| Vec::new(), &hide),
         };
 
         // PromptRecorded: adopt the turn the HTTP layer already opened instead
@@ -672,6 +690,17 @@ impl Agent {
                 }
             }
             self.emit(turn, step, (EventType::TOOL_RESULT, Value::Object(m)))?;
+            // A tool may ask the loop to write a record it is not allowed to
+            // write itself. `compress` is the only such tool today: it knows the
+            // range and the summary, and the loop knows how to append.
+            if let Some(meta) = &res.meta {
+                if let Some(block) = meta
+                    .get(CONTEXT_BLOCK_META)
+                    .filter(|value| value.is_object())
+                {
+                    self.emit(turn, step, (EventType::CONTEXT_COMPRESSED, block.clone()))?;
+                }
+            }
             if res.code == CODE_CANCELLED {
                 return Err(cancelled_error());
             }

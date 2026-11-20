@@ -79,6 +79,10 @@ pub type Notes = Vec<String>;
 /// Everything needed to build the tool set for one command.
 pub struct BuildOptions<'a> {
     pub cfg: &'a Config,
+    /// The log this turn appends to. `Some` registers the three context tools;
+    /// `None` leaves them out, because a block is an address into a specific
+    /// log and a tool that cannot resolve one is a trap.
+    pub log: Option<PathBuf>,
     pub provider: Arc<dyn Provider>,
     pub model: String,
     pub data_dir: PathBuf,
@@ -716,6 +720,25 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
     let registry = Arc::new(Registry::new(forge_tool::all(&tool_options)));
     let mut clients: Vec<Arc<Mutex<Box<dyn Client>>>> = Vec::new();
     let mut bridge_rules: Vec<forge_tool::Rule> = Vec::new();
+
+    // --- Context (addressable compression) ---------------------------------
+    // These three read and describe the session log, so they are registered only
+    // when the caller handed over the log it is writing. All three are `allow`:
+    // they never touch the workspace, the network or a child process — the only
+    // thing `compress` changes is which records the next request pays for, and
+    // the loop records that as an event like any other.
+    if let Some(log) = &options.log {
+        for tool in crate::context_tools::tools(options.limits, log) {
+            registry.register_arc(tool);
+        }
+        for name in [
+            crate::context_tools::TOOL_COMPRESS,
+            crate::context_tools::TOOL_DECOMPRESS,
+            crate::context_tools::TOOL_SEARCH,
+        ] {
+            bridge_rules.push(forge_tool::Rule::new(name, "", forge_tool::ACTION_ALLOW));
+        }
+    }
 
     // --- MCP ---------------------------------------------------------------
     let mut contributed: BTreeSet<String> = BTreeSet::new();
@@ -1489,6 +1512,10 @@ mod tests {
             system: String::new(),
             parent_session: String::new(),
             goal: false,
+            // The bridge tests build a registry, not a turn: no log means the
+            // context tools stay out, which is exactly what a caller without a
+            // log should get.
+            log: None,
         }
     }
 
@@ -1882,6 +1909,50 @@ mod tests {
         assert_eq!(host.loaded_names(), vec!["reference".to_string()]);
         assert!(host.is_loaded("reference"));
 
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn the_context_tools_exist_only_where_there_is_a_log() {
+        // A block is an address into one session's log. Wiring that was handed
+        // no log must therefore not advertise the three tools that resolve one:
+        // a tool whose every call fails teaches the model to distrust the whole
+        // tool list.
+        let data_dir = scratch("ctx-none");
+        let cfg = Config::defaults();
+        let bare = build(build_options(&cfg, &data_dir, "."));
+        for name in [
+            crate::context_tools::TOOL_COMPRESS,
+            crate::context_tools::TOOL_DECOMPRESS,
+            crate::context_tools::TOOL_SEARCH,
+        ] {
+            assert!(
+                !bare.registry.names().iter().any(|n| n == name),
+                "{name} must not exist without a log: {:?}",
+                bare.registry.names()
+            );
+        }
+        let _ = std::fs::remove_dir_all(&data_dir);
+
+        // With a log they are present, and all three are `allow`: none of them
+        // touches the workspace, the network or a child process.
+        let data_dir = scratch("ctx-log");
+        let log = data_dir.join("s_ctx.jsonl");
+        std::fs::write(&log, "").expect("an empty log is a valid log");
+        let mut options = build_options(&cfg, &data_dir, ".");
+        options.log = Some(log);
+        let wired = build(options);
+        for name in [
+            crate::context_tools::TOOL_COMPRESS,
+            crate::context_tools::TOOL_DECOMPRESS,
+            crate::context_tools::TOOL_SEARCH,
+        ] {
+            assert!(
+                wired.registry.names().iter().any(|n| n == name),
+                "{name} must exist once a log is handed over: {:?}",
+                wired.registry.names()
+            );
+        }
         let _ = std::fs::remove_dir_all(&data_dir);
     }
 }

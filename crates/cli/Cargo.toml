@@ -32,6 +32,7 @@ forge-plugin = { path = "../plugin" }
 forge-experts = { path = "../experts" }
 forge-team = { path = "../team" }
 forge-market = { path = "../market" }
+forge-context = { path = "../context" }
 getrandom.workspace = true
 ctrlc = "3.4"
 serde.workspace = true

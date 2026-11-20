@@ -554,6 +554,120 @@ fn attachment_parts_reach_the_provider_request() {
     let _ = std::fs::remove_dir_all(&blob_root);
 }
 
+#[test]
+fn a_hidden_range_is_not_sent_but_the_prompt_still_is() {
+    // The whole point of an addressable block: the next request pays for the
+    // summary, not for what the summary replaced. Asserted on the provider's
+    // own view of the messages, because that is the only place the saving is
+    // real — the log keeps every record.
+    let path = temp_log("hidden");
+    let store = open_store(&path);
+    {
+        store
+            .append(&forge_core::Event::new(
+                SESSION,
+                forge_core::EventType::SESSION_START,
+                Some(json!({
+                    "workspace": WORKSPACE,
+                    "model": MODEL,
+                    "startedBy": "cli",
+                    "system": SYSTEM,
+                })),
+            ))
+            .expect("append session/start");
+        let mut ts = forge_core::Event::new(
+            SESSION,
+            forge_core::EventType::TURN_START,
+            Some(json!({"number": 1})),
+        );
+        ts.turn = 1;
+        store.append(&ts).expect("append turn/start");
+        let mut um = forge_core::Event::new(
+            SESSION,
+            forge_core::EventType::USER_MESSAGE,
+            Some(json!({"text": "the old question"})),
+        );
+        um.turn = 1;
+        store.append(&um).expect("append user/message");
+        let mut am = forge_core::Event::new(
+            SESSION,
+            forge_core::EventType::ASSISTANT_MESSAGE,
+            Some(json!({"text": "the old answer", "stopReason": "stop"})),
+        );
+        am.turn = 1;
+        store.append(&am).expect("append assistant/message");
+        // A block over exactly those two records, as `compress` would write it.
+        let mut cb = forge_core::Event::new(
+            SESSION,
+            forge_core::EventType::CONTEXT_COMPRESSED,
+            Some(json!({
+                "blockId": "a".repeat(32),
+                "from": um.seq,
+                "to": am.seq,
+                "summary": "a question was asked and answered",
+                "messages": 2,
+            })),
+        );
+        cb.turn = 1;
+        store.append(&cb).expect("append context/compressed");
+        let mut ts2 = forge_core::Event::new(
+            SESSION,
+            forge_core::EventType::TURN_START,
+            Some(json!({"number": 2})),
+        );
+        ts2.turn = 2;
+        store.append(&ts2).expect("append turn/start");
+        let mut um2 = forge_core::Event::new(
+            SESSION,
+            forge_core::EventType::USER_MESSAGE,
+            Some(json!({"text": "the new question"})),
+        );
+        um2.turn = 2;
+        store.append(&um2).expect("append user/message");
+    }
+
+    let provider = Arc::new(ScriptedProvider::new(vec![Response::Deltas(vec![
+        Delta {
+            text: "an answer to the new question".into(),
+            ..Default::default()
+        },
+        Delta {
+            stop_reason: Some("stop".into()),
+            ..Default::default()
+        },
+    ])]));
+    let mut opt = Options::new(provider.clone(), Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.system = SYSTEM.into();
+    opt.prompt_recorded = true; // this test wrote its own turn/start + user/message
+    opt.clock = fixed_clock();
+    // What the CLI builds from the ledger: the block covers the first turn.
+    opt.hidden = Some(Arc::new(|seq: u64| (3..=4).contains(&seq)));
+    let agent = Agent::new(opt).expect("new agent");
+    let (_result, error) = agent.run("the new question");
+    assert!(error.is_none(), "turn failed: {:?}", error);
+
+    let reqs = provider.requests();
+    assert_eq!(reqs.len(), 1);
+    let texts: Vec<&str> = reqs[0]
+        .messages
+        .iter()
+        .filter(|m| !m.content.is_empty())
+        .map(|m| m.content.as_str())
+        .collect();
+    assert!(
+        !texts.iter().any(|t| t.contains("the old question")),
+        "a hidden record reached the provider: {texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t.contains("the old answer")),
+        "a hidden record reached the provider: {texts:?}"
+    );
+    assert!(
+        texts.iter().any(|t| t.contains("the new question")),
+        "the live prompt was lost: {texts:?}"
+    );
+}
+
 /// The same lookup the CLI wires into `Options::attachments`, spelled here so the
 /// test does not depend on `forge-cli` (which would be a cycle: the CLI is a
 /// consumer of this crate).
@@ -578,4 +692,83 @@ fn forge_cli_like_hook(
             })
             .collect()
     }
+}
+
+/// Hiding one side of a tool pair must hide the other.
+///
+/// A request carrying a tool message with no call (or a call with no result) is
+/// rejected by every provider, so the hidden set is closed over pairs before
+/// anything is filtered. This test hides only the assistant record that made the
+/// call and asserts the result went with it.
+#[test]
+fn hiding_a_tool_call_takes_its_result_with_it() {
+    let path = temp_log("pairs");
+    let provider = Arc::new(ScriptedProvider::new(vec![
+        Response::Deltas(tool_call_step()),
+        Response::Deltas(final_step("done")),
+    ]));
+    let mut opt = Options::new(
+        provider.clone(),
+        Arc::new(open_store(&path)),
+        MODEL,
+        SESSION,
+        WORKSPACE,
+    );
+    opt.system = SYSTEM.into();
+    // The call has to reach a real tool: the loop refuses a tool call it cannot
+    // answer, and that refusal would happen before the pairing ever mattered.
+    opt.tools = Some(Arc::new(EchoTool::new()));
+    opt.clock = fixed_clock();
+    let agent = Agent::new(opt).expect("new agent");
+    let (_result, error) = agent.run("call the tool");
+    assert!(error.is_none(), "first turn failed: {:?}", error);
+
+    // The call is its own `tool/call` record; the assistant message before it is
+    // the record that carries it in the projection, so that is the seq to hide.
+    let events = read_all(&open_store(&path));
+    let call_index = events
+        .iter()
+        .position(|e| e.typ == forge_core::EventType::TOOL_CALL.as_str())
+        .expect("the log records the call");
+    let call_seq = events[..call_index]
+        .iter()
+        .rev()
+        .find(|e| e.typ == forge_core::EventType::ASSISTANT_MESSAGE.as_str())
+        .map(|e| e.seq)
+        .expect("an assistant record precedes its call");
+
+    let provider2 = Arc::new(ScriptedProvider::new(vec![Response::Deltas(final_step(
+        "second answer",
+    ))]));
+    let mut opt2 = Options::new(
+        provider2.clone(),
+        Arc::new(open_store(&path)),
+        MODEL,
+        SESSION,
+        WORKSPACE,
+    );
+    opt2.system = SYSTEM.into();
+    opt2.clock = fixed_clock();
+    opt2.hidden = Some(Arc::new(move |seq: u64| seq == call_seq));
+    let agent2 = Agent::new(opt2).expect("new agent");
+    let (_result, error) = agent2.run("what happened");
+    assert!(error.is_none(), "second turn failed: {:?}", error);
+
+    let reqs = provider2.requests();
+    assert_eq!(reqs.len(), 1);
+    let has_tool_message = reqs[0]
+        .messages
+        .iter()
+        .any(|m| m.role == forge_llm::Role::Tool);
+    assert!(
+        !has_tool_message,
+        "the result outlived its call, which every provider rejects: {:?}",
+        reqs[0].messages.iter().map(|m| m.role).collect::<Vec<_>>()
+    );
+    let calls = reqs[0]
+        .messages
+        .iter()
+        .map(|m| m.tool_calls.len())
+        .sum::<usize>();
+    assert_eq!(calls, 0, "the hidden call still asked for a result");
 }

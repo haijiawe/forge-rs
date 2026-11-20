@@ -74,13 +74,14 @@ fn every_case_file_is_present() {
     // 21 cases came from the Go suite (9 accepted, 12 refused); the goal
     // lifecycle case is the first one this tree added, because P2 introduced
     // three event types and AGENTS.md rule 2 says a new type ships with a case.
-    // A file that silently disappears would otherwise show up as "everything
-    // passes".
+    // The context case is the second, for the same reason (P4 added
+    // `context/compressed`). A file that silently disappears would otherwise
+    // show up as "everything passes".
     let found = cases();
     assert_eq!(
         found.len(),
-        22,
-        "expected 22 conformance cases, found {}: {:?}",
+        23,
+        "expected 23 conformance cases, found {}: {:?}",
         found.len(),
         found.iter().map(|c| c.name.as_str()).collect::<Vec<_>>()
     );

@@ -143,7 +143,7 @@ the condition, and the substring above is what the conformance suite asserts.
 
 ## 4. Event types
 
-The v1 type catalogue is **open**. These eighteen types have producers in `forge` today:
+The v1 type catalogue is **open**. These nineteen types have producers in `forge` today:
 
 | `type` | Emitted when | Payload members in current producers |
 | --- | --- | --- |
@@ -165,6 +165,7 @@ The v1 type catalogue is **open**. These eighteen types have producers in `forge
 | `goal/created` | a goal begins: keep working until it is done or blocked | `goalId`, `text`, `maxRounds` |
 | `goal/continued` | a continuation round is opened by the harness, not by a person | `goalId`, `round` |
 | `goal/ended` | the goal stops | `goalId`, `reason` (`complete` | `blocked` | `cancelled` | `exhausted`), optional `note` |
+| `context/compressed` | a seq range is replaced, for this window only, by a summary the model can name | `blockId`, `from`, `to` (inclusive seq), `summary`, optional `messages` (§4.0.3) |
 
 **Exactly one `approval/decision` per `approvalId`, written by whoever decided.** `approval/request` is always written by the agent loop — only it knows the turn and the step the consent belongs to. The decision is written by the surface that produced the answer: the CLI approvers answer inside the loop (`--approve=always`, `--approve=prompt`), so the loop records them; the browser answers over HTTP, so the request handler appends the decision *before* it replies — the consent has to be in the log before a 200 is sent, or a restart between the click and the response would lose the answer the log exists to preserve. An approver that records its own decision declares that with `tool.DecisionRecorder`, and the loop then writes only the request. Two writers would turn one click into two records and leave an audit unable to say how many times a human was asked. A *timeout* is still recorded by the loop as a `deny` with a `note`: "nobody answered" is the loop failing to get an answer, not a decision by anyone.
 
@@ -269,6 +270,42 @@ the path names, which means an image stays visible for the rest of the session a
 the cost of one small metadata row per read — and that if the file is deleted or
 replaced by text, the image is simply gone. A reader must tolerate a tool message
 with no `meta` at all: most tools have nothing structured to say.
+
+### 4.0.3 `context/compressed` blocks
+
+`compaction/summary` is one-way: the oldest complete history is replaced and the
+replaced records are never read again. `context/compressed` is the other shape —
+a range the model chose to stop paying for, which it can still name, restore and
+search.
+
+The event adds no envelope member and no version bump, so a v1 reader that has
+never heard of blocks keeps reading the log and simply shows the uncompressed
+history: the safe direction. What it carries is an address, not a copy.
+
+| member | type | meaning |
+| --- | --- | --- |
+| `blockId` | string | 32 lowercase hex characters; the name the model hands back |
+| `from` | number | first `seq` the block hides, inclusive, at least 1 |
+| `to` | number | last `seq` the block hides, inclusive, not before `from` |
+| `summary` | string | what the model reads instead; 1 byte to 8 KiB |
+| `messages` | number, optional | how many projected messages fell in the range when the block was made — a diagnostic, never an address |
+
+Four invariants, each of which a writer must check before appending:
+
+1. **Ranges are seq ranges.** Seq numbers survive replay, re-forking and a
+   different reader; a message index survives none of the three.
+2. **No two blocks overlap.** Overlap would hide one record twice and give
+   "restore" two answers. Touching ranges (`[1..5]`, `[6..9]`) are fine.
+3. **A block id is unique within a log**, and is 32 hex characters, so it is a
+   key and never a path.
+4. **The range must already be closed by the log.** A pointer to a future
+   record is not an address; the writer checks this, because only it knows how
+   far the log has been written.
+
+Restoring a block is a **read**, never a rewrite: the originals are still in the
+log a few records earlier, so `decompress` returns them from the same file. The
+log therefore never shrinks, and a block is never edited — a block that was a
+mistake is still there, and the way to stop paying for it is to restore it.
 
 ### 4.1 Forked logs
 

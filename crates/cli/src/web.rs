@@ -412,7 +412,10 @@ impl TurnRunner for WebRunner {
                 Arc::clone(&log),
                 session_id.to_string(),
                 Arc::new(WebApprover {
-                    path: log_path,
+                    // Cloned rather than moved: the same path is handed to
+                    // wiring below, where the context tools read the blocks the
+                    // approver's session is writing.
+                    path: log_path.clone(),
                     cancel: cancel.clone(),
                 }),
                 "web",
@@ -425,6 +428,7 @@ impl TurnRunner for WebRunner {
         // file is worse than re-dialing an MCP server.
         let wired = crate::wiring::build(crate::wiring::BuildOptions {
             cfg: self.env.cfg.as_ref(),
+            log: Some(log_path.clone()),
             provider: Arc::clone(&self.provider),
             model: self.model.clone(),
             data_dir: self.env.data_dir.clone(),
@@ -472,6 +476,10 @@ impl TurnRunner for WebRunner {
             &self.env.data_dir,
             Some(PathBuf::from(&self.workspace)),
         )));
+        // Same log the tools above address: a browser turn honours blocks an
+        // earlier turn wrote, so a long session costs the same here as in the
+        // terminal.
+        opts.hidden = Some(Arc::new(crate::context_tools::hidden_hook(&log_path)));
         opts.on_delta = Some(on_delta);
         opts.steering = Some(steering);
         opts.cancel = cancel;

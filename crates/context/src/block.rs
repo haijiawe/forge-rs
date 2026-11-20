@@ -1,0 +1,148 @@
+//! One compressed block: an id, an inclusive seq range, and the summary that
+//! stands in for it.
+
+use forge_core::{Error, ErrorKind, Result};
+
+/// A summary may not exceed this many bytes. A "compression" whose summary is
+/// larger than the range it hides is not compression, and a block that big is
+/// almost always a paste of the original.
+pub const MAX_SUMMARY_BYTES: usize = 8 << 10;
+
+pub const ERR_BAD_BLOCK: &str = "context: invalid block";
+pub const ERR_OVERLAP: &str = "context: block overlaps an existing one";
+pub const ERR_EMPTY_SUMMARY: &str = "context: block summary is empty";
+pub const ERR_BLOCK_TOO_LARGE: &str = "context: block summary is too large";
+
+pub fn is_bad_block(err: &Error) -> bool {
+    err.message().starts_with(ERR_BAD_BLOCK)
+}
+
+pub fn is_overlap(err: &Error) -> bool {
+    err.message().starts_with(ERR_OVERLAP)
+}
+
+pub fn is_empty_summary(err: &Error) -> bool {
+    err.message().starts_with(ERR_EMPTY_SUMMARY)
+}
+
+pub fn is_block_too_large(err: &Error) -> bool {
+    err.message().starts_with(ERR_BLOCK_TOO_LARGE)
+}
+
+/// What the model sees instead of the messages it compressed.
+///
+/// `from` and `to` are inclusive `seq` numbers, so `[from, to]` is exactly the
+/// set of log records the summary stands in for. `messages` counts the projected
+/// messages that fell inside the range when the block was made; it is a
+/// diagnostic for the operator and is never used to address anything.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Block {
+    pub id: String,
+    pub from: u64,
+    pub to: u64,
+    pub summary: String,
+    pub messages: u32,
+}
+
+impl Block {
+    /// Builds a block, rejecting the shapes that cannot be addressed later.
+    pub fn new(
+        id: impl Into<String>,
+        from: u64,
+        to: u64,
+        summary: impl Into<String>,
+    ) -> Result<Block> {
+        let block = Block {
+            id: id.into(),
+            from,
+            to,
+            summary: summary.into(),
+            messages: 0,
+        };
+        block.validate()?;
+        Ok(block)
+    }
+
+    pub fn with_messages(mut self, messages: u32) -> Block {
+        self.messages = messages;
+        self
+    }
+
+    /// The rules that make a block restorable. Each one exists because the
+    /// alternative produces a block that cannot be found or cannot be fetched:
+    ///
+    /// - the id is 32 hex characters, so it is a key and never a path;
+    /// - `from` is at least 1 and `to` is not before `from`, because seq starts
+    ///   at 1 and an inverted range matches nothing;
+    /// - the summary is non-empty, because an empty block reads as "something
+    ///   was here once" and teaches the model that restoring is pointless;
+    /// - the summary is bounded, because a summary larger than what it hides is
+    ///   a copy with extra steps.
+    pub fn validate(&self) -> Result<()> {
+        if !is_block_id(&self.id) {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                format!(
+                    "{ERR_BAD_BLOCK}: id {:?} is not 32 hexadecimal characters",
+                    self.id
+                ),
+            ));
+        }
+        if self.from == 0 {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                format!("{ERR_BAD_BLOCK}: from must be at least 1 (got 0)"),
+            ));
+        }
+        if self.to < self.from {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                format!(
+                    "{ERR_BAD_BLOCK}: range [{}, {}] is inverted",
+                    self.from, self.to
+                ),
+            ));
+        }
+        if self.summary.trim().is_empty() {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                format!(
+                    "{ERR_EMPTY_SUMMARY}: block {} covers [{}..{}]",
+                    self.id, self.from, self.to
+                ),
+            ));
+        }
+        if self.summary.len() > MAX_SUMMARY_BYTES {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                format!(
+                    "{ERR_BLOCK_TOO_LARGE}: {} bytes, the limit is {MAX_SUMMARY_BYTES}",
+                    self.summary.len()
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Whether `seq` is inside the block.
+    pub fn covers(&self, seq: u64) -> bool {
+        seq >= self.from && seq <= self.to
+    }
+
+    /// Whether the inclusive range shares at least one seq with this block.
+    pub fn overlaps(&self, from: u64, to: u64) -> bool {
+        from <= self.to && self.from <= to
+    }
+
+    /// The number of seq values in the range. Used in diagnostics, not in
+    /// addressing, because a log can contain gaps only if it is corrupt.
+    pub fn span(&self) -> u64 {
+        self.to - self.from + 1
+    }
+}
+
+/// Block ids use the same alphabet as blob names and session ids: 32 lowercase
+/// hex characters, which can be generated by [`forge_core::ids::new_id`].
+pub fn is_block_id(id: &str) -> bool {
+    id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
+}

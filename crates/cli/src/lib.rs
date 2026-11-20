@@ -23,6 +23,7 @@ pub mod attachments;
 pub mod bridges;
 pub mod capabilities;
 pub mod chat;
+pub mod context_tools;
 pub mod doctor;
 pub mod expertcmd;
 pub mod goalcmd;

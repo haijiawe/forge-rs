@@ -44,6 +44,11 @@ HTTP/WS 服务并把带 token 的 URL 打到 stderr；所有日志追加由 serv
   诊断而不是让整个报告失败——报告缺席比报告说"没配置"更误导人。
 - `attachments` 模块：`parts_hook(&Path)` 把日志里的附件引用读成 `ContentPart`，让图片进模型
   请求；读不到主体就跳过（少给一个附件不算失败），日志里始终只有引用。
+- `context_tools` 模块：`compress`/`decompress`/`search_context` 三个工具与 `hidden_hook(&Path)`。
+  它们**从不写日志**——`compress` 只把要追加的 payload 放进 `result.meta.contextBlock`，由
+  循环写入，因为日志只有一个写者；`hidden_hook` 每轮读一次块区间，下一轮请求就少付那部分
+  token。放在 CLI 而不是 `forge-context` 里，是因为 archcheck 禁同层边，而这个 crate 已经依赖
+  全部更低层。
 
 ## 依赖与边界
 
