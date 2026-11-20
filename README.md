@@ -28,22 +28,28 @@ caught, including the defects that only a second machine could see.
 
 | Crate | Layer | Holds | Must not |
 | --- | --- | --- | --- |
-| `forge-core` | L0 | event envelope, ids, canonical JSON, error kinds | import any other forge crate |
-| `forge-config` | L0 | config file, home dir, defaults, validation | know about sessions |
+| `forge-core` | L0 | the frozen vocabulary — event envelope, ids, canonical JSON, typed errors | import any other forge crate |
+| `forge-config` | L0 | config file, home directory, defaults, MCP entry warnings | know about sessions |
 | `forge-exec` | L1 | spawn, stdio, timeouts, process-tree kill, sandbox hook | know about tools or sessions |
-| `forge-sandbox` | L1 | containment: job objects, Landlock, `sandbox-exec` | know about the model |
-| `forge-session` | L2 | append-only log, projection, decisions, fork | perform I/O outside its log; compaction reader only |
+| `forge-sandbox` | L1 | containment: job objects and AppContainers, Landlock, `sandbox-exec` | know about the model |
+| `forge-mcp` | L1 | external MCP client — stdio and Streamable HTTP | import any forge crate |
+| `forge-skill` | L1 | skill discovery, and loading a `SKILL.md` body only when asked | recurse into a skill directory |
+| `forge-net` | L1 | blocking HTTP(S) client, redirects, HTML to text | know about tools or the model |
+| `forge-experts` | L1 | expert and team definitions parsed from Markdown frontmatter | reach into skills or sessions |
+| `forge-session` | L2 | append-only log, projection, compaction, fork | perform I/O outside its log |
 | `forge-llm` | L2 | provider contract, OpenAI-compatible SSE client | know about sessions |
-| `forge-tool` | L2 | registry, executor, policy, approvals, builtin tools | decide policy itself |
+| `forge-tool` | L2 | registry, executor, policy, approvals, builtin tools | write events, or decide policy itself |
 | `forge-protocol` | L2 | wire types shared by server and UI | depend on the server |
-| `forge-store` | L2 | SQLite index, FTS search, rebuild | own the event log |
+| `forge-agent` | L2 | one-turn loop, event ordering, summarizer, hook seams | keep a history of its own between turns |
+| `forge-store` | L2 | rebuildable index — SQLite rows, FTS5 over boundary messages | write to a session log |
 | `forge-import` | L2 | read-only import of old session trees | overwrite an existing session |
-| `forge-subagent` | L2 | nested agent runs on their own logs | run without a depth limit |
-| `forge-mcp` | L1 | MCP stdio/HTTP client | know about sessions or tools |
-| `forge-net` | L1 | blocking HTTP(S) client, HTML to text, redirects | know about tools or the model |
-| `forge-goal` | L2 | goal lifecycle as events, folding, the continuation prompt | write events itself |
-| `forge-schedule` | L2 | rrule subset to instants, the task registry, due times | run a turn |
-| `forge-skill` | L1 | skill frontmatter scanner | import any forge crate |
+| `forge-subagent` | L2 | bounded-pool delegation on fresh child logs | run without a depth limit |
+| `forge-goal` | L2 | goal state folded from the log, and the continuation decision | write events itself |
+| `forge-schedule` | L2 | recurrence rules, the scheduled-task registry, due times | run a turn |
+| `forge-market` | L2 | market index, checksummed install, tamper-aware uninstall | trust a tarball before it is digested |
+| `forge-plugin` | L2 | plugin host — child processes speaking JSON-RPC over stdio | spawn anything from a listing |
+| `forge-team` | L2 | parallel workers over a shared board with per-worker mailboxes | depend on a provider or an async runtime |
+| `forge-context` | L2 | compressed blocks that can be named, restored and searched | hide a range no block names |
 | `forge-server` | L3 | HTTP/1.1 + WebSocket over the log | contain agent logic |
 | `forge-cli` | L3 | the `forge` binary | hold logic that belongs in a crate |
 
@@ -101,9 +107,9 @@ checks a tree other than the one above the working directory.
 
 ## Commands
 
-Sixteen spellings; the first nine are the ones the Go oracle froze in
+Seventeen spellings; the first nine are the ones the Go oracle froze in
 `docs/contracts/cli.md`, `goal`/`schedule` are the P2 additions, and
-`plugin`/`expert`/`team`/`market`/`skill` are the P3 and Office additions:
+`plugin`/`market`/`skill`/`subagent`/`expert`/`team` came later:
 
 | Command | What it does |
 | --- | --- |
@@ -115,11 +121,14 @@ Sixteen spellings; the first nine are the ones the Go oracle froze in
 | `forge index [--rebuild] [--stats] [--search TEXT]` | query or rebuild the SQLite index |
 | `forge import <old-dir> [--dry-run]` | read-only import of an old-format session tree |
 | `forge session fork <id> [--at N] [--id NAME]` | open a new session at a given seq |
+| `forge session archive <id> [--reason TEXT]` | record that a session starts no new work |
 | `forge goal start\|status\|end` | record, inspect or close a goal |
 | `forge schedule add\|list\|remove\|next\|run` | recurring prompts, and the tick that opens them |
 | `forge plugin list\|start\|stop\|call\|doctor` | inspect and drive out-of-process plugins |
 | `forge expert list\|show` | the Markdown expert and team roster |
 | `forge skill list\|show` | list or show the skills the model was offered |
+| `forge subagent list\|tree\|resolve\|timing` | the children below a session: names, the tree, resolution, timing |
+| `forge subagent prompt\|interrupt\|providers\|worker` | resume a continuable child, stop one, list backends, run the worker |
 | `forge team list\|run` | run a roster team over a shared task board |
 | `forge market list\|search\|install\|remove\|verify` | install plugin bundles, verified by SHA-256 |
 | `forge "<prompt>"` | a bare prompt is shorthand for `forge chat "<prompt>"` |
@@ -164,6 +173,31 @@ or `web.results`, and each hit may spell its fields `url|link|href`,
 Both network tools are `ask` in `read-only` and `workspace-write`: they run inside the
 harness, not inside the sandbox, so the approval prompt is the only gate.
 
+## Documentation map
+
+Four places, each with one job. Reading them in this order is the shortest path
+from "what is this" to "what may I change".
+
+| Where | Answers | Open it |
+| --- | --- | --- |
+| [README.md](README.md) — this file | what the tree is, how to build it, what each crate owns and must not own | first |
+| [AGENTS.md](AGENTS.md) | the rules a change must obey: the three laws, the six anti-patterns, the dependency budget | before writing code |
+| [docs/README.md](docs/README.md) | the index of every design and execution document, grouped by purpose, each marked as a record or a plan | when the question is *why*, or you need the evidence |
+| [docs/contracts/](docs/contracts/README.md) | the seven frozen contracts — event format, CLI text, HTTP/WS, M4–M6 crate surfaces | before changing anything another implementation is held to |
+
+`docs/` holds four kinds of document and the index says which is which:
+**decisions** ([08](docs/08-rust-port.md) why Rust and which crate sits where,
+[09](docs/09-platform-tier.md) what the platform tier is missing,
+[11](docs/11-adr-agent-hooks.md) the two rewrite seams), **execution records**
+([10](docs/10-agent-parity.md) the wave plan, [12](docs/12-subagent-port.md) the
+subagent port, [agent-gaps](docs/agent-gaps.md) the gap ledger),
+**comparisons** ([dsh-vs-forge](docs/dsh-vs-forge.md) layer by layer from source,
+[dsh-comparison](docs/dsh-comparison.md) measured on this host,
+[agent-comparison](docs/agent-comparison.md) the agent loops), and
+**operations** ([bench](docs/bench.md), [ci](docs/ci.md),
+[release](docs/release.md), [web-ui](docs/web-ui.md),
+[office](docs/office-run.md)).
+
 ## Verify
 
 The full gate is one command:
@@ -203,11 +237,17 @@ Both workflows have run on GitHub runners. The runs, what each one caught, and
 the eleven real defects CI found that the local gate could not are recorded in
 `docs/ci.md`.
 
-## What is not done yet
 
-- The Rust provider accepts `https://` through the pinned `webpki-roots` bundle,
-  plus an optional `ca_file` PEM (see `crates/llm/README.md`) for a private CA.
-  No live request was made to the example endpoint during the port.
+The sections below separate evidence from limits on purpose: a measurement
+made on this host is not a promise about another machine, and a thing that
+was never run is not a thing that works.
+
+## Verified here, with the method
+
+Each of these was produced by a command on this host or on a hosted runner,
+and the document named in the paragraph holds the numbers and the way they
+were taken.
+
 - Compaction is wired on both surfaces (`forge chat` before each turn, `forge web`
   at the top of a turn, both at the Go original's 200-record floor). The web
   surface folds only turns that are already closed, so the summary covers history
@@ -216,6 +256,7 @@ the eleven real defects CI found that the local gate could not are recorded in
   that comes back empty is refused rather than appended (`web_compaction_refuses_an_empty_summary`
   in `crates/cli/src/web.rs`): an empty fold would delete history and record
   nothing in its place.
+
 - Attachment bodies are stored *and* understood. POST /messages writes an upload
   to `<dataDir>/blobs/` and the event keeps a reference (never the bytes: the log
   is append-only and a fork copies it), and `crates/cli/src/attachments.rs`
@@ -225,25 +266,18 @@ the eleven real defects CI found that the local gate could not are recorded in
   so the log stays free of base64 and the picture stays visible for the whole
   session. `read_image` does the same for a file in the workspace. Nothing turns
   a `diff` or a `file` into pixels — those stay references a tool can open.
-- Cross-target release builds from this host are compile checks only; see the
-  toolchain section and `docs/release.md`. CI uses native runners for the
-  artifacts it claims.
-- `archcheck` checks layer direction and the README contract only. It does not
-  inspect Rust source, enforce the dependency budget, or check that a crate's
-  public API matches its README; those are review and `Cargo.toml` concerns.
+
 - Benchmarks are ported in `tools/bench` and three baselines are recorded:
   windows/amd64 from a settled tree on this host, linux/amd64 and darwin/arm64
   from `bench.yml` on GitHub runners. A platform with no record prints a skip
   line rather than comparing against another platform's numbers. The hosted
   Windows numbers are *not* the baseline, because its `fsync` runs 16× slower
   than this host's — a runner is a different machine, not a different day.
+
 - Language-neutral HTTP, event and WebSocket golden corpora are shared with the
   Go oracle and run in both trees. WS caught three real Rust server bugs (delta
   seq, control-ping framing, close code 1000) which are fixed.
-- The frozen contracts (`docs/contracts/`) were written while Go was the
-  reference, so their code samples are Go; the behaviour they pin is what the
-  Rust crates implement, and the corpora under `tests/conformance/cases/` are the
-  proof. `src/` has no `unsafe` (every crate denies it).
+
 - Linux containment (Landlock) is verified at runtime on every push: the Ubuntu CI
   job runs `crates/sandbox/tests/linux.rs`, which writes inside the workspace, is
   refused outside it, is refused a write in `read-only`, is granted an `extra_write`
@@ -252,6 +286,7 @@ the eleven real defects CI found that the local gate could not are recorded in
   `sandbox macos-latest` CI job runs `crates/sandbox/tests/macos.rs`, which asserts
   the mode matrix, workspace write scope, `read-only`, `extra_write` and both
   network directions on a real macOS kernel.
+
 - **On Windows containment is two rings, and the second one narrows what tools can
   do.** A Job Object caps the process tree, per-process/job memory and process
   count; an AppContainer decides which files and networks the child can reach
@@ -311,13 +346,43 @@ the eleven real defects CI found that the local gate could not are recorded in
   now names the condition and prints the remedy (`icacls <dir> /setintegritylevel
   (OI)(CI)M /T /C`), and `available()` reports the mechanism as absent instead of
   letting the strict modes claim containment they cannot deliver.
+
 - The web transcript was measured in a real browser: 5,000 messages (10,001
   events, 480,130 px of scrollback) scroll at a flat **60 fps** while mounting 27
   rows, load in ~650 ms, and hold ~18 MB of heap. Numbers, method and the three
   browser-only defects the measurement exposed are in `docs/web-ui.md`. It is one
   headless Edge on Windows/amd64; no other browser or GPU was measured.
+
 - `LICENSE` is MIT. The `UNLICENSED` that `Cargo.toml` carried while this was a
   private port is gone; the tree is redistributable under the terms in `LICENSE`.
+
+
+## Real limits
+
+These are properties of this build, not backlog items. Closing one means
+changing what the artifact claims, so none of them is a bug to be fixed
+quietly.
+
+- The Rust provider accepts `https://` through the pinned `webpki-roots` bundle,
+  plus an optional `ca_file` PEM (see `crates/llm/README.md`) for a private CA.
+  No live request was made to the example endpoint during the port.
+
+- Cross-target release builds from this host are compile checks only; see the
+  toolchain section and `docs/release.md`. CI uses native runners for the
+  artifacts it claims.
+
+- `archcheck` checks layer direction and the README contract only. It does not
+  inspect Rust source, enforce the dependency budget, or check that a crate's
+  public API matches its README; those are review and `Cargo.toml` concerns.
+
 - `make check` could not be executed on the authoring host because GNU make is
   not installed. Its component commands were run directly and are the source
   of the expected output above; `check.ps1` runs the same five steps on Windows.
+
+
+## Caveats about the reference documents
+
+- The frozen contracts (`docs/contracts/`) were written while Go was the
+  reference, so their code samples are Go; the behaviour they pin is what the
+  Rust crates implement, and the corpora under `tests/conformance/cases/` are the
+  proof. `src/` has no `unsafe` (every crate denies it).
