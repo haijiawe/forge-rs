@@ -182,13 +182,15 @@ function stamp(iso, tz) {
   return `${Math.floor(Date.parse(iso) / 1000)} ${tz}`;
 }
 
-function rebuild(remote) {
+function rebuild(remote, trailing) {
   const header = [`tree ${remote.tree.sha}`];
   for (const p of remote.parents || []) header.push(`parent ${p.sha}`);
-  header.push(`author ${remote.author.name} <${remote.author.email}> ${stamp(remote.author.date, tzOf(remote))}`);
-  header.push(`committer ${remote.committer.name} <${remote.committer.email}> ${stamp(remote.committer.date, tzOf(remote))}`);
+  header.push(`author ${remote.author.name} <${remote.author.email}> ${stamp(remote.author.date, tzOf())}`);
+  header.push(`committer ${remote.committer.name} <${remote.committer.email}> ${stamp(remote.committer.date, tzOf())}`);
   const body = remote.message.endsWith('\n') ? remote.message : `${remote.message}\n`;
-  const text = `${header.join('\n')}\n\n${body}`;
+  // GitHub hands the message back without its trailing newline and normalises
+  // the date to `Z`; both have to be tried, not assumed.
+  const text = `${header.join('\n')}\n\n${trailing ? body : body.slice(0, -1)}`;
   const sha = execFileSync(GIT, ['hash-object', '-w', '-t', 'commit', '--stdin'], {
     cwd: REPO,
     input: text,
@@ -218,13 +220,16 @@ async function align(remoteHead) {
 
   for (const commit of missing.reverse()) {
     let built = null;
-    for (const tz of OFFSETS) {
-      attemptTz = tz;
-      const candidate = rebuild(commit);
-      if (candidate.sha === commit.sha) {
-        built = candidate;
-        break;
+    for (const trailing of [true, false]) {
+      for (const tz of OFFSETS) {
+        attemptTz = tz;
+        const candidate = rebuild(commit, trailing);
+        if (candidate.sha === commit.sha) {
+          built = candidate;
+          break;
+        }
       }
+      if (built) break;
     }
     if (!built) {
       throw new Error(
