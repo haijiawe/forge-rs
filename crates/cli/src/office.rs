@@ -303,10 +303,17 @@ impl Run {
 /// `py -3` is the Windows launcher; elsewhere the spawn fails in microseconds,
 /// so listing it unconditionally would only cost a failed spawn.
 fn interpreter_candidates() -> Vec<Vec<&'static str>> {
-    let mut candidates = vec![vec!["python"], vec!["python3"]];
+    // Built whole rather than pushed into, so the list compiles the same way on
+    // every platform: a `push` behind `#[cfg]` leaves `mut` unused off Windows,
+    // which `-D warnings` turns into a build failure on the Linux runner.
     #[cfg(windows)]
-    candidates.push(vec!["py", "-3"]);
-    candidates
+    {
+        vec![vec!["python"], vec!["python3"], vec!["py", "-3"]]
+    }
+    #[cfg(not(windows))]
+    {
+        vec![vec!["python"], vec!["python3"]]
+    }
 }
 
 /// Try the launchers until one answers with every library, keeping the best
@@ -426,25 +433,37 @@ fn probe_convert(deadline: Instant) -> Capability {
 /// run before it is believed, so a guessed path that is wrong costs a failed
 /// spawn and nothing else.
 fn soffice_candidates() -> Vec<PathBuf> {
-    let mut candidates = vec![PathBuf::from("soffice")];
-    #[cfg(windows)]
+    // Split by platform rather than pushing behind `#[cfg]`, for the same reason
+    // as `interpreter_candidates`: a `push` that only one platform reaches leaves
+    // `mut` unused on the others, and `-D warnings` makes that a build failure.
+    #[cfg(any(windows, target_os = "macos"))]
     {
-        for variable in ["ProgramFiles", "ProgramFiles(x86)"] {
-            if let Some(base) = std::env::var_os(variable) {
-                candidates.push(
-                    PathBuf::from(base)
-                        .join("LibreOffice")
-                        .join("program")
-                        .join("soffice.exe"),
-                );
+        let mut candidates = vec![PathBuf::from("soffice")];
+        #[cfg(windows)]
+        {
+            for variable in ["ProgramFiles", "ProgramFiles(x86)"] {
+                if let Some(base) = std::env::var_os(variable) {
+                    candidates.push(
+                        PathBuf::from(base)
+                            .join("LibreOffice")
+                            .join("program")
+                            .join("soffice.exe"),
+                    );
+                }
             }
         }
+        #[cfg(target_os = "macos")]
+        candidates.push(PathBuf::from(
+            "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+        ));
+        candidates
     }
-    #[cfg(target_os = "macos")]
-    candidates.push(PathBuf::from(
-        "/Applications/LibreOffice.app/Contents/MacOS/soffice",
-    ));
-    candidates
+    // Everywhere else `soffice` comes from `PATH` or not at all, so there is
+    // nothing to push into.
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        vec![PathBuf::from("soffice")]
+    }
 }
 
 /// The timeout left for one probe, or `None` when the budget is spent.
