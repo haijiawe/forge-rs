@@ -143,14 +143,15 @@ the condition, and the substring above is what the conformance suite asserts.
 
 ## 4. Event types
 
-The v1 type catalogue is **open**. These twenty-nine types have producers in `forge` today:
+The v1 type catalogue is **open**. These thirty-one types have producers in `forge` today:
 
 | `type` | Emitted when | Payload members in current producers |
 | --- | --- | --- |
 | `session/start` | a session is created | `workspace`, `model`, `profile`, `startedBy`, optional `system` (only when a system prompt is configured), `systemBytes` + `systemTruncated` when that prompt exceeded 8 KiB and was clipped; a forked session's head also carries `forkedFrom`, `forkedAtSeq`, `forkedAt` (§4.1) |
 | `session/end` | a **terminal** session finishes (a child session has one; a resumable one does not — see below) | `reason` (`completed` \| `aborted`), `turns` |
+| `session/archived` | the operator declared that this session starts no new work | optional `reason` |
 | `turn/start` | a user turn begins | `number` (the 1-based turn number; absent in older logs, where a reader falls back to arrival order) |
-| `turn/end` | a turn finishes | `reason` (`completed` \| `cancelled` \| `error`), `steps`, optional `cancelledBy` |
+| `turn/end` | a turn finishes | `reason` (`completed` \| `cancelled` \| `error`), `steps`, optional `cancelledBy` (free-form; the loop writes a cause word, the recovery path writes `cli:recovery`) |
 | `step/start` | one model call begins inside a turn | `index` (0-based within the turn), `model` |
 | `step/end` | one model call finished | `index`, `reason` (`end_turn` \| `tool_use` \| `cancelled` \| `max_tokens` \| `error`) |
 | `llm/call` | a request is about to be sent | `model`, `messages` (count), `tools` (names), optional `temperature`, `maxTokens` |
@@ -173,6 +174,7 @@ The v1 type catalogue is **open**. These twenty-nine types have producers in `fo
 | `compaction/end` | the transaction closes | `ok` (bool), optional `reason` (`empty` \| `error` \| `already-compacted`) |
 | `compaction/summary-error` | a summary could not be produced, so the history stays visible (§4.0.6) | `reason` (`empty` \| `error`), `message` |
 | `request/header` | the loop names a request it is about to send (§4.0.7) | `reason` (`initial` \| `series` \| `change` \| `resume`), `model`, `messages` (count), `tools` (names) |
+| `request/context` | the loop names what a request actually carries (§4.0.9) | optional `provider`, `model`, `messages` (count), `tools` (count), optional `temperature`, optional `maxTokens`, optional `stop`, `systemBytes`, `systemFingerprint` |
 | `assistant/attempt` | a provider attempt that did **not** become the visible answer (§4.0.7) | `attempt` (0-based), `outcome` (`retry` \| `error` \| `cancelled`), `retryable` (bool), optional `message`, optional `code` |
 | `agent/inbox` | one change to the durable input queues (§4.0.8) | `target` (`next-turn` \| `next-step`), `start`, `removed`, `inserted` (`[{id,text}]`) |
 | `agent/status` | a resident loop entered or left a phase (§4.0.8) | `phase` (`running` \| `maintenance` \| `idle`) |
@@ -213,6 +215,40 @@ A process that dies **inside** a turn leaves a `turn/start` with no `turn/end`. 
 
 The one producer is a **child session created by the `subagent` tool**: nobody can resume it (its id is returned in a tool result, not chosen by a user), so it is terminal by construction, and it writes `session/end` once with `reason` `completed` or `aborted` and the turn count it ran. A reader that wants "is this subtree finished" can rely on that; a reader that wants "is this conversation finished" still cannot.
 
+**`session/archived` is a declaration, not a lifecycle event.** It says the
+operator decided this session starts no new work; it does not say the session is
+finished, unreadable, or deletable. Three consequences follow, and all three are
+deliberate:
+
+- **At most once, and idempotent.** The only writer is `forge session archive`,
+  which reads the log first and writes nothing if the record is already there. A
+  second run reports `already archived` rather than appending a duplicate, so a
+  reader never has to decide which of two records wins.
+- **A missing log is not an archived session.** `is_archived` answers `false`
+  when the file does not exist, because the archive record lives in the session's
+  own log: an archived session always has one. Answering `true` would make a
+  typo in a session id look like a policy decision.
+- **It refuses new work at the doors, not inside a turn.** The check runs when a
+  subagent is started and when a `continuable` child is resumed, walking the
+  `session/start` `parent` chain hop by hop. A turn already running keeps its
+  approval and its cancel token: stopping it mid-flight is `cancel`, a different
+  verb with a different record.
+
+The refusal names the session that is archived — which may be an ancestor rather
+than the one asked about — because that is the only entity an operator can act on.
+
+**``turn/end.cancelledBy`` says who stopped a turn.** It is written only when
+``reason`` is ``cancelled`` and the writer knows why, and it is **free-form**: the
+recovery path writes ``cli:recovery``, imported v0 logs carry the old
+implementation's words, and the loop writes one of ``user``, ``parent``,
+``timeout``, ``hook``, ``disposed``, ``unknown``. A reader MUST treat an
+unrecognised value as data (rule 2) — the member's job is to make "the operator
+pressed stop" distinguishable from "the owner was disposed", and that job does not
+require a closed vocabulary.
+
+``unknown`` is not silence. A token raised without a stated cause reports
+``unknown`` deliberately: the turn really was cancelled, and refusing to say so
+would leave the one row that explains the turn short a field.
 **`turn/end.reason` and `step/end.reason` are different vocabularies, on purpose.**
 A turn and a step answer different questions, so they do not share a word list:
 
@@ -479,6 +515,38 @@ third try looked identical to one clean call. That is the difference between "th
 provider was fine" and "the provider was fine on the third try", and it was not
 recoverable from the log.
 
+### 4.0.9 `request/context`
+
+`request/header` answers *why* a request exists. `request/context` answers *what
+it carried*, which is the question you ask when two runs over the same log
+disagree about an answer.
+
+- `request/context{provider?,model,messages,tools,temperature?,maxTokens?,stop?,systemBytes,systemFingerprint}`
+  is written once per request, immediately after `request/header` and again
+  before `llm/call`.
+
+Every member is a scalar or a digest:
+
+| Member | Meaning |
+| --- | --- |
+| `provider` | The authority the request went to (`api.example.test:8443`). Absent when the caller did not name one — an unnamed endpoint is omitted, never guessed. |
+| `model` | The model id the request named. |
+| `messages` | How many messages went out. |
+| `tools` | How many tool specs went out (a count, not names: `request/header` already carries the names). |
+| `temperature`, `maxTokens`, `stop` | Present only when actually configured. A default the loop applies is not reported as a caller choice. |
+| `systemBytes` | Byte length of the system prompt. |
+| `systemFingerprint` | 16 lowercase hex characters: FNV-1a 64 of the system prompt. |
+
+**The system prompt itself is never repeated here.** It is already on
+`session/start`; copying it per step would make this row the largest in the log
+for the smallest amount of new information. The fingerprint is a change detector,
+not a security boundary: an adversary who can choose the prompt already writes
+the log. Its definition is frozen (`forge_core::digest::fingerprint`) because
+these values are written down and compared later — a digest that moved with a
+compiler upgrade would make every stored fingerprint a lie.
+
+Two rows together are the difference between "the answer changed" and "the
+request changed", which is what a comparison between two runs needs.
 ### 4.1 Forked logs
 
 A fork (`forge chat --fork`, `forge session fork`) creates a **new** session whose

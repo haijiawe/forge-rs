@@ -135,6 +135,11 @@ export interface AgentEventDispatch { emit; serial; waterfall }
   `request/context`（provider/model/contextWindow/systemPromptUpdate）、工具增删时再落
   `developer/message`。header 用 `deepFreeze` 冻结、messages 记进 `frozenMessages: WeakSet`、
   boundary messages `Object.freeze` —— 防止后续插件篡改已发出的请求。
+
+  forge-rs 不需要这层机制：`Request` 按值交给 provider，`HookCall::PreStep` 只给出 `&[Message]`，
+  改写必须显式 clone 后返回。H6 用两个证据测试钉住这一点（`crates/agent/tests/agent.rs`）：
+  `a_transient_rewrite_does_not_reach_the_next_step`（改写只改变发出的请求，日志仍是操作者的原话）与
+  `an_earlier_request_is_a_snapshot_not_a_window_into_later_history`（前一个请求不会随后续步骤增长）。
 - `AssistantStreamAttempt`（`assistant-stream.ts`，141 行）给每次 attempt 一个
   `attemptId = ${sessionId}:${attempt}`，有 `start/push/settle/abandon`。`settle()` 先 append
   事件再 emit `end{outcome:'committed', eventType, seq}`，失败则 `abandon{outcome:'abandoned'}`。

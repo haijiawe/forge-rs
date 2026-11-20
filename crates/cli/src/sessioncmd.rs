@@ -19,13 +19,18 @@ pub const USAGE: &str = "usage: forge session <command> [flags]
 Try 'forge session fork --help' for one command.
 
 Commands:
-  fork <parentId>   copy a session up to one of its seqs into a new session
+  fork <parentId>     copy a session up to one of its seqs into a new session
+  archive <sessionId> record that the session starts no new work
 
 Flags for fork:
   --at <seq>        last record to copy (default: the parent's last turn/end,
                     so a fork never starts mid-turn and never inherits an open turn)
   --id <newId>      id for the copy (default: a new timestamped id)
   --json            print one JSON object instead of the new session id
+
+Flags for archive:
+  --reason <text>   why, kept in the record so a later reader is not guessing
+  --json            print one JSON object instead of a sentence
 ";
 
 /// Flags of `fork` that consume the next argument.
@@ -50,6 +55,7 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
             EXIT_OK
         }
         "fork" => run_fork(&args[1..], stdout, stderr),
+        "archive" => run_archive(&args[1..], stdout, stderr),
         other => {
             // Naming the word it did not recognise, because a typo'd subcommand is
             // the common case and "unknown command" alone leaves the operator
@@ -61,6 +67,152 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
             EXIT_USAGE
         }
     }
+}
+
+/// Records that a session starts no new work.
+///
+/// This is the only writer of `session/archived`. It is idempotent on purpose: an
+/// operator who re-runs it after a failure asked for the same state, and writing
+/// a second record would only make `is_archived` do more work for the same
+/// answer.
+fn run_archive(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
+    if crate::wants_help(args) {
+        let _ = stdout.write_all(USAGE.as_bytes());
+        return EXIT_OK;
+    }
+    let mut id: Option<String> = None;
+    let mut reason = String::new();
+    let mut json = false;
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        index += 1;
+        match arg.as_str() {
+            "--json" => json = true,
+            "--reason" => {
+                let Some(value) = args.get(index) else {
+                    let _ = writeln!(
+                        stderr,
+                        "forge session archive: --reason needs a value\n\n{USAGE}"
+                    );
+                    return EXIT_USAGE;
+                };
+                reason = value.clone();
+                index += 1;
+            }
+            other if other.starts_with("--reason=") => {
+                reason = other["--reason=".len()..].to_string();
+            }
+            other if other.starts_with('-') => {
+                let _ = writeln!(
+                    stderr,
+                    "forge session archive: unknown flag {other:?}\n\n{USAGE}"
+                );
+                return EXIT_USAGE;
+            }
+            other => {
+                if id.is_some() {
+                    let _ = writeln!(
+                        stderr,
+                        "forge session archive: one session id at a time\n\n{USAGE}"
+                    );
+                    return EXIT_USAGE;
+                }
+                id = Some(other.to_string());
+            }
+        }
+    }
+    let Some(id) = id else {
+        let _ = writeln!(
+            stderr,
+            "forge session archive: needs a session id\n\n{USAGE}"
+        );
+        return EXIT_USAGE;
+    };
+
+    let data_dir = match crate::default_data_dir() {
+        Ok(dir) => dir,
+        Err(err) => {
+            let _ = writeln!(
+                stderr,
+                "forge session archive: read config: {}",
+                one_line(err.message())
+            );
+            return EXIT_FAILURE;
+        }
+    };
+    let path = data_dir.join("sessions").join(format!("{id}.jsonl"));
+    if !path.is_file() {
+        // Named, not silent: "archived" for a session that does not exist would
+        // let a typo turn into a confident claim.
+        let _ = writeln!(
+            stderr,
+            "forge session archive: no such session log: {}",
+            path.display()
+        );
+        return EXIT_FAILURE;
+    }
+    let store = match forge_session::Store::open(&path, forge_session::Options::default()) {
+        Ok(store) => store,
+        Err(err) => {
+            let _ = writeln!(
+                stderr,
+                "forge session archive: open {}: {}",
+                path.display(),
+                one_line(err.message())
+            );
+            return EXIT_FAILURE;
+        }
+    };
+    let already = forge_subagent::archive::is_archived(&data_dir, &id).unwrap_or(false);
+    if !already {
+        let event = forge_core::Event::new(
+            &id,
+            forge_core::EventType::SESSION_ARCHIVED,
+            Some(forge_subagent::archive::payload(&reason)),
+        );
+        if let Err(err) = store.append(&event) {
+            let _ = writeln!(
+                stderr,
+                "forge session archive: append: {}",
+                one_line(err.message())
+            );
+            return EXIT_FAILURE;
+        }
+    }
+
+    if json {
+        let doc = serde_json::json!({
+            "session": id,
+            "archived": true,
+            "already": already,
+            "reason": reason.trim(),
+        });
+        return match serde_json::to_string(&doc) {
+            Ok(line) => {
+                let _ = writeln!(stdout, "{line}");
+                EXIT_OK
+            }
+            Err(err) => {
+                let _ = writeln!(
+                    stderr,
+                    "forge session archive: report: {}",
+                    one_line(&err.to_string())
+                );
+                EXIT_FAILURE
+            }
+        };
+    }
+    let note = if already { " (already archived)" } else { "" };
+    if let Err(err) = writeln!(stdout, "archived {id}{note}") {
+        let _ = writeln!(
+            stderr,
+            "forge session archive: write: {}",
+            one_line(&err.to_string())
+        );
+        return EXIT_FAILURE;
+    }
+    EXIT_OK
 }
 
 /// Copies a parent log into a new session id and prints that id, so a shell can
@@ -378,6 +530,62 @@ mod tests {
         let mut err = Vec::new();
         let code = parse(&args(&["s1", "--id", "../x"]), &mut err).unwrap_err();
         assert_eq!(code, EXIT_USAGE);
+    }
+
+    /// The usage is the only place an operator can discover `archive`, so it has
+    /// to name it; a command that exists but is undocumented is a command nobody
+    /// runs.
+    #[test]
+    fn session_help_names_archive() {
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert_eq!(run(&args(&["--help"]), &mut out, &mut err), EXIT_OK);
+        let text = String::from_utf8_lossy(&out);
+        assert!(text.contains("archive <sessionId>"), "{text}");
+        assert!(text.contains("--reason <text>"), "{text}");
+    }
+
+    #[test]
+    fn archive_without_a_session_id_is_a_usage_error() {
+        let mut err = Vec::new();
+        assert_eq!(
+            run(&args(&["archive"]), &mut Vec::new(), &mut err),
+            EXIT_USAGE
+        );
+        let text = String::from_utf8_lossy(&err);
+        assert!(text.contains("needs a session id"), "{text}");
+    }
+
+    #[test]
+    fn archive_refuses_an_unknown_flag() {
+        let mut err = Vec::new();
+        assert_eq!(
+            run(
+                &args(&["archive", "s-1", "--bogus"]),
+                &mut Vec::new(),
+                &mut err
+            ),
+            EXIT_USAGE
+        );
+        assert!(
+            String::from_utf8_lossy(&err).contains("unknown flag \"--bogus\""),
+            "{}",
+            String::from_utf8_lossy(&err)
+        );
+    }
+
+    #[test]
+    fn archive_takes_one_session_at_a_time() {
+        let mut err = Vec::new();
+        assert_eq!(
+            run(&args(&["archive", "s-1", "s-2"]), &mut Vec::new(), &mut err),
+            EXIT_USAGE
+        );
+        assert!(
+            String::from_utf8_lossy(&err).contains("one session id at a time"),
+            "{}",
+            String::from_utf8_lossy(&err)
+        );
     }
 
     #[test]

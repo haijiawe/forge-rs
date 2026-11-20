@@ -158,6 +158,8 @@ fn one_step_event_order_and_payloads() {
             // G1: the request is named before it goes out, so a reader can tell
             // why a fresh request existed without diffing message bodies.
             ("request/header", 1, 1),
+            // H1: and what it carries, without repeating the prompt itself.
+            ("request/context", 1, 1),
             ("llm/call", 1, 1),
             ("assistant/message", 1, 1),
             ("step/end", 1, 1),
@@ -173,7 +175,7 @@ fn one_step_event_order_and_payloads() {
         step_start.payload.clone().unwrap()
     );
     // usage payload has exactly the two nonzero members, camelCase.
-    let reply = &events[6];
+    let reply = &events[7];
     let payload = reply.payload.as_ref().unwrap();
     assert_eq!(
         payload["usage"],
@@ -989,6 +991,7 @@ fn an_empty_dispatch_changes_nothing() {
             "user/message",
             "step/start",
             "request/header",
+            "request/context",
             "llm/call",
             "assistant/message",
             "step/end",
@@ -1223,4 +1226,272 @@ fn a_steer_queued_for_the_next_step_is_recorded_and_reaches_the_model() {
 
     // The queue is drained in the log, not only in this process.
     assert!(agent.pending().expect("pending").next_step.is_empty());
+}
+
+/// H1: `request/context` names what the request carried, and omits rather than
+/// guesses when the caller did not say.
+#[test]
+fn the_request_context_row_names_what_went_out() {
+    let path = temp_log("request-context");
+    let store = open_store(&path);
+    let provider = Arc::new(ScriptedProvider::new(vec![Response::Deltas(final_step(
+        "pong",
+    ))]));
+    let mut opt = Options::new(provider, Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.system = SYSTEM.into();
+    opt.clock = fixed_clock();
+    // What the CLI sets when the base URL named a host.
+    opt.provider_name = "api.example.test:8443".into();
+    let agent = Agent::new(opt).expect("new agent");
+
+    let (_result, error) = agent.run("ping");
+    assert!(error.is_none(), "turn failed: {:?}", error);
+
+    let events = read_all(&open_store(&path));
+    let row = events
+        .iter()
+        .find(|e| e.typ == "request/context")
+        .expect("a request/context row");
+    let payload = row.payload.as_ref().expect("a payload");
+    assert_eq!(payload["provider"], json!("api.example.test:8443"));
+    assert_eq!(payload["model"], json!(MODEL));
+    assert_eq!(payload["messages"], json!(2));
+    assert_eq!(payload["tools"], json!(0));
+    assert_eq!(payload["systemBytes"], json!(SYSTEM.len()));
+    // The fingerprint is the digest of the prompt, not of something else: it
+    // must match what a reader computing the same digest would get.
+    assert_eq!(
+        payload["systemFingerprint"],
+        json!(forge_core::fingerprint(SYSTEM.as_bytes()))
+    );
+    assert_eq!(
+        payload["systemFingerprint"].as_str().map(str::len),
+        Some(16)
+    );
+    // Nothing was configured, so the sampling members are absent, not null.
+    assert!(payload.get("temperature").is_none());
+    assert!(payload.get("maxTokens").is_none());
+    assert!(payload.get("stop").is_none());
+}
+
+/// H1: an unnamed endpoint omits `provider` instead of inventing a label.
+#[test]
+fn a_request_with_no_named_endpoint_omits_the_provider() {
+    let path = temp_log("request-context-anon");
+    let store = open_store(&path);
+    let provider = Arc::new(ScriptedProvider::new(vec![Response::Deltas(final_step(
+        "pong",
+    ))]));
+    let mut opt = Options::new(provider, Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.system = SYSTEM.into();
+    opt.clock = fixed_clock();
+    let agent = Agent::new(opt).expect("new agent");
+
+    let (_result, error) = agent.run("ping");
+    assert!(error.is_none(), "turn failed: {:?}", error);
+
+    let events = read_all(&open_store(&path));
+    let payload = events
+        .iter()
+        .find(|e| e.typ == "request/context")
+        .and_then(|e| e.payload.clone())
+        .expect("a request/context row");
+    assert!(
+        payload.get("provider").is_none(),
+        "an unstated endpoint must be absent, not empty: {payload}"
+    );
+}
+
+/// H2: a cancelled turn says *who* stopped it. `cancelled` alone cannot tell an
+/// operator pressing stop from an owner being disposed.
+#[test]
+fn a_cancelled_turn_records_who_stopped_it() {
+    let path = temp_log("cancel-cause");
+    let store = open_store(&path);
+    let cancel = forge_agent::Cancel::default();
+    // The provider raises the token with a cause, the way the HTTP layer does.
+    let raiser = cancel.clone();
+    let provider = Arc::new(ScriptedProvider::new(vec![Response::CancelOnFirstRecv(
+        raiser.clone(),
+    )]));
+    let mut opt = Options::new(provider, Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.clock = fixed_clock();
+    opt.cancel = cancel;
+    let agent = Agent::new(opt).expect("new agent");
+
+    let (_result, error) = agent.run("stop");
+    assert!(error.is_some(), "cancelled turn returns an error");
+
+    let events = read_all(&open_store(&path));
+    let end = events
+        .iter()
+        .find(|e| e.typ == forge_core::EventType::TURN_END.as_str())
+        .and_then(|e| e.payload.clone())
+        .expect("a turn/end row");
+    assert_eq!(end["reason"], json!(TURN_CANCELLED));
+    assert_eq!(
+        end.get("cancelledBy").and_then(|v| v.as_str()),
+        Some("unknown"),
+        "a bare cancel() names itself unknown rather than staying silent: {end}"
+    );
+}
+
+/// H2: a completed turn carries no `cancelledBy`. The member means "someone
+/// stopped this", and writing it on success would make it noise.
+#[test]
+fn a_completed_turn_has_no_cancelled_by() {
+    let path = temp_log("cancel-absent");
+    let store = open_store(&path);
+    let provider = Arc::new(ScriptedProvider::new(vec![Response::Deltas(final_step(
+        "pong",
+    ))]));
+    let mut opt = Options::new(provider, Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.clock = fixed_clock();
+    let agent = Agent::new(opt).expect("new agent");
+
+    let (_result, error) = agent.run("ping");
+    assert!(error.is_none());
+
+    let events = read_all(&open_store(&path));
+    let end = events
+        .iter()
+        .find(|e| e.typ == forge_core::EventType::TURN_END.as_str())
+        .and_then(|e| e.payload.clone())
+        .expect("a turn/end row");
+    assert_eq!(end["reason"], json!(TURN_COMPLETED));
+    assert!(
+        end.get("cancelledBy").is_none(),
+        "a turn nobody stopped must not name a stopper: {end}"
+    );
+}
+
+/// H6: a rewrite is transient, and the loop's next step proves it.
+///
+/// DSH guarantees this property by deep-freezing the objects it hands out. In
+/// Rust there is nothing to freeze — `messages` is a `Vec<Message>` the hook is
+/// given by reference and must clone to change — so the guarantee has to be
+/// *observed* instead: the first step is rewritten, and the second step rebuilds
+/// its request from the log and sends the original words again. If someone ever
+/// makes `pre-step` mutate the durable history, this test goes red: the redaction
+/// would compound step after step, and the log would stop matching what the model
+/// was told.
+#[test]
+fn a_transient_rewrite_does_not_reach_the_next_step() {
+    let path = temp_log("immut-transient");
+    let store = open_store(&path);
+    let provider = Arc::new(ScriptedProvider::new(vec![
+        Response::Deltas(tool_call_step()),
+        Response::Deltas(final_step("done")),
+    ]));
+    let mut opt = Options::new(provider.clone(), Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.system = SYSTEM.into();
+    opt.clock = fixed_clock();
+    opt.tools = Some(Arc::new(EchoTool::new()));
+
+    let mut hooks = forge_agent::Hooks::none();
+    hooks.push(forge_agent::Hook::new(
+        "redactor",
+        |call: &forge_agent::HookCall<'_>| match call {
+            forge_agent::HookCall::PreStep { messages, .. } => {
+                let mut rewritten = messages.to_vec();
+                for message in &mut rewritten {
+                    if message.role == forge_llm::Role::User {
+                        message.content = "REDACTED".into();
+                    }
+                }
+                Ok(forge_agent::HookOutcome::Messages(rewritten))
+            }
+            _ => Ok(forge_agent::HookOutcome::Unchanged),
+        },
+    ));
+    opt.hooks = hooks;
+
+    let agent = Agent::new(opt).expect("new agent");
+    let (result, error) = agent.run("the real question");
+    assert!(error.is_none(), "turn failed: {:?}", error);
+    assert_eq!(result.text, "done");
+
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 2, "two steps were expected");
+    for (index, request) in requests.iter().enumerate() {
+        let sent: Vec<&str> = request
+            .messages
+            .iter()
+            .map(|m| m.content.as_str())
+            .collect();
+        assert!(
+            sent.contains(&"REDACTED"),
+            "the hook did not run on step {index}: {sent:?}"
+        );
+        assert!(
+            !sent.contains(&"the real question"),
+            "step {index} sent the unredacted prompt: {sent:?}"
+        );
+    }
+
+    // What the hook changed is what went out, not what was recorded. The durable
+    // log still carries the operator's own words, so a later reader — and the
+    // projection that feeds the next process — sees the truth rather than one
+    // hook's opinion of it. That is the property `deepFreeze` buys in DSH, and
+    // the one a test has to buy here.
+    let reader = open_store(&path);
+    let events = read_all(&reader);
+    let recorded: Vec<&str> = events
+        .iter()
+        .filter(|event| event.typ == "user/message")
+        .filter_map(|event| event.payload.as_ref())
+        .filter_map(|payload| payload.get("text"))
+        .filter_map(|text| text.as_str())
+        .collect();
+    assert!(
+        recorded.contains(&"the real question"),
+        "the prompt was not recorded verbatim: {recorded:?}"
+    );
+    assert!(
+        !recorded.contains(&"REDACTED"),
+        "the rewrite was written to the log: {recorded:?}"
+    );
+}
+
+/// H6: each request is a snapshot, not a window onto history that keeps growing.
+///
+/// The loop builds a fresh `Vec<Message>` per step, so the first request must stay
+/// exactly as it was after the tool result is appended for the second one. A loop
+/// that passed a shared vector and pushed into it would satisfy every behavioural
+/// assertion elsewhere and fail only here.
+#[test]
+fn an_earlier_request_is_a_snapshot_not_a_window_into_later_history() {
+    let path = temp_log("immut-snapshot");
+    let store = open_store(&path);
+    let provider = Arc::new(ScriptedProvider::new(vec![
+        Response::Deltas(tool_call_step()),
+        Response::Deltas(final_step("done")),
+    ]));
+    let mut opt = Options::new(provider.clone(), Arc::new(store), MODEL, SESSION, WORKSPACE);
+    opt.system = SYSTEM.into();
+    opt.clock = fixed_clock();
+    opt.tools = Some(Arc::new(EchoTool::new()));
+
+    let agent = Agent::new(opt).expect("new agent");
+    let (_, error) = agent.run("ping");
+    assert!(error.is_none(), "turn failed: {:?}", error);
+
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 2, "two steps were expected");
+    let (first, second) = (&requests[0], &requests[1]);
+    assert!(
+        first.messages.len() < second.messages.len(),
+        "the second request must carry more turns than the first"
+    );
+    assert_eq!(
+        first.messages.last().expect("a prompt").content,
+        "ping",
+        "the first request must still end with the prompt it was built for"
+    );
+    for (index, message) in first.messages.iter().enumerate() {
+        assert_eq!(
+            &second.messages[index], message,
+            "the second request changed message {index}, so the first was not a snapshot"
+        );
+    }
 }

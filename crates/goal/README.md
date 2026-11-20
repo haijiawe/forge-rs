@@ -2,7 +2,7 @@
 dir: crates/goal
 layer: L2
 role: goal state folded out of the session log, and the continuation decision
-public: [Goal, Status, Action, StopReason, fold, validate, goal_created, goal_continued, goal_ended, continuation_prompt, CONTINUATION_PROMPT, DEFAULT_MAX_ROUNDS]
+public: [Goal, Status, Action, StopReason, RoundIdentity, Reservation, CasOutcome, FenceOutcome, fold, fence, check_in, CheckIn, fold_and_decide, validate, goal_created, goal_continued, goal_ended, continuation_prompt, CONTINUATION_PROMPT, DEFAULT_MAX_ROUNDS, next, Next, Snapshot, reservation_to_open]
 may_import: [forge-core]
 must_not:
   - own a timer, a thread or a turn loop
@@ -21,6 +21,19 @@ gate: cargo test -p forge-goal --offline
 
 `goal/continued` 在那一轮**开跑之前**写。代价昂贵的东西要被记在账上，而不是等它花完了才记。
 
+## 三层
+
+H3 起分成三块，各管一件事：
+
+- `domain` — 目标是什么，日志允许用哪些词（`Goal`/`Status`/`StopReason`/`RoundIdentity`/`Reservation`/`Action`）。纯数据，无 I/O、无时钟。
+- `fold` — 日志折成状态（`fold`），以及对那状态做的竞态栅栏（`fence`/`check_in`）。只吃 `&[Event]`。
+- `runtime` — **纯决策函数** `next(Snapshot { events, claim, running }) -> Next`。
+
+`Next` 的六个值就是"宿主该做什么"：没有目标（`NoGoal`）、目标已终结（`Ended`）、自己那轮还活着（`Running`）、被别的进程抢先（`Superseded`）、宿主正忙（`Busy`）、可以开下一轮（`Open`）。
+
+**为什么是函数而不是状态机。** DSH 的 round driver 是异步、有状态的监听器：每个 agent 一份 `DriverState`，订阅十来个事件，在回调里做决定——那是插件运行时逼出来的形状。这里同一份信息是"日志 + 宿主是否在跑"的函数值：测试可以把整条生命周期喂进一个 `Vec` 跑完，宿主也不会因为回调触发两次就多花一轮（每次问都是重算）。
+
+**`Superseded` 不等于 `Ended`。** 另一个进程已经推进了这个目标时，本地这一轮必须让路，但**不能**替对方写 `goal/ended`——那会把一个还在进行的目标关掉。这是分层之后才写得清的一条规则。
 ## 公开面
 
 - `Goal { id, text, max_rounds, rounds, status }`，`Goal::new`，`Goal::is_open`，`Goal::next_action`。

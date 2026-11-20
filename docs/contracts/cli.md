@@ -63,6 +63,7 @@ a bug, not contract. `forge` does not use exit code `1` for "unknown command".
 | `forge chat [flags] [prompt]` | `forge "<prompt>"` | streamed answer on stdout, diagnostics on stderr | `0`, `1`, `2` or `130` |
 | `forge web [flags]` | — | three lines on stderr — `serving <baseURL>`, `session=… model=… workspace=… sandbox=… approve=…`, `open <url with token>` — and the UI in the browser it opens | `0`, `1`, `2` or `130` |
 | `forge session fork <parentId> [flags]` | — | the new session id (or one JSON object) on stdout, diagnostics on stderr | `0`, `1` or `2` |
+| `forge session archive <sessionId> [flags]` | — | one sentence (or one JSON object) on stdout, diagnostics on stderr | `0`, `1` or `2` |
 | `forge import <old-dir> [flags]` | — | plan or result on stdout, diagnostics on stderr | `0`, `1` or `2` |
 | `forge index [flags]` | — | stats, hits or JSON on stdout | `0`, `1` or `2` |
 | `forge goal <command>` | — | the goal id, a status block, or JSON on stdout | `0`, `1` or `2` |
@@ -70,7 +71,7 @@ a bug, not contract. `forge` does not use exit code `1` for "unknown command".
 | `forge plugin <command>` | — | a generated skeleton, a manifest listing, a handshake, tool output or a doctor report on stdout | `0`, `1` or `2` |
 | `forge expert <command>` | — | a roster table, one prompt, or JSON on stdout | `0`, `1` or `2` |
 | `forge skill <command>` | — | a skill table, one skill body, or JSON on stdout | `0`, `1` or `2` |
-| `forge subagent <command>` | — | children of a session, resume one, interrupt one, list backends, or run the worker | `0`, `1` or `2` |
+| `forge subagent <command>` | — | children of a session, the tree below one, name resolution, timing, resume, interrupt, backends, or the worker | `0`, `1` or `2` |
 | `forge team <command>` | — | team listings, a worker report, or a board description on stdout | `0`, `1` or `2` |
 | `forge market <command>` | — | installed bundles, search hits, an install result or drift on stdout | `0`, `1` or `2` |
 | `forge help` | `-h`, `--help`, no arguments at all | usage text on stdout | `0` |
@@ -78,7 +79,8 @@ a bug, not contract. `forge` does not use exit code `1` for "unknown command".
 | `forge doctor --json` | — | JSON report on stdout | `0` or `1` |
 | `forge doctor --prune-profiles` | — | Deletes the Windows AppContainer profiles this tool created, then reports what happened | `0` or `1` |
 
-`forge session` has one implemented subcommand today: `fork`. `list`, `show`,
+`forge session` has two implemented subcommands today: `fork` and `archive`.
+`list`, `show`,
 `resume` and `export` are reserved words (§2.6) and exit `2` with a message rather
 than pretending to work. `forge resume` is not a command: resuming is
 `forge chat --resume <id>` (§2.3), because a resume is a chat turn on an existing
@@ -212,7 +214,7 @@ completion tokens, `total` is their sum (cache tokens are not included).
 | `--json` | bool | `false` | Write one report object on stdout instead of streaming (below). Diagnostics still go to stderr. |
 | `--resume <id>` | string | — | Continue the existing session `<id>` instead of starting a new one: the next turn number is one greater than the highest turn in the log, and the model sees the prior conversation. Refused (exit `1`) for an unknown id, a log waiting for an approval, or a session another process is writing. Mutually exclusive with `--fork` and `--session`. |
 | `--fork <id>` | string | — | Copy the session `<id>` up to its last `turn/end` into a new session and run the turn there; the parent log is never modified. `--session` names the copy (default: a generated id). Mutually exclusive with `--resume`. |
-| `--sandbox` | string enum | config `sandbox` | Containment mode for this process: `read-only`, `workspace-write` or `full-access`. Any other value is a usage error: exit `2`, `forge chat: invalid --sandbox "…": use read-only, workspace-write or full-access`, decided before any file access. A mode this host cannot enforce exits `1` before the turn with `sandbox: mode "…" cannot be enforced on this host: …`. A mode that is only partly enforced prints one warning line (§2.7). |
+| `--sandbox` | string enum | config `sandbox` | Containment mode for this process: `read-only`, `workspace-write` or `full-access`. Any other value is a usage error: exit `2`, `forge chat: invalid --sandbox "…": use read-only, workspace-write or full-access`, decided before any file access. A mode this host cannot enforce exits `1` before the turn with `sandbox: mode "…" cannot be enforced on this host: …`. A mode that is only partly enforced prints one warning line (§2.8). |
 | `--no-compact` | bool | `false` | Skip the compaction pass that runs before the turn (§2.3 "Compaction"). |
 
 Both `-flag` and `--flag` spellings are accepted (`flag` package). An undefined
@@ -692,7 +694,47 @@ forge session fork: forked 20260101-120000-a1b2c3 at seq 12 into branch-1 (12 ev
 
 ---
 
-### 2.7 `forge web [flags]`
+### 2.7 `forge session archive <sessionId> [flags]`
+
+Records that a session starts no new work. This is the only writer of the
+`session/archived` event documented in [`events-v1.md`](events-v1.md), and it is
+the mechanism behind "an archived session, or anything below it, starts no new
+subagent".
+
+```text
+forge session archive <sessionId> [--reason <text>] [--json]
+```
+
+| Flag | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--reason` | string | empty | Why, kept in the record. Omitted entirely when empty: a record that says nothing is better than one that says "". |
+| `--json` | bool | `false` | Print one JSON object instead of a sentence. |
+| `-h`, `--help` | flag | — | Print usage on stdout, exit `0`. |
+
+**It is idempotent.** A session that is already archived is not written a second
+time; the command reports `archived <id> (already archived)` and exits `0`, because
+an operator who re-ran after a failure asked for the same state.
+
+- **stdout**: `archived <id>`, or `archived <id> (already archived)`, or with
+  `--json` one object `{"session":…,"archived":true,"already":bool,"reason":…}`.
+- **stderr**, always prefixed `forge session archive: `: `no such session log: <path>`
+  when the id names nothing (a named failure, not silence — otherwise a typo
+  becomes a confident claim), or the storage error.
+- **Exit codes**: `0` archived or already archived; `1` the log is missing or
+  could not be written; `2` usage error (`needs a session id`, `one session id at a
+  time`, `unknown flag`, `--reason` with no value).
+
+```console
+$ forge session archive 20260101-120000-a1b2c3 --reason "branch finished"
+archived 20260101-120000-a1b2c3
+
+$ forge session archive 20260101-120000-a1b2c3
+archived 20260101-120000-a1b2c3 (already archived)
+```
+
+---
+
+### 2.8 `forge web [flags]`
 
 Starts the loopback HTTP + WebSocket server specified by
 [`api.md`](api.md) and serves the browser UI from the same origin: `/api/*` and
@@ -764,7 +806,7 @@ implemented (§2.6). `forge session resume <id>` is covered by
 M1 (§2.3), including the bare-prompt rule above.
 
 There is deliberately **no** `forge serve`: M3 shipped the local HTTP + WebSocket
-server as `forge web` (§2.7), which also serves the UI from the same origin, so a
+server as `forge web` (§2.8), which also serves the UI from the same origin, so a
 separate serve-only command is not planned and the name stays an unknown command.
 
 Also reserved but currently a script, not a subcommand: `go run ./scripts/bench`
@@ -1344,18 +1386,23 @@ $ echo $?
 usage: forge subagent <command> [flags]
 ```
 
-`forge subagent` has five commands. `list` reads the **direct children** a
+`forge subagent` has eight commands. `list` reads the **direct children** a
 session started, from the `subagent/catalog` events on that session's log
 (events-v1 §4.0.5) — the durable identity a later turn would use to name the
-same child again. `prompt` appends a turn to a `continuable` child. `interrupt`
-asks a *running* child to stop from a different process. `providers` lists the
-named out-of-process backends from config and says whether each program can be
-found. `worker` is the other end of the process backend: it reads one request
-line on stdin and writes one response line on stdout, running that child in
-*this* process.
-`list` never starts anything; `prompt` resumes only a child that already exists;
-`interrupt` writes a marker file that a `Runner` running that child honours;
-`worker` is normally spawned by the harness, not typed by a person.
+same child again. `tree` walks the same rows recursively below one root, one
+level per node, and reports a child whose log is missing, unreadable, or written
+by an unknown descriptor version as a diagnostic row instead of dropping it.
+`resolve` turns a lead-relative name path into the session id it points at.
+`timing` projects a child's closed-turn time from its own log. `prompt` appends a
+turn to a `continuable` child. `interrupt` asks a *running* child to stop from a
+different process. `providers` lists the named out-of-process backends from
+config and says whether each program can be found. `worker` is the other end of
+the process backend: it reads one request line on stdin and writes one response
+line on stdout, running that child in *this* process.
+`list`, `tree`, `resolve` and `timing` never start anything; `prompt` resumes only
+a child that already exists; `interrupt` checks who is asking and then writes a
+marker file that a `Runner` running that child honours; `worker` is normally
+spawned by the harness, not typed by a person.
 
 ### `forge subagent list --session <id> [--json] [--data-dir <dir>]`
 
@@ -1385,7 +1432,56 @@ driven entirely by its durable log, so a different process can continue it). A
 `one-shot` child, a child that already wrote `session/end`, or an id that is not
 a child id all fail before a single event is written. `--text` is required.
 
-### `forge subagent interrupt <child> [--data-dir <dir>]`
+### `forge subagent tree <root> [--json] [--data-dir <dir>]`
+
+Walks every descendant below `<root>` in pre-order, one indented line per node,
+each carrying the child's durable name, session id and mode. A root that is not a
+session log is a **failure** (`no such session log`), not an empty tree — the same
+distinction `list` makes.
+
+A child that cannot be described is kept as a row with a diagnostic rather than
+omitted, because a missing subtree is the symptom you are looking for:
+
+```text
+  agent-1  one-shot  20261120-143012-ab12cd34
+  agent-2  continuable  20261120-143140-77fe01aa  [unavailable: …\sessions\77fe01aa.jsonl: no session log for this child]
+  agent-3  one-shot  20261120-143200-0badf00d  [corrupt: line 2: invalid JSON: expected ident at line 1 column 2]
+```
+
+Each line is two spaces per level, then the durable name, the mode, and the child
+session id. A root with no children prints `no subagents in this session`.
+
+The three diagnostics are `corrupt` (a torn or unparsable line), `unsupported`
+(the log's descriptor names a version this build does not know), and
+`unavailable` (the catalog row exists but the child's log does not).
+
+`--json` prints the same tree as nested objects, each row being the catalog
+payload plus `path`, `depth`, `children`, and an optional `diagnostic` of
+`{kind, detail}`.
+
+### `forge subagent resolve <root> <name> [--json] [--data-dir <dir>]`
+
+Resolves a lead-relative name path (for example `agent-1/agent-2`, optionally
+prefixed with `lead/`) to the session id it names, printing the id alone. The
+lookup walks the catalog rows of each session on the path, so it works without
+loading any child. An unknown segment fails with the name that could not be
+resolved.
+
+### `forge subagent timing <child> [--json] [--data-dir <dir>]`
+
+Projects one child's timing from its own log: `settledMs` (the sum of closed
+`turn/end - turn/start` spans), `active` (a turn is open right now, always false
+after `session/end`), `lastTurnCompleted`, and `turns`.
+
+```text
+20261120-143012-ab12cd34 idle, 2 turn(s), settled 4210 ms, last closed at 1763643012000
+```
+
+`forge subagent timing --session <parent>` prints one line per child of that
+parent instead. Nothing here writes: the projection is derived from rows the loop
+already appended.
+
+### `forge subagent interrupt <child> [--as <id|user>] [--data-dir <dir>]`
 
 Asks a **running** child to stop. `Runner::interrupt` cancels a child running in
 the same process by tripping its cancel token; a `forge subagent interrupt`
@@ -1396,6 +1492,14 @@ in-process interrupt takes — then removes the marker, so it cannot cancel a la
 run of the same child. The command prints the marker path and exits 0. It cannot
 reach a child running in a `worker` process (that process is short-lived); it is
 for a long-lived local `Runner`, such as the one a `forge chat` turn drives.
+
+`--as` names who is asking. The default is `user` — a person typing this command
+is the operator, who may stop anything. `--as <session-id>` asks as that session,
+and is then subject to the tree rules: a session may not interrupt itself, a
+session may not interrupt an ancestor, and a session may not interrupt a child in
+another tree. Every refusal names both sides. A caller whose own chain cannot be
+read is refused rather than trusted. The check runs **before** the marker is
+written, so a denied request leaves no transport behind.
 
 ### `forge subagent providers`
 

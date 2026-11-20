@@ -19,7 +19,10 @@ use crate::runner::Runner;
 
 /// Wire name of the delegation tool.
 pub const TOOL_NAME: &str = "subagent";
-/// Code returned when the child fails, whether in setup or in its loop.
+/// Code returned when the child failed inside its loop. A failure that stops
+/// the delegation *before* the child runs carries a more specific code from
+/// [`crate::error_code`] instead; this one remains the catch-all for a child
+/// that started and then failed.
 pub const CODE_FAILED: &str = "subagent_failed";
 /// Code returned by the depth-limited tool on every call.
 pub const CODE_DEPTH_EXCEEDED: &str = "depth_exceeded";
@@ -326,8 +329,10 @@ impl Tool for DepthExceeded {
     }
 }
 
-/// Shape the child's outcome into a tool result. Setup errors and loop errors
-/// are both `Code="subagent_failed"`; cancellation has its own code; a required
+/// Shape the child's outcome into a tool result. A setup failure carries the
+/// specific code [`crate::error_code::from_error`] derives from its cause, so a
+/// caller can tell a missing provider from a closed log; a failure inside the
+/// child's loop is `subagent_failed`; cancellation has its own code; a required
 /// structured result that never arrived is `bad_output` (a failure); empty text
 /// without a schema is a success that says what happened, not a failure.
 pub(crate) fn result(
@@ -358,8 +363,11 @@ pub(crate) fn result(
     }
 
     let mut r = if let Some(e) = setup_error {
+        // The setup failure keeps its cause: the code names the condition so a
+        // caller can branch on it, and the message keeps the detail.
+        let code = crate::error_code::from_error(&e);
         ToolResult::error(
-            CODE_FAILED,
+            code.as_str(),
             format!("subagent setup failed: {}", e.message()),
         )
     } else if out.cancelled {

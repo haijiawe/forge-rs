@@ -20,11 +20,15 @@ const EXIT_USAGE: i32 = 2;
 
 pub const USAGE: &str = "usage: forge subagent <command> [flags]
 
-Inspect the direct children a session started, resume one, or run a child in
-worker mode. The listing reads `subagent/catalog` events from that session's log.
+Inspect the children a session started, walk the tree below one, resume or stop a
+child, or run a child in worker mode. The listings read `subagent/catalog` events
+from the session logs; nothing here starts a model except `prompt` and `worker`.
 
 commands:
   list                 the direct children of one session
+  tree <root>          every descendant below a root session, one level per node
+  resolve <root> <name>  the session id that a lead-relative name points at
+  timing <child>       how long a child has been settled, and whether it is active
   prompt <child>       append a turn to a continuable child
   interrupt <child>    request that a running child stop (drops a marker file
                        that a Runner running that child honours)
@@ -33,18 +37,20 @@ commands:
                        process backend; not normally typed by hand)
 
 flags:
-  --session <id>       the parent session id whose children to list
+  --session <id>       the parent session id (list, timing)
   --text <prompt>      the prompt for `prompt`
   --model <name>       override the model for `prompt`
+  --as <id|user>       who is asking, for `interrupt` (default: user)
   --data-dir <dir>     data directory (default: the forge home's configured dataDir)
   -h, --help           this message
 
-stdout: the listing or the child's answer. Diagnostics go to stderr.
+stdout: the listing, the tree, the resolved id, the timing, or the child's answer.
+Diagnostics go to stderr.
 
 exit codes: 0 ok, 1 failure, 2 usage
 ";
 
-const VALUE_FLAGS: &[&str] = &["data-dir", "session", "text", "model"];
+const VALUE_FLAGS: &[&str] = &["data-dir", "session", "text", "model", "as"];
 
 #[derive(Debug, Default)]
 struct Options {
@@ -53,6 +59,7 @@ struct Options {
     session: String,
     text: String,
     model: String,
+    actor: String,
     positionals: Vec<String>,
 }
 
@@ -74,6 +81,9 @@ pub fn run(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i
 
     match command.as_str() {
         "list" => list(&opt, stdout, stderr),
+        "tree" => tree(&opt, &rest, stdout, stderr),
+        "resolve" => resolve(&opt, &rest, stdout, stderr),
+        "timing" => timing(&opt, &rest, stdout, stderr),
         "prompt" => prompt(&opt, &rest, stdout, stderr),
         "providers" => providers(&opt, stdout),
         "interrupt" => interrupt(&opt, &rest, stdout, stderr),
@@ -125,6 +135,7 @@ fn parse(args: &[String], stderr: &mut dyn Write) -> std::result::Result<Options
             "session" => opt.session = take(&mut i)?,
             "text" => opt.text = take(&mut i)?,
             "model" => opt.model = take(&mut i)?,
+            "as" => opt.actor = take(&mut i)?,
             other => {
                 let _ = writeln!(stderr, "forge subagent: unknown flag --{other}");
                 return Err(EXIT_USAGE);
@@ -280,6 +291,175 @@ fn list(opt: &Options, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     EXIT_OK
 }
 
+fn tree(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
+    let Some(root) = rest.first() else {
+        let _ = writeln!(stderr, "forge subagent: tree needs a root session id");
+        return EXIT_USAGE;
+    };
+    let data_dir = match resolve_data_dir(opt) {
+        Ok(dir) => dir,
+        Err(code) => return code,
+    };
+    // A root that never existed is not "a tree with no children" — it is a
+    // typo. `list` makes the same distinction, so the two commands agree about
+    // what a missing log means.
+    let log = data_dir.join("sessions").join(format!("{root}.jsonl"));
+    if !log.is_file() {
+        let _ = writeln!(
+            stderr,
+            "forge subagent: no such session log: {}",
+            log.display()
+        );
+        return EXIT_FAILURE;
+    }
+    let nodes = match forge_subagent::list::descendants(&data_dir, root) {
+        Ok(nodes) => nodes,
+        Err(err) => {
+            let _ = writeln!(stderr, "forge subagent: {root}: {}", err.message());
+            return EXIT_FAILURE;
+        }
+    };
+    if opt.json {
+        let rows: Vec<serde_json::Value> = nodes.iter().map(node_json).collect();
+        let text = serde_json::to_string_pretty(&serde_json::Value::Array(rows))
+            .unwrap_or_else(|_| "[]".to_string());
+        let _ = writeln!(stdout, "{text}");
+        return EXIT_OK;
+    }
+    let rendered = forge_subagent::list::render_tree(&nodes);
+    let _ = stdout.write_all(rendered.as_bytes());
+    EXIT_OK
+}
+
+fn node_json(node: &forge_subagent::list::Node) -> serde_json::Value {
+    let children: Vec<serde_json::Value> = node.children.iter().map(node_json).collect();
+    let mut row = node.entry.to_payload();
+    if let Some(object) = row.as_object_mut() {
+        object.insert("path".to_string(), serde_json::json!(node.path));
+        object.insert("depth".to_string(), serde_json::json!(node.depth));
+        object.insert("children".to_string(), serde_json::Value::Array(children));
+        if let Some(diagnostic) = &node.diagnostic {
+            object.insert(
+                "diagnostic".to_string(),
+                serde_json::json!({
+                    "kind": diagnostic.as_str(),
+                    "detail": diagnostic.detail(),
+                }),
+            );
+        }
+    }
+    row
+}
+
+fn resolve(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
+    let (Some(root), Some(name)) = (rest.first(), rest.get(1)) else {
+        let _ = writeln!(
+            stderr,
+            "forge subagent: resolve needs a root session id and a name"
+        );
+        return EXIT_USAGE;
+    };
+    let data_dir = match resolve_data_dir(opt) {
+        Ok(dir) => dir,
+        Err(code) => return code,
+    };
+    match forge_subagent::list::resolve_name(&data_dir, root, name) {
+        Ok(session_id) => {
+            if opt.json {
+                let row = serde_json::json!({
+                    "root": root,
+                    "name": name,
+                    "sessionId": session_id,
+                });
+                let text = serde_json::to_string_pretty(&row).unwrap_or_else(|_| "{}".to_string());
+                let _ = writeln!(stdout, "{text}");
+            } else {
+                let _ = writeln!(stdout, "{session_id}");
+            }
+            EXIT_OK
+        }
+        Err(err) => {
+            let _ = writeln!(stderr, "forge subagent: {name}: {}", err.message());
+            EXIT_FAILURE
+        }
+    }
+}
+
+fn timing(opt: &Options, rest: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
+    let data_dir = match resolve_data_dir(opt) {
+        Ok(dir) => dir,
+        Err(code) => return code,
+    };
+    if let Some(child) = rest.first() {
+        return match forge_subagent::timing::of_child(&data_dir, child) {
+            Ok(timing) => {
+                if opt.json {
+                    let text = serde_json::to_string_pretty(&timing_json(&timing))
+                        .unwrap_or_else(|_| "{}".to_string());
+                    let _ = writeln!(stdout, "{text}");
+                } else {
+                    let _ = writeln!(stdout, "{}", timing_line(&timing));
+                }
+                EXIT_OK
+            }
+            Err(err) => {
+                let _ = writeln!(stderr, "forge subagent: {child}: {}", err.message());
+                EXIT_FAILURE
+            }
+        };
+    }
+    if !opt.session.is_empty() {
+        return match forge_subagent::timing::children(&data_dir, &opt.session) {
+            Ok(all) => {
+                if opt.json {
+                    let rows: Vec<serde_json::Value> = all.iter().map(timing_json).collect();
+                    let text = serde_json::to_string_pretty(&serde_json::Value::Array(rows))
+                        .unwrap_or_else(|_| "[]".to_string());
+                    let _ = writeln!(stdout, "{text}");
+                } else if all.is_empty() {
+                    let _ = writeln!(stdout, "forge subagent: {} has no children", opt.session);
+                } else {
+                    for timing in &all {
+                        let _ = writeln!(stdout, "{}", timing_line(timing));
+                    }
+                }
+                EXIT_OK
+            }
+            Err(err) => {
+                let _ = writeln!(stderr, "forge subagent: {}: {}", opt.session, err.message());
+                EXIT_FAILURE
+            }
+        };
+    }
+    let _ = writeln!(
+        stderr,
+        "forge subagent: timing needs a child id or --session <id>"
+    );
+    EXIT_USAGE
+}
+
+fn timing_json(timing: &forge_subagent::Timing) -> serde_json::Value {
+    serde_json::json!({
+        "sessionId": timing.child_id,
+        "settledMs": timing.settled_ms,
+        "active": timing.active,
+        "lastTurnCompleted": timing.last_turn_completed,
+        "turns": timing.turns,
+    })
+}
+
+fn timing_line(timing: &forge_subagent::Timing) -> String {
+    let state = if timing.active { "active" } else { "idle" };
+    let closed = match timing.last_turn_completed {
+        Some(ts) => format!("last closed at {ts}"),
+        None => "no turn closed yet".to_string(),
+    };
+    format!(
+        "{} {state}, {} turn(s), settled {} ms, {closed}",
+        timing.child_id, timing.turns, timing.settled_ms
+    )
+}
+
 fn build_runner(
     opt: &Options,
     workspace: &str,
@@ -347,6 +527,21 @@ fn interrupt(
         Ok(dir) => dir,
         Err(code) => return code,
     };
+    // Who is asking decides whether the request is allowed at all: a child may
+    // not stop its own ancestor, and a sibling may not stop a sibling. The
+    // marker file is just transport; this check is the policy. Default is the
+    // operator, because a person typing this command is one.
+    let caller = if opt.actor.is_empty() || opt.actor == "user" {
+        forge_subagent::authority::Caller::User
+    } else {
+        forge_subagent::authority::Caller::Session(opt.actor.clone())
+    };
+    if let forge_subagent::authority::Verdict::Deny(reason) =
+        forge_subagent::authority::check(&data_dir, &caller, child)
+    {
+        let _ = writeln!(stderr, "forge subagent: {reason}");
+        return EXIT_FAILURE;
+    }
     match forge_subagent::cancel_file::request(&data_dir, child) {
         Ok(path) => {
             let _ = writeln!(
@@ -526,7 +721,16 @@ mod tests {
 
     #[test]
     fn the_usage_names_every_command() {
-        for cmd in ["list", "prompt", "interrupt", "providers", "worker"] {
+        for cmd in [
+            "list",
+            "tree",
+            "resolve",
+            "timing",
+            "prompt",
+            "interrupt",
+            "providers",
+            "worker",
+        ] {
             assert!(USAGE.contains(cmd), "usage must mention {cmd}");
         }
     }
@@ -594,5 +798,142 @@ mod tests {
         let code = prompt(&opt, &["abc".to_string()], &mut out, &mut err);
         assert_eq!(code, EXIT_USAGE);
         assert!(String::from_utf8(err).unwrap().contains("--text"));
+    }
+
+    /// A data directory holding one session log with only its `session/start`
+    /// row: a session that exists and started no children.
+    fn seeded_root(label: &str) -> (PathBuf, String) {
+        let root = std::env::temp_dir().join(format!("forge-cli-{label}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let sessions = root.join("sessions");
+        std::fs::create_dir_all(&sessions).expect("sessions dir");
+        let session = "root-session-0001";
+        let path = sessions.join(format!("{session}.jsonl"));
+        let store = forge_session::Store::open(&path, forge_session::Options::default())
+            .expect("store opens");
+        store
+            .append(&forge_core::Event::new(
+                session,
+                forge_core::EventType::SESSION_START,
+                Some(serde_json::json!({
+                    "workspace": ".",
+                    "model": "m",
+                    "startedBy": "cli",
+                })),
+            ))
+            .expect("head appended");
+        (root, session.to_string())
+    }
+
+    #[test]
+    fn tree_of_a_root_with_no_children_prints_the_empty_tree_line() {
+        let (root, session) = seeded_root("tree-empty");
+        let opt = Options {
+            data_dir: root.to_string_lossy().into_owned(),
+            ..Options::default()
+        };
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = tree(&opt, &[session], &mut out, &mut err);
+        assert_eq!(code, EXIT_OK, "stderr: {}", String::from_utf8_lossy(&err));
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("no subagents"), "stdout: {text}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn tree_needs_a_root_session() {
+        let opt = Options::default();
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = tree(&opt, &[], &mut out, &mut err);
+        assert_eq!(code, EXIT_USAGE);
+        assert!(String::from_utf8(err).unwrap().contains("root session"));
+    }
+
+    #[test]
+    fn tree_of_a_session_that_never_existed_names_it_in_the_failure() {
+        let root = std::env::temp_dir().join(format!("forge-cli-tree-gone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let opt = Options {
+            data_dir: root.to_string_lossy().into_owned(),
+            ..Options::default()
+        };
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = tree(
+            &opt,
+            &["ghost-session-0001".to_string()],
+            &mut out,
+            &mut err,
+        );
+        assert_eq!(code, EXIT_FAILURE);
+        assert!(String::from_utf8(err)
+            .unwrap()
+            .contains("ghost-session-0001"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolve_needs_a_root_and_a_name() {
+        let opt = Options::default();
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = resolve(&opt, &["root-0001".to_string()], &mut out, &mut err);
+        assert_eq!(code, EXIT_USAGE);
+        assert!(String::from_utf8(err).unwrap().contains("name"));
+    }
+
+    #[test]
+    fn timing_needs_a_child_or_a_session() {
+        let opt = Options::default();
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = timing(&opt, &[], &mut out, &mut err);
+        assert_eq!(code, EXIT_USAGE);
+        assert!(String::from_utf8(err).unwrap().contains("--session"));
+    }
+
+    #[test]
+    fn an_actor_is_a_flag_value_not_a_command() {
+        let mut err = Vec::new();
+        let opt = parse(
+            &args(&["interrupt", "20260101-000000-deadbeef", "--as", "s1"]),
+            &mut err,
+        )
+        .expect("parses");
+        assert_eq!(
+            opt.positionals,
+            vec![
+                "interrupt".to_string(),
+                "20260101-000000-deadbeef".to_string()
+            ]
+        );
+        assert_eq!(opt.actor, "s1");
+    }
+
+    #[test]
+    fn a_caller_that_cannot_be_identified_is_refused_before_the_marker_is_written() {
+        let root = std::env::temp_dir().join(format!("forge-cli-int-deny-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let opt = Options {
+            data_dir: root.to_string_lossy().into_owned(),
+            actor: "ghost-session-0001".to_string(),
+            ..Options::default()
+        };
+        let child = "20260101-000000-deadbeef".to_string();
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = interrupt(&opt, std::slice::from_ref(&child), &mut out, &mut err);
+        assert_eq!(code, EXIT_FAILURE);
+        assert!(!String::from_utf8(err).unwrap().is_empty());
+        assert!(
+            !root
+                .join("sessions")
+                .join(format!("{child}.cancel"))
+                .is_file(),
+            "a denied request must not leave transport behind"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

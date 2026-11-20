@@ -200,6 +200,12 @@ impl Fixture {
         value["session"]["id"].as_str().expect("id").to_string()
     }
 
+    /// The temp data dir this fixture owns, so a test can seed the logs a real
+    /// run would have left behind.
+    fn data_dir(&self) -> PathBuf {
+        self._temp.0.clone()
+    }
+
     fn append(&self, session: &str, typ: EventType, turn: u32, payload: Value) {
         let mut event = Event::new(session, typ, Some(payload));
         event.turn = turn;
@@ -1515,4 +1521,165 @@ fn a_server_embedded_in_a_test_still_names_every_capability_group() {
             "{key}: {body}"
         );
     }
+}
+
+// --- GET /api/sessions/{id}/subagents -----------------------------------
+
+/// Write the log a finished child would have left: a head, a descriptor, and
+/// `turns` closed turns. `settledMs` is the sum of those turns, so a test can
+/// prove the number came from the log rather than from a clock read here.
+fn seed_child_log(root: &Path, child: &str, parent: &str, turns: u32) {
+    let dir = root.join("sessions");
+    fs::create_dir_all(&dir).expect("sessions dir");
+    let store = forge_session::Store::open(
+        dir.join(format!("{child}.jsonl")),
+        forge_session::Options::default(),
+    )
+    .expect("open child log");
+    let head = Event::new(
+        child,
+        EventType::SESSION_START,
+        Some(json!({
+            "workspace": ".",
+            "model": "child-model",
+            "startedBy": "subagent",
+            "depth": 1,
+            "delegationDepth": 1,
+            "parent": parent,
+        })),
+    );
+    store.append(&head).expect("head");
+    let descriptor = Event::new(
+        child,
+        EventType::SUBAGENT_DESCRIPTOR,
+        Some(json!({"version": 3, "mode": "one-shot", "provider": "local"})),
+    );
+    store.append(&descriptor).expect("descriptor");
+    for turn in 1..=turns {
+        let start = Event::new(child, EventType::TURN_START, Some(json!({"turn": turn})));
+        store.append(&start).expect("turn start");
+        let end = Event::new(
+            child,
+            EventType::TURN_END,
+            Some(json!({"reason": "completed", "turns": turn})),
+        );
+        store.append(&end).expect("turn end");
+    }
+}
+
+fn catalog_row(child: &str, name: &str) -> Value {
+    json!({"version": 3, "childId": child, "mode": "one-shot", "name": name})
+}
+
+#[test]
+fn a_session_with_no_children_answers_with_an_empty_tree() {
+    let fixture = Fixture::default();
+    let workspace = fixture.data_dir().join("workspace-subagents-empty");
+    let session = fixture.create_session(&workspace);
+
+    let (status, _, bytes) = fixture.api(
+        "GET",
+        &format!("/api/sessions/{session}/subagents"),
+        None,
+        &[],
+    );
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    let body: Value = serde_json::from_slice(&bytes).expect("decode tree");
+    assert_eq!(body["session"], json!(session));
+    assert_eq!(body["count"], json!(0));
+    assert_eq!(body["subagents"], json!([]));
+}
+
+#[test]
+fn the_tree_names_each_child_and_the_turns_their_logs_record() {
+    let fixture = Fixture::default();
+    let root = fixture.data_dir();
+    let workspace = root.join("workspace-subagents-tree");
+    let session = fixture.create_session(&workspace);
+    fixture.append(
+        &session,
+        EventType::SUBAGENT_CATALOG,
+        0,
+        catalog_row("child-a", "agent-1"),
+    );
+    fixture.append(
+        &session,
+        EventType::SUBAGENT_CATALOG,
+        0,
+        catalog_row("child-b", "agent-2"),
+    );
+    seed_child_log(&root, "child-a", &session, 2);
+    seed_child_log(&root, "child-b", &session, 1);
+
+    let (status, _, bytes) = fixture.api(
+        "GET",
+        &format!("/api/sessions/{session}/subagents"),
+        None,
+        &[],
+    );
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    let body: Value = serde_json::from_slice(&bytes).expect("decode tree");
+    assert_eq!(body["count"], json!(2), "{body}");
+    let rows = body["subagents"].as_array().expect("rows");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["sessionId"], json!("child-a"));
+    assert_eq!(rows[0]["name"], json!("agent-1"));
+    assert_eq!(rows[0]["mode"], json!("one-shot"));
+    assert_eq!(rows[0]["path"], json!("lead/agent-1"));
+    assert_eq!(rows[0]["depth"], json!(1));
+    assert_eq!(rows[0]["timing"]["turns"], json!(2), "{body}");
+    assert_eq!(rows[0]["timing"]["active"], json!(false));
+    assert!(rows[0]["timing"]["settledMs"].as_i64().unwrap_or(-1) >= 0);
+    // Two turns finish later than one, so the first child cannot have settled
+    // sooner than the second. Both are seeded in the same millisecond, so this
+    // is a lower bound rather than an equality.
+    assert_eq!(rows[1]["timing"]["turns"], json!(1));
+}
+
+#[test]
+fn a_child_with_no_log_is_a_row_with_a_diagnostic_not_a_hole() {
+    let fixture = Fixture::default();
+    let workspace = fixture.data_dir().join("workspace-subagents-ghost");
+    let session = fixture.create_session(&workspace);
+    fixture.append(
+        &session,
+        EventType::SUBAGENT_CATALOG,
+        0,
+        catalog_row("child-ghost", "agent-1"),
+    );
+
+    let (status, _, bytes) = fixture.api(
+        "GET",
+        &format!("/api/sessions/{session}/subagents"),
+        None,
+        &[],
+    );
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    let body: Value = serde_json::from_slice(&bytes).expect("decode tree");
+    assert_eq!(body["count"], json!(1), "{body}");
+    let row = &body["subagents"][0];
+    assert_eq!(row["sessionId"], json!("child-ghost"));
+    assert_eq!(row["diagnostic"]["kind"], json!("unavailable"), "{body}");
+    assert!(row["timing"].is_null(), "no log means no timing: {body}");
+}
+
+#[test]
+fn a_session_that_never_existed_is_not_an_empty_tree() {
+    let fixture = Fixture::default();
+    let (status, _, _) = fixture.api("GET", "/api/sessions/nope/subagents", None, &[]);
+    assert_eq!(status, 404);
+}
+
+#[test]
+fn the_subagent_tree_route_is_read_only() {
+    let fixture = Fixture::default();
+    let workspace = fixture.data_dir().join("workspace-subagents-post");
+    let session = fixture.create_session(&workspace);
+    let (status, _, _) = fixture.api(
+        "POST",
+        &format!("/api/sessions/{session}/subagents"),
+        Some(&json!({})),
+        &[],
+    );
+    assert_eq!(status, 405);
 }

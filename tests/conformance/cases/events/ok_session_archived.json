@@ -1,0 +1,49 @@
+{
+  "name": "ok_session_archived",
+  "description": "session/archived, the record that says a session starts no new work. H5 added it so a subagent may not be started (or resumed) under an archived session, which is what DSH's archive-admission listener does. The record carries an optional `reason` and nothing else: an archived session is a fact in its own log, not a flag on a process, so a later process reaches the same conclusion.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "a5b6c7d8091021324354657687990201",
+      "ts": 1794787200500,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "session/archived",
+      "payload": {
+        "reason": "the operator finished with this branch of work"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "a5b6c7d8091021324354657687990202",
+      "ts": 1794787200501,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z8",
+      "type": "session/archived",
+      "payload": {}
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "a5b6c7d8091021324354657687990201",
+      "ts": 1794787200500,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "session/archived",
+      "payload": {
+        "reason": "the operator finished with this branch of work"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "a5b6c7d8091021324354657687990202",
+      "ts": 1794787200501,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z8",
+      "type": "session/archived",
+      "payload": {}
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+{
+  "name": "ok_request_context",
+  "description": "request/context: one row per request saying what the request actually carried — the endpoint that would answer, the model, the sampling parameters in force, how many messages and tools went out, and the byte count plus fingerprint of the system prompt. Additive: no envelope change, no version bump (AGENTS.md rule 2). This is the row that lets two runs over the same log disagree about an answer and still be explained, because it names the inputs rather than copying them. Both optional halves are exercised: the second line omits `provider`, `temperature`, `maxTokens` and `stop` entirely, which is what an unconfigured endpoint produces.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "e2d3e4f5a60718293a4b5c6d7e8fd101",
+      "ts": 1794787200300,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "step": 1,
+      "type": "request/context",
+      "payload": {
+        "provider": "api.deepseek.com",
+        "model": "deepseek-chat",
+        "messages": 2,
+        "tools": 9,
+        "temperature": 0.2,
+        "maxTokens": 4096,
+        "stop": ["</final>"],
+        "systemBytes": 812,
+        "systemFingerprint": "85944171f73967e8"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "e2d3e4f5a60718293a4b5c6d7e8fd102",
+      "ts": 1794787200301,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "step": 2,
+      "type": "request/context",
+      "payload": {
+        "model": "deepseek-chat",
+        "messages": 4,
+        "tools": 9,
+        "systemBytes": 812,
+        "systemFingerprint": "85944171f73967e8"
+      }
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "e2d3e4f5a60718293a4b5c6d7e8fd101",
+      "ts": 1794787200300,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "step": 1,
+      "type": "request/context",
+      "payload": {
+        "provider": "api.deepseek.com",
+        "model": "deepseek-chat",
+        "messages": 2,
+        "tools": 9,
+        "temperature": 0.2,
+        "maxTokens": 4096,
+        "stop": ["</final>"],
+        "systemBytes": 812,
+        "systemFingerprint": "85944171f73967e8"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "e2d3e4f5a60718293a4b5c6d7e8fd102",
+      "ts": 1794787200301,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "step": 2,
+      "type": "request/context",
+      "payload": {
+        "model": "deepseek-chat",
+        "messages": 4,
+        "tools": 9,
+        "systemBytes": 812,
+        "systemFingerprint": "85944171f73967e8"
+      }
+    }
+  ]
+}

@@ -59,6 +59,7 @@ function fakeApi(overrides: Partial<ForgeApi> = {}): ForgeApi {
     teams: vi.fn(async () => ({ boards: [] })),
     getGoal: vi.fn(async () => null),
       presents: vi.fn(async () => ({ presents: [], skipped: 0, truncated: false, note: null })),
+    subagents: vi.fn(async () => ({ session: '', count: 0, subagents: [] })),
   };
   return { ...base, ...overrides };
 }

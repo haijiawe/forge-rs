@@ -1,0 +1,65 @@
+{
+  "name": "ok_turn_end_cancelled_by",
+  "description": "turn/end.cancelledBy, the member that says *who* stopped a turn. It already existed in the contract (the recovery path writes `cli:recovery` and imported logs carry the old implementation's words); H2 gave the loop's own cancellation token a cause so the ordinary `POST /cancel` path can fill it in too. Free-form by design, as the second line shows: a reader must treat an unrecognised value as data, not as an error (AGENTS.md rule 2).",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "f3e4f5a60718293a4b5c6d7e8fd10101",
+      "ts": 1794787200400,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "type": "turn/end",
+      "payload": {
+        "reason": "cancelled",
+        "steps": 2,
+        "cancelledBy": "user"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "f3e4f5a60718293a4b5c6d7e8fd10102",
+      "ts": 1794787200401,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "type": "turn/end",
+      "payload": {
+        "reason": "cancelled",
+        "steps": 0,
+        "cancelledBy": "cli:recovery"
+      }
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "f3e4f5a60718293a4b5c6d7e8fd10101",
+      "ts": 1794787200400,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 1,
+      "type": "turn/end",
+      "payload": {
+        "reason": "cancelled",
+        "steps": 2,
+        "cancelledBy": "user"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "f3e4f5a60718293a4b5c6d7e8fd10102",
+      "ts": 1794787200401,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "turn": 2,
+      "type": "turn/end",
+      "payload": {
+        "reason": "cancelled",
+        "steps": 0,
+        "cancelledBy": "cli:recovery"
+      }
+    }
+  ]
+}

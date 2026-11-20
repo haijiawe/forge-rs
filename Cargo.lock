@@ -309,6 +309,7 @@ dependencies = [
  "forge-goal",
  "forge-protocol",
  "forge-session",
+ "forge-subagent",
  "serde",
  "serde_json",
 ]

@@ -92,11 +92,25 @@ pub fn user_message(text: &str) -> (EventType, Value) {
     )
 }
 
-pub fn turn_end(reason: &str, steps: usize) -> (EventType, Value) {
-    (
-        EventType::TURN_END,
-        json!({"reason": reason, "steps": steps}),
-    )
+/// Why a turn stopped, and how many steps it took.
+///
+/// `cancelledBy` is written only when a turn was cancelled **and** the token knew
+/// why — the operator, a parent going away, a deadline, a hook, a disposed
+/// owner. `cancelled` alone is not an answer: several paths stop a turn, and a
+/// reader cannot tell a decision from a bug without the reason.
+///
+/// The member already existed in the contract (the recovery path writes
+/// `cli:recovery`, imported logs carry the old implementation's words), so this
+/// extends its vocabulary rather than inventing a second field that would say
+/// the same thing under a different name.
+pub fn turn_end(reason: &str, steps: usize, cancelled_by: Option<&str>) -> (EventType, Value) {
+    let mut m = Map::new();
+    m.insert("reason".into(), json!(reason));
+    m.insert("steps".into(), json!(steps));
+    if let Some(who) = cancelled_by {
+        m.insert("cancelledBy".into(), json!(who));
+    }
+    (EventType::TURN_END, Value::Object(m))
 }
 
 pub fn step_start(index: u32, model: &str) -> (EventType, Value) {
@@ -137,6 +151,54 @@ pub fn request_header(
         EventType::REQUEST_HEADER,
         json!({"reason": reason, "model": model, "messages": messages, "tools": tools}),
     )
+}
+
+/// One row per request, saying what the request actually carried.
+///
+/// `request/header` answers "why is this request being made". This answers "what
+/// is in it", which is the question you ask when two runs against the same log
+/// disagree. Everything here is either a scalar or a digest: the system prompt
+/// itself already sits on `session/start`, so repeating it per step would make
+/// this row as large as the thing it describes.
+///
+/// `provider` and `provider_name` are the caller's, not ours: the loop does not
+/// know what endpoint a `Provider` talks to, and inventing a name here would be
+/// a guess written into a log.
+// Nine arguments is over clippy's line, and the alternative is worse: a struct
+// built at the one call site that reads its fields by position anyway. Every
+// argument here is a distinct fact about the request, and folding any two into a
+// tuple would hide which is which.
+#[allow(clippy::too_many_arguments)]
+pub fn request_context(
+    provider: &str,
+    model: &str,
+    messages: usize,
+    tools: usize,
+    temperature: Option<f64>,
+    max_tokens: Option<i64>,
+    stop: &[String],
+    system_bytes: usize,
+    system_fingerprint: &str,
+) -> (EventType, Value) {
+    let mut m = Map::new();
+    if !provider.is_empty() {
+        m.insert("provider".into(), json!(provider));
+    }
+    m.insert("model".into(), json!(model));
+    m.insert("messages".into(), json!(messages));
+    m.insert("tools".into(), json!(tools));
+    if let Some(temperature) = temperature {
+        m.insert("temperature".into(), json!(temperature));
+    }
+    if let Some(max_tokens) = max_tokens {
+        m.insert("maxTokens".into(), json!(max_tokens));
+    }
+    if !stop.is_empty() {
+        m.insert("stop".into(), json!(stop));
+    }
+    m.insert("systemBytes".into(), json!(system_bytes));
+    m.insert("systemFingerprint".into(), json!(system_fingerprint));
+    (EventType::REQUEST_CONTEXT, Value::Object(m))
 }
 
 /// One row per provider attempt that did **not** become the visible answer.

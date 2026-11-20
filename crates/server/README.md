@@ -3,7 +3,7 @@ dir: crates/server
 layer: L3
 role: HTTP/1.1 and WebSocket over the session log
 public: [Server, Report, Entry]
-may_import: [forge-core, forge-session, forge-protocol]
+may_import: [forge-core, forge-session, forge-protocol, forge-subagent]
 must_not:
   - import a crate from a higher layer
   - claim behaviour that does not exist yet

@@ -18,7 +18,12 @@ public:
   - is_agent_name / join_agent_path / parent_agent_path / NameError / ROOT_AGENT_NAME
   - is_child_id / child_log_path / format_stamp
   - Backend / ProcessBackend / BackendRequest / BackendOutcome / BACKEND_PROTOCOL_VERSION / DEFAULT_BACKEND_TIMEOUT
-  - modules catalog / descriptor / list / names / backend / cancel_file (fold + render + spawn + cross-process interrupt markers)
+  - Node / Diagnostic / descendants / render_tree / resolve_name
+  - Timing / of_log / of_child
+  - Caller / Verdict / check / ancestry / describe_ancestry
+  - Code / from_kind / from_error / ERROR_CODES
+  - admit / is_archived / DEFAULT_REASON / archive::payload
+  - modules catalog / descriptor / list / names / backend / cancel_file / timing / authority / error_code / archive (fold + render + walk + project + adjudicate + spawn + cross-process interrupt markers + archived-session admission)
 may_import:
   - forge-core
   - forge-session

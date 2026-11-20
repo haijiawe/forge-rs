@@ -15,11 +15,13 @@
 //! * Re-encoding a parsed event reproduces its bytes. Golden files are a
 //!   contract here, not a convenience.
 
+pub mod digest;
 pub mod error;
 pub mod event;
 pub mod ids;
 pub mod json;
 
+pub use digest::fingerprint;
 pub use error::{Error, ErrorKind, Result};
 pub use event::{Event, EventType};
 pub use ids::{new_id, SessionId};

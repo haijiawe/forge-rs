@@ -757,6 +757,67 @@ is the read side of that manifest, and the only reader of it.
 
 ---
 
+### 4.16 `GET /api/sessions/{id}/subagents`
+
+The children this session delegated to, with the timing each child's own log
+records. Two readings are joined: the parent's `subagent/catalog` rows give the
+shape, and every child's log gives `settledMs`, `active`, `turns` and
+`lastTurnCompleted`. The route recomputes neither — a second owner of the same
+number is a number that will disagree later.
+
+```
+200 OK
+{
+  "session": "20261120-143012-ab12cd34",
+  "count": 2,
+  "subagents": [
+    {
+      "sessionId": "20261120-143105-0a1b2c3d",
+      "name": "agent-1",
+      "mode": "one-shot",
+      "path": "lead/agent-1",
+      "depth": 1,
+      "timing": { "settledMs": 4210, "active": false, "turns": 2, "lastTurnCompleted": 1763643003300 },
+      "children": []
+    },
+    {
+      "sessionId": "20261120-143140-9f8e7d6c",
+      "name": "agent-2",
+      "mode": "continuable",
+      "path": "lead/agent-2",
+      "depth": 1,
+      "diagnostic": { "kind": "unavailable", "detail": "…: no session log for this child" },
+      "children": []
+    }
+  ]
+}
+```
+
+- `count` is the number of rows in the whole tree, not the number of direct
+  children: "how many subagents did this session start" is the question a reader
+  is actually asking.
+- `path` is relative to the root and always starts with `lead`; `depth` counts
+  from the root's direct children, which are depth `1`.
+- `timing` is absent for a child whose log cannot be folded. Absent is not zero:
+  zero would claim the child settled instantly, and a child whose log has no
+  closed turn yet has not settled at all.
+- `diagnostic` is present when the child exists on the parent's catalog but its
+  log could not be read or classified: `corrupt` (bad JSON, a bad envelope, a
+  non-dense sequence, a duplicate id), `unsupported` (no `subagent/descriptor` at
+  a version this build reads), `unavailable` (no log file at all). **The row
+  stays**: dropping it would make a broken child look like a child that never
+  existed, which is the one thing an operator must be able to tell apart.
+- `name` and `label` are omitted when the parent never assigned them.
+- A session with a log but no delegations answers `{"session":…,"count":0,"subagents":[]}`
+  with `200`. A session with **no log at all** is `404 no such session`, because
+  "this session does not exist" and "this session has no children" are different
+  answers and only the caller knows which they asked.
+- **The route creates nothing and starts nothing**: no child process, no log, no
+  directory. It is a read of files that a run already wrote.
+- `GET` only; anything else is `405 method_not_allowed`.
+
+---
+
 ## 5. Error envelope
 
 Every non-2xx response with a body uses exactly this shape:

@@ -8,7 +8,7 @@
 //! reproduced byte for byte, including the em dash and the two trailing spaces
 //! that align the descriptions, because a test compares the bytes.
 
-// deny, not orbid: exactly one function reaches the Windows API for disk
+// deny, not forbid: exactly one function reaches the Windows API for disk
 // free space (doctor.rs disk_free_windows), because the alternative is
 // spawning PowerShell for a number the kernel already knows. That function
 // carries its own #[allow(unsafe_code)] and a safety comment; everything else
@@ -35,6 +35,7 @@ pub mod marketcmd;
 pub mod office;
 pub mod plugincmd;
 pub mod pluginscaffold;
+pub mod resident;
 pub mod schedulecmd;
 pub mod sessioncmd;
 pub mod skillcmd;
@@ -196,7 +197,7 @@ usage:
   forge plugin <command>       inspect the installed plugin set
   forge expert <command>       list or show the expert roster
   forge skill <command>        list or show the skills the model was offered
-  forge subagent <command>     list, resume, interrupt, or run a child
+  forge subagent <command>     list, walk, resume, stop, or run a child
   forge team <command>         list teams, or run one over a shared board
   forge market <command>       install or remove plugin bundles
   forge doctor [flags]         check the environment
@@ -368,4 +369,23 @@ pub fn command_after_flags(args: &[String], value_flags: &[&str]) -> Option<Stri
         return Some(arg.clone());
     }
     None
+}
+
+/// The host a request will go to, as a label for `request/context`.
+///
+/// The loop talks to a `Provider` and cannot see an endpoint through it, so the
+/// caller says where it points. Only the authority is kept: a base URL can carry
+/// a path, a trailing slash and a query string, and none of those help a reader
+/// tell two requests apart. An unparseable URL yields an empty label, which the
+/// event omits rather than reporting something wrong.
+pub fn provider_label(base_url: &str) -> String {
+    let rest = match base_url.split_once("://") {
+        Some((_scheme, rest)) => rest,
+        None => base_url,
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("").trim();
+    if authority.is_empty() || authority.contains('@') {
+        return String::new();
+    }
+    authority.to_string()
 }

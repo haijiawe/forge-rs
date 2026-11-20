@@ -473,7 +473,7 @@ fn execute_goal(
     let pause = forge_agent::Cancel::default();
     {
         let pause = pause.clone();
-        let _ = ctrlc::set_handler(move || pause.cancel());
+        let _ = ctrlc::set_handler(move || pause.cancel_with(forge_agent::Cause::User));
     }
     loop {
         // Before a round begins, honour a pause that arrived during the last one.
@@ -1012,6 +1012,10 @@ fn execute_turn(
 ) -> std::result::Result<i32, i32> {
     let client = LlmClient::new(LlmOptions::default())
         .map_err(|e| runtime_error_str(stderr, &format!("no LLM provider: {}", e.message())))?;
+    // The loop cannot see an endpoint through Arc<dyn Provider>, so the host is
+    // captured here while the client is still concrete. It labels
+    // request/context; it is not a routing decision.
+    let provider_name = crate::provider_label(client.base_url());
     let provider: Arc<dyn Provider> = Arc::new(client);
 
     let mut spec = SandboxSpec::new(sandbox);
@@ -1256,6 +1260,9 @@ fn execute_turn(
     // A loaded plugin may have contributed a `before_turn` hook; the seam is
     // inert (and writes no `hook/rewrite`) when the set is empty.
     agent_opts.hooks = wired.hooks().clone();
+    // Where this turn's requests go, as a label for `request/context`. The flag
+    // is captured from the client above, while it was still concrete.
+    agent_opts.provider_name = provider_name.clone();
     // A goal round carries its reservation; the fence re-checks it at each step.
     if let Some(reservation) = fence {
         if goal_open {

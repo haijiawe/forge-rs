@@ -170,7 +170,14 @@ fn resuming_an_unknown_child_is_a_reported_failure_not_a_panic() {
         "",
     ));
     assert!(res.is_error, "expected a failure, got ok: {res:?}");
-    assert_eq!(res.code, forge_subagent::CODE_FAILED);
+    // The code names the cause, not just "something went wrong": a `resume`
+    // that names a child nobody ever created is `not_resumable`, which is what
+    // a caller can act on. `subagent_failed` is reserved for a child that was
+    // admitted and then failed while running.
+    assert_eq!(
+        res.code,
+        forge_subagent::error_code::Code::NotResumable.as_str()
+    );
     assert!(
         res.output.contains("no such child session"),
         "unexpected message: {}",

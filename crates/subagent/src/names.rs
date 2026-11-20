@@ -102,6 +102,27 @@ pub fn parent_agent_path(path: &str) -> &str {
     }
 }
 
+/// Is `path` a slash path of legal agent names — one or more segments?
+///
+/// The root name is a legal segment here: `lead` and `lead/agent-1` both pass,
+/// because a path may be spoken from the root. Refusing to *assign* `lead` is
+/// [`reserve`]'s job, not this predicate's.
+pub fn is_agent_path(path: &str) -> bool {
+    let segments = agent_path_segments(path);
+    !segments.is_empty() && segments.iter().all(|segment| is_agent_name(segment))
+}
+
+/// The segments of a slash path. An empty path has no segments, and an empty
+/// segment (`a//b`, `a/`) fails [`is_agent_name`] on its own — this function
+/// splits, it does not forgive.
+pub fn agent_path_segments(path: &str) -> Vec<&str> {
+    if path.is_empty() {
+        Vec::new()
+    } else {
+        path.split('/').collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,5 +182,31 @@ mod tests {
         assert_eq!(join_agent_path("agent-1", "agent-2"), "agent-1/agent-2");
         assert_eq!(parent_agent_path("agent-1"), "");
         assert_eq!(parent_agent_path("agent-1/agent-2"), "agent-1");
+    }
+
+    #[test]
+    fn a_path_is_as_many_legal_names_as_it_has_segments() {
+        for ok in ["lead", "agent-1", "lead/agent-1", "agent-1/agent-2/agent-3"] {
+            assert!(is_agent_path(ok), "{ok:?} should be a path");
+        }
+        for bad in [
+            "",
+            "/",
+            "lead/",
+            "/agent-1",
+            "lead//agent-1",
+            "Lead",
+            "lead/agent 1",
+        ] {
+            assert!(!is_agent_path(bad), "{bad:?} should not be a path");
+        }
+        assert_eq!(agent_path_segments("lead/agent-1"), vec!["lead", "agent-1"]);
+        assert_eq!(agent_path_segments("agent-1"), vec!["agent-1"]);
+        assert!(agent_path_segments("").is_empty(), "no path, no segments");
+        assert_eq!(
+            agent_path_segments("lead//agent-1"),
+            vec!["lead", "", "agent-1"],
+            "splitting does not forgive the empty segment"
+        );
     }
 }

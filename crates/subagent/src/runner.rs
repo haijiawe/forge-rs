@@ -425,6 +425,12 @@ impl Runner {
         } else {
             ctx.parent_session_id.clone()
         };
+        // Door one: a session that was archived starts no new children. The
+        // check is on the parent, not on the child, because the child has no
+        // log yet — this is the only moment the decision can be made.
+        if !self.options.parent_session_id.is_empty() {
+            crate::archive::admit(&self.options.data_dir, &self.options.parent_session_id)?;
+        }
         let depth = self.options.depth + 1;
         let schema = structured_schema.or_else(|| self.options.structured_schema.clone());
 
@@ -583,7 +589,12 @@ impl Runner {
                 .call(&crate::backend::BackendRequest::resume(child_id, prompt))?
                 .into_result();
         }
+        // Door two: resume. The log is reopened first only because that is where
+        // the id's shape is validated: an id that is not a child id must be
+        // reported as such, not as an archive problem. Reopening writes nothing,
+        // so no work has been admitted when the archive check runs.
         let (mut out, store) = reopen_child_log(&self.options, child_id)?;
+        crate::archive::admit(&self.options.data_dir, child_id)?;
 
         let model = if model_override.trim().is_empty() {
             if out.model.trim().is_empty() {

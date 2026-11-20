@@ -5,6 +5,7 @@
 //! polling the log through a DecisionWatcher. Prompt events are written by the
 //! HTTP layer, so the agent adopts the open turn (`prompt_recorded = true`).
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -278,6 +279,9 @@ struct TurnEnv {
 struct WebRunner {
     server: Arc<forge_server::Server>,
     provider: Arc<dyn Provider>,
+    /// The host the provider points at, for `request/context`. Empty when the
+    /// base URL did not name one, and then the event omits the field.
+    provider_name: String,
     model: String,
     workspace: String,
     sandbox: SandboxMode,
@@ -287,12 +291,27 @@ struct WebRunner {
     agent_cancel: Arc<Mutex<forge_agent::Cancel>>,
     /// Bridges the server's per-turn token to the agent's flag.
     turn_cancel: Arc<Mutex<Option<CancelToken>>>,
+    /// One resident agent per session, built on the first turn and reused after
+    /// that. See [`ResidentHost`] for why this is an object and not a loop.
+    hosts: Mutex<HashMap<String, Arc<ResidentHost>>>,
+    /// How many times a resident host was built, not reused.
+    ///
+    /// The map above cannot answer that question: it is keyed by session, so a
+    /// runner that rebuilt the host on every turn would still hold one entry.
+    /// This counter is the only honest witness that the tool registry, the MCP
+    /// servers and the plugins were dialled once per session rather than once
+    /// per message.
+    host_builds: std::sync::atomic::AtomicUsize,
 }
 
 impl WebRunner {
+    // Eight arguments, each a distinct collaborator; a builder would hide the
+    // one ordering that matters (the server must exist before a runner can).
+    #[allow(clippy::too_many_arguments)]
     fn new(
         server: Arc<forge_server::Server>,
         provider: Arc<dyn Provider>,
+        provider_name: String,
         model: String,
         workspace: String,
         sandbox: SandboxMode,
@@ -302,6 +321,7 @@ impl WebRunner {
         Self {
             server,
             provider,
+            provider_name,
             model,
             workspace,
             sandbox,
@@ -309,6 +329,8 @@ impl WebRunner {
             env,
             agent_cancel: Arc::new(Mutex::new(forge_agent::Cancel::default())),
             turn_cancel: Arc::new(Mutex::new(None)),
+            hosts: Mutex::new(HashMap::new()),
+            host_builds: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 }
@@ -375,18 +397,86 @@ impl WebRunner {
     }
 }
 
-impl TurnRunner for WebRunner {
-    fn run_turn(&self, ctx: &TurnContext, session_id: &str, text: &str) -> Result<()> {
-        // Compaction happens at the top of the turn, before the loop reads the log,
-        // which means it can never cut into the prompt the user is waiting on: the
-        // HTTP layer already wrote turn/start + user/message, so those records are
-        // the open tail the planner keeps. The cost is that this turn still sends
-        // the long history once; the next one does not.
-        let _ = self.compact(session_id);
-        // Bridge the server's cancellation token into the agent's flag. The
-        // server calls `cancel()` before flipping ctx.cancel, so this is mostly
-        // a belt-and-braces path for in-process callers.
-        *self.turn_cancel.lock().expect("web: turn_cancel poisoned") = Some(ctx.cancel.clone());
+/// One agent, many turns.
+///
+/// The loop is a pure function of the log, so a fresh `Agent` per turn is
+/// correct — but it is not *resident*: every turn rebuilt the tool registry,
+/// re-dialled MCP servers, reloaded plugins, and threw away the object the phase
+/// machine lives on. This holds one agent per session for as long as the process
+/// serves that session, which is what "resident" has to mean if it is to mean
+/// anything.
+///
+/// Two pieces of the loop are fixed when it is built but differ per turn — the
+/// delta sink and the steering source, both of which belong to the HTTP request
+/// being answered. They read `slot` instead of capturing a context, so one agent
+/// can serve many requests without losing the one that is live.
+struct ResidentHost {
+    agent: Agent,
+    cancel: forge_agent::Cancel,
+    slot: Arc<Mutex<Option<TurnContext>>>,
+    /// Turns are serialised: two runs at once would interleave two turns in one
+    /// log, and the second would read a history the first is still writing.
+    lock: Mutex<()>,
+    /// Dropped with the host. `WiredTools` owns the plugin host and the MCP
+    /// children; dropping it unloads the plugins whose tools this agent exposes.
+    _wired: crate::wiring::WiredTools,
+}
+
+impl ResidentHost {
+    fn turn(&self, ctx: &TurnContext, data_dir: &Path, text: &str) {
+        let _guard = self.lock.lock().expect("web: host lock poisoned");
+        *self.slot.lock().expect("web: turn slot poisoned") = Some(ctx.clone());
+        // The cancellation flag outlives the turn it stopped. Without this the
+        // second turn of a session would begin already cancelled, which is the
+        // kind of bug that only shows up after an operator presses stop once.
+        self.cancel.reset();
+        let _ = self.agent.run(text);
+        // A session can accumulate work while this turn ran: a background
+        // subagent's answer is a `next-turn` message, another process's steer is
+        // a `next-step` one, and a second POST is accepted while the first turn
+        // is still going. Nothing consumes those until something asks.
+        let drained = crate::resident::drain(&self.agent);
+        if let Some(err) = &drained.error {
+            note_diagnostics(
+                data_dir,
+                &[format!(
+                    "drained turn stopped: {} ({} turn(s) ran)",
+                    err.message(),
+                    drained.turns
+                )],
+            );
+        } else if drained.capped {
+            note_diagnostics(
+                data_dir,
+                &[format!(
+                    "drain stopped at {} turns with work still queued; the next turn will pick it up",
+                    crate::resident::MAX_DRAINED_TURNS
+                )],
+            );
+        }
+        *self.slot.lock().expect("web: turn slot poisoned") = None;
+    }
+}
+
+impl WebRunner {
+    /// The resident agent for `session_id`, built on first use.
+    ///
+    /// Everything in the construction is a property of the session — the log, the
+    /// approver bound to it, the workspace, the model — so it is safe to keep. The
+    /// per-turn parts live in `slot` and in `agent_cancel`.
+    fn host_for(&self, session_id: &str) -> Result<Arc<ResidentHost>> {
+        let mut hosts = self.hosts.lock().expect("web: hosts lock poisoned");
+        if let Some(host) = hosts.get(session_id) {
+            *self
+                .agent_cancel
+                .lock()
+                .expect("web: agent_cancel poisoned") = host.cancel.clone();
+            return Ok(Arc::clone(host));
+        }
+
+        self.host_builds
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
         let cancel = forge_agent::Cancel::default();
         *self
             .agent_cancel
@@ -412,9 +502,6 @@ impl TurnRunner for WebRunner {
                 Arc::clone(&log),
                 session_id.to_string(),
                 Arc::new(WebApprover {
-                    // Cloned rather than moved: the same path is handed to
-                    // wiring below, where the context tools read the blocks the
-                    // approver's session is writing.
                     path: log_path.clone(),
                     cancel: cancel.clone(),
                 }),
@@ -423,9 +510,6 @@ impl TurnRunner for WebRunner {
             ))),
         };
 
-        // Rebuilt per turn rather than once at startup because the approver is
-        // bound to this session's log: an approval recorded in the wrong session
-        // file is worse than re-dialing an MCP server.
         let wired = crate::wiring::build(crate::wiring::BuildOptions {
             cfg: self.env.cfg.as_ref(),
             log: Some(log_path.clone()),
@@ -438,28 +522,30 @@ impl TurnRunner for WebRunner {
             limits: DefaultLimits,
             system: self.env.system.clone(),
             parent_session: session_id.to_string(),
-            // A browser turn is not part of a goal loop: nothing in this server
-            // opens a continuation round, so the tool that only a loop reads has
-            // no business in its registry.
             goal: false,
         });
-        // Diagnostics belong to the operator, but a server must never stall a
-        // turn behind a stderr write: when stderr is a pipe whose reader is slow
-        // or gone (a test harness, `2>web.log`, a service manager), the write
-        // blocks, and the turn that blocks is the one the client is waiting for.
-        // Append next to the logs instead; `forge web` prints its banner to
-        // stderr once at startup, which is the one place a caller is reading.
         note_diagnostics(&self.env.data_dir, &wired.notes);
         let executor = wired.executor();
         let tools: Option<Arc<dyn forge_agent::ToolRunner>> =
             Some(Arc::new(ToolRunnerAdapter { executor }));
 
-        let delta_ctx = ctx.clone();
+        let slot: Arc<Mutex<Option<TurnContext>>> = Arc::new(Mutex::new(None));
+        let delta_slot = Arc::clone(&slot);
         let on_delta: forge_agent::DeltaHook = Arc::new(move |turn, step, text| {
-            delta_ctx.delta(turn, step, text);
+            let live = delta_slot.lock().ok().and_then(|guard| guard.clone());
+            if let Some(ctx) = live {
+                ctx.delta(turn, step, text);
+            }
         });
-        let steer_ctx = ctx.clone();
-        let steering: forge_agent::SteeringHook = Arc::new(move || steer_ctx.take_steering());
+        let steer_slot = Arc::clone(&slot);
+        let steering: forge_agent::SteeringHook = Arc::new(move || {
+            steer_slot
+                .lock()
+                .ok()
+                .and_then(|guard| guard.clone())
+                .map(|ctx| ctx.take_steering())
+                .unwrap_or_default()
+        });
 
         let mut opts = AgentOptions::new(
             Arc::clone(&self.provider),
@@ -470,39 +556,58 @@ impl TurnRunner for WebRunner {
         );
         opts.prompt_recorded = true; // the HTTP layer wrote turn/start + user/message
         opts.tools = tools;
-        // The browser can attach images, so this loop has to be able to show
-        // them: the blob store is the same one the HTTP layer wrote to.
         opts.attachments = Some(Arc::new(crate::attachments::parts_hook(
             &self.env.data_dir,
             Some(PathBuf::from(&self.workspace)),
         )));
-        // Same log the tools above address: a browser turn honours blocks an
-        // earlier turn wrote, so a long session costs the same here as in the
-        // terminal.
         opts.hidden = Some(Arc::new(crate::context_tools::hidden_hook(&log_path)));
-        // A plugin-contributed `before_turn` hook lives on the same seam in the
-        // browser turn as in the terminal one; empty is inert.
         opts.hooks = wired.hooks().clone();
         opts.on_delta = Some(on_delta);
         opts.steering = Some(steering);
-        opts.cancel = cancel;
+        opts.cancel = cancel.clone();
+        opts.provider_name = self.provider_name.clone();
 
-        match Agent::new(opts) {
-            Ok(agent) => {
-                // The agent writes turn/end itself, including on cancellation.
-                let _ = agent.run(text);
-                Ok(())
+        let agent = match Agent::new(opts) {
+            Ok(agent) => agent,
+            Err(e) => {
+                return Err(forge_core::Error::new(
+                    forge_core::ErrorKind::Invalid,
+                    format!("web: agent: {}", e.message()),
+                ))
             }
-            Err(e) => Err(forge_core::Error::new(
-                forge_core::ErrorKind::Invalid,
-                format!("web: agent: {}", e.message()),
-            )),
-        }
+        };
+        let host = Arc::new(ResidentHost {
+            agent,
+            cancel,
+            slot,
+            lock: Mutex::new(()),
+            _wired: wired,
+        });
+        hosts.insert(session_id.to_string(), Arc::clone(&host));
+        Ok(host)
+    }
+}
+
+impl TurnRunner for WebRunner {
+    fn run_turn(&self, ctx: &TurnContext, session_id: &str, text: &str) -> Result<()> {
+        // Compaction happens at the top of the turn, before the loop reads the log,
+        // which means it can never cut into the prompt the user is waiting on: the
+        // HTTP layer already wrote turn/start + user/message, so those records are
+        // the open tail the planner keeps. The cost is that this turn still sends
+        // the long history once; the next one does not.
+        let _ = self.compact(session_id);
+        // Bridge the server's cancellation token into the agent's flag. The
+        // server calls `cancel()` before flipping ctx.cancel, so this is mostly
+        // a belt-and-braces path for in-process callers.
+        *self.turn_cancel.lock().expect("web: turn_cancel poisoned") = Some(ctx.cancel.clone());
+        let host = self.host_for(session_id)?;
+        host.turn(ctx, &self.env.data_dir, text);
+        Ok(())
     }
 
     fn cancel(&self) -> Result<()> {
         if let Ok(guard) = self.agent_cancel.lock() {
-            guard.cancel();
+            guard.cancel_with(forge_agent::Cause::User);
         }
         Ok(())
     }
@@ -612,10 +717,17 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
         );
     }
 
-    let provider: Arc<dyn Provider> = match LlmClient::new(LlmOptions::default()) {
-        Ok(client) => Arc::new(client),
-        Err(e) => return runtime_error(stderr, &format!("no LLM provider: {}", e.message())),
-    };
+    // The loop cannot see an endpoint through `Arc<dyn Provider>`, so the host is
+    // captured here while the client is still concrete. It is a label for
+    // `request/context`, not a routing decision.
+    let (provider, provider_name): (Arc<dyn Provider>, String) =
+        match LlmClient::new(LlmOptions::default()) {
+            Ok(client) => {
+                let label = crate::provider_label(client.base_url());
+                (Arc::new(client), label)
+            }
+            Err(e) => return runtime_error(stderr, &format!("no LLM provider: {}", e.message())),
+        };
 
     let sandbox_raw = if opts.sandbox.trim().is_empty() {
         cfg.sandbox.as_str()
@@ -694,6 +806,7 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
             Arc::new(WebRunner::new(
                 server,
                 Arc::clone(&provider),
+                provider_name.clone(),
                 model.clone(),
                 workspace_str.clone(),
                 sandbox,
@@ -1007,6 +1120,7 @@ mod tests {
         let runner = WebRunner::new(
             Arc::clone(&server),
             Arc::new(FixedProvider("the fold, in the model's words".to_string())),
+            String::new(),
             "fixed-model".to_string(),
             dir.to_string_lossy().to_string(),
             SandboxMode::ReadOnly,
@@ -1115,6 +1229,7 @@ mod tests {
         let runner = WebRunner::new(
             Arc::clone(&server),
             Arc::new(FixedProvider(String::new())),
+            String::new(),
             "fixed-model".to_string(),
             dir.to_string_lossy().to_string(),
             SandboxMode::ReadOnly,
@@ -1132,6 +1247,261 @@ mod tests {
         );
         let after = std::fs::read(server.path(session)).expect("log after");
         assert_eq!(before, after, "a refused fold must not touch the log");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The point of H4: work queued by somebody else is consumed by the turn that
+    /// is already running, without the operator sending anything else.
+    ///
+    /// The queue lives in the log, so "another process" is simulated by appending
+    /// the same record that process would write. Nothing about this involves a
+    /// timer or a background thread: `run_turn` simply asks after it is done.
+    #[test]
+    fn a_message_queued_by_another_process_is_drained_after_the_turn() {
+        let dir = std::env::temp_dir().join(format!("forge-web-drain-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let server = Arc::new(
+            forge_server::Server::new(ServerOptions {
+                addr: "127.0.0.1:0".to_string(),
+                data_dir: dir.clone(),
+                version: "test".to_string(),
+                token: "test-token".to_string(),
+                ..ServerOptions::default()
+            })
+            .expect("server"),
+        );
+        let session = "web_drain_session";
+        server
+            .append_event(
+                session,
+                &Event::new(session, EventType::SESSION_START, Some(json!({}))),
+            )
+            .expect("session/start");
+        // What the HTTP layer writes before it calls the runner.
+        for typ in [EventType::TURN_START, EventType::USER_MESSAGE] {
+            let mut event = Event::new(session, typ, Some(json!({ "text": "first question" })));
+            event.turn = 1;
+            server.append_event(session, &event).expect("open turn");
+        }
+        // Somebody else asks for work to happen after this turn.
+        let queued = forge_agent::inbox::Msg::new("work from another process").expect("message id");
+        let empty = forge_agent::inbox::fold(&[]);
+        let enqueue = forge_agent::inbox::enqueue(
+            session,
+            forge_agent::inbox::Target::NextTurn,
+            &empty,
+            &queued,
+        );
+        server.append_event(session, &enqueue).expect("queued");
+
+        let runner = WebRunner::new(
+            Arc::clone(&server),
+            Arc::new(FixedProvider("answer".to_string())),
+            String::new(),
+            "fixed-model".to_string(),
+            dir.to_string_lossy().to_string(),
+            SandboxMode::ReadOnly,
+            WebApproveMode::Never,
+            TurnEnv {
+                cfg: Arc::new(Config::default()),
+                data_dir: dir.clone(),
+                system: String::new(),
+            },
+        );
+        runner
+            .run_turn(&TurnContext::default(), session, "first question")
+            .expect("turn runs");
+
+        let events = parse_log(&std::fs::read_to_string(server.path(session)).expect("log"))
+            .expect("log parses");
+        let ends = events
+            .iter()
+            .filter(|event| event.typ == EventType::TURN_END.as_str())
+            .count();
+        assert_eq!(ends, 2, "the queued message must run as its own turn");
+        let asked: Vec<&str> = events
+            .iter()
+            .filter(|event| event.typ == EventType::USER_MESSAGE.as_str())
+            .filter_map(|event| event.payload.as_ref()?.get("text")?.as_str())
+            .collect();
+        assert!(
+            asked.contains(&"work from another process"),
+            "the drained prompt must reach the model, saw {asked:?}"
+        );
+        let left = forge_agent::inbox::fold(&events);
+        assert!(
+            left.is_empty(),
+            "a drained queue must be empty afterwards, saw {left:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// One agent per session, not one per turn.
+    ///
+    /// The observable part is `hosts`: two turns of the same session must leave
+    /// exactly one entry, and both turns must have produced an answer. The point
+    /// of caching is not the map — it is that the tool registry, MCP servers and
+    /// plugins are dialled once per session instead of once per message.
+    #[test]
+    fn a_session_keeps_one_agent_across_turns() {
+        let dir = std::env::temp_dir().join(format!("forge-web-resident-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let server = Arc::new(
+            forge_server::Server::new(ServerOptions {
+                addr: "127.0.0.1:0".to_string(),
+                data_dir: dir.clone(),
+                version: "test".to_string(),
+                token: "test-token".to_string(),
+                ..ServerOptions::default()
+            })
+            .expect("server"),
+        );
+        let session = "web_resident_session";
+        server
+            .append_event(
+                session,
+                &Event::new(session, EventType::SESSION_START, Some(json!({}))),
+            )
+            .expect("session/start");
+
+        let runner = WebRunner::new(
+            Arc::clone(&server),
+            Arc::new(FixedProvider("answer".to_string())),
+            String::new(),
+            "fixed-model".to_string(),
+            dir.to_string_lossy().to_string(),
+            SandboxMode::ReadOnly,
+            WebApproveMode::Never,
+            TurnEnv {
+                cfg: Arc::new(Config::default()),
+                data_dir: dir.clone(),
+                system: String::new(),
+            },
+        );
+
+        for (index, text) in ["first", "second"].iter().enumerate() {
+            let turn = index as u32 + 1;
+            for typ in [EventType::TURN_START, EventType::USER_MESSAGE] {
+                let mut event = Event::new(session, typ, Some(json!({ "text": text })));
+                event.turn = turn;
+                server.append_event(session, &event).expect("open turn");
+            }
+            runner
+                .run_turn(&TurnContext::default(), session, text)
+                .expect("turn runs");
+        }
+
+        assert_eq!(
+            runner.host_builds.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "two turns of one session must build one resident agent, not one each"
+        );
+        let hosts = runner.hosts.lock().expect("hosts lock");
+        assert_eq!(hosts.len(), 1, "one session, one entry");
+        drop(hosts);
+
+        let events = parse_log(&std::fs::read_to_string(server.path(session)).expect("log"))
+            .expect("log parses");
+        let ends = events
+            .iter()
+            .filter(|event| event.typ == EventType::TURN_END.as_str())
+            .count();
+        assert_eq!(ends, 2, "both turns must close");
+        let answers = events
+            .iter()
+            .filter(|event| event.typ == EventType::ASSISTANT_MESSAGE.as_str())
+            .count();
+        assert_eq!(answers, 2, "both turns must produce an answer");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The token is reset between turns.
+    ///
+    /// Without the reset this is the bug that only appears after an operator
+    /// presses stop once: every later turn of that session begins cancelled and
+    /// answers nothing, and the log says the operator stopped it.
+    #[test]
+    fn a_cancelled_turn_does_not_cancel_the_next_one() {
+        let dir = std::env::temp_dir().join(format!("forge-web-reset-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let server = Arc::new(
+            forge_server::Server::new(ServerOptions {
+                addr: "127.0.0.1:0".to_string(),
+                data_dir: dir.clone(),
+                version: "test".to_string(),
+                token: "test-token".to_string(),
+                ..ServerOptions::default()
+            })
+            .expect("server"),
+        );
+        let session = "web_reset_session";
+        server
+            .append_event(
+                session,
+                &Event::new(session, EventType::SESSION_START, Some(json!({}))),
+            )
+            .expect("session/start");
+
+        let runner = WebRunner::new(
+            Arc::clone(&server),
+            Arc::new(FixedProvider("answer".to_string())),
+            String::new(),
+            "fixed-model".to_string(),
+            dir.to_string_lossy().to_string(),
+            SandboxMode::ReadOnly,
+            WebApproveMode::Never,
+            TurnEnv {
+                cfg: Arc::new(Config::default()),
+                data_dir: dir.clone(),
+                system: String::new(),
+            },
+        );
+
+        for (index, text) in ["first", "second"].iter().enumerate() {
+            let turn = index as u32 + 1;
+            for typ in [EventType::TURN_START, EventType::USER_MESSAGE] {
+                let mut event = Event::new(session, typ, Some(json!({ "text": text })));
+                event.turn = turn;
+                server.append_event(session, &event).expect("open turn");
+            }
+            runner
+                .run_turn(&TurnContext::default(), session, text)
+                .expect("turn runs");
+            if index == 0 {
+                // The operator stops after the first turn has already finished,
+                // which is exactly how a token left set would leak forward.
+                runner.cancel().expect("cancel");
+            }
+        }
+
+        let events = parse_log(&std::fs::read_to_string(server.path(session)).expect("log"))
+            .expect("log parses");
+        let reasons: Vec<String> = events
+            .iter()
+            .filter(|event| event.typ == EventType::TURN_END.as_str())
+            .filter_map(|event| {
+                event
+                    .payload
+                    .as_ref()?
+                    .get("reason")?
+                    .as_str()
+                    .map(str::to_string)
+            })
+            .collect();
+        assert_eq!(
+            reasons,
+            vec!["completed".to_string(), "completed".to_string()],
+            "the second turn inherited a cancellation"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

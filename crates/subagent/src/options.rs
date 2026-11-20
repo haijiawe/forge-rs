@@ -81,7 +81,8 @@ impl Canceller {
         self.root.store(true, Ordering::SeqCst);
         if let Ok(active) = self.active.lock() {
             for cancel in active.values() {
-                cancel.cancel();
+                // The parent is going away; its children go with it.
+                cancel.cancel_with(forge_agent::Cause::Parent);
             }
         }
         Self::notify(&self.wake);

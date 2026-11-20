@@ -20,7 +20,7 @@ pub mod tool;
 pub use agent::{
     Agent, AttachmentHook, Clock, DeltaHook, Options, RunResult, SteeringHook, TextHook,
 };
-pub use cancel::Cancel;
+pub use cancel::{Cancel, Cause};
 pub use dispatch::{Dispatch, EventView, Listener, Problem};
 pub use err::{
     cancelled_error, code_of, is_cancelled, provider_error, refusal_error, retry_after_of,

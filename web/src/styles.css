@@ -1320,3 +1320,68 @@ body {
   font-size: 11px;
   overflow-wrap: anywhere;
 }
+
+/* --- subagent panel --- */
+/* Between the capability panel and the composer: a child is a fact about this
+   session, so it belongs above the input, and it is capped because a deep tree
+   is reference material rather than conversation. */
+
+.subagents {
+  flex: 0 1 auto;
+  max-height: 22vh;
+  overflow-y: auto;
+  padding: 6px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.subagents-title {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.subagents-empty {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.subagent-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.subagent-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+  padding: 1px 0;
+  font-size: 11px;
+}
+
+.subagent-name {
+  min-width: 8ch;
+}
+
+.subagent-mode {
+  color: var(--text-muted);
+}
+
+.subagent-state {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.subagent-state-live {
+  color: var(--accent);
+}
+
+.subagent-state-bad {
+  color: var(--bad);
+}

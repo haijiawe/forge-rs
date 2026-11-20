@@ -8,12 +8,14 @@ import type { ForgeApi, OutgoingAttachment } from '../api/client';
 import type { CapabilityReport } from '../api/capabilities';
 import type { Goal } from '../api/goal';
 import type { ApprovalDecision } from '../api/types';
+import type { SubagentTree } from '../api/subagents';
 import { SessionStore } from '../state/sessionStore';
 import { ApprovalDialog } from './ApprovalDialog';
 import { CapabilityPanel } from './CapabilityPanel';
 import { Composer } from './Composer';
 import { GoalPill } from './GoalPill';
 import { StatusBar } from './StatusBar';
+import { SubagentPanel } from './SubagentPanel';
 import { Transcript } from './Transcript';
 
 export interface SessionViewProps {
@@ -75,6 +77,33 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
     state.status === 'idle' || state.status === 'ended' ? state.status : null;
   const [goal, setGoal] = useState<Goal | null>(null);
   const [goalError, setGoalError] = useState<string | null>(null);
+
+  // The subagent tree moves exactly when a turn ends -- a child is started by a
+  // `subagent` tool call and settles inside the turn that started it, or a
+  // later one -- so it is read on the same trigger as the goal. Reading it per
+  // frame would re-walk every child log for numbers that cannot have changed.
+  const [subagents, setSubagents] = useState<SubagentTree | null>(null);
+  const [subagentError, setSubagentError] = useState<string | null>(null);
+  useEffect(() => {
+    if (settled === null) return;
+    let live = true;
+    api.subagents(sessionId).then(
+      (value) => {
+        if (!live) return;
+        setSubagents(value);
+        setSubagentError(null);
+      },
+      (error: unknown) => {
+        if (!live) return;
+        setSubagentError(
+          error instanceof Error ? error.message : 'subagents unavailable',
+        );
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [api, sessionId, settled]);
   useEffect(() => {
     if (settled === null) return;
     let live = true;
@@ -161,6 +190,8 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
       <Transcript rows={state.rows} rowKeys={state.rowKeys} emptyHint="waiting for the first event…" />
 
       <CapabilityPanel names={state.toolNames} report={report} reportError={reportError} />
+
+      <SubagentPanel tree={subagents} error={subagentError} />
 
       {state.pendingApproval !== null && (
         <ApprovalDialog pending={state.pendingApproval} onDecide={decide} />

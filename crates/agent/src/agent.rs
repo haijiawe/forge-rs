@@ -22,10 +22,10 @@ use crate::err::{
 use crate::history::{next_turn, open_turn, to_llm_messages_hiding};
 use crate::inbox::{Inbox, Msg, Target};
 use crate::payload::{
-    assistant_attempt, clip_system, error_event, llm_call, normalize_stop, request_header,
-    step_end, step_start, stop_with_calls, turn_end, turn_reason, turn_start, usage_payload,
-    user_message, CODE_CANCELLED, MAX_SYSTEM_BYTES, STOP_CANCELLED, STOP_END_TURN, STOP_ERROR,
-    STOP_MAX_TOKENS, STOP_TOOL_USE,
+    assistant_attempt, clip_system, error_event, llm_call, normalize_stop, request_context,
+    request_header, step_end, step_start, stop_with_calls, turn_end, turn_reason, turn_start,
+    usage_payload, user_message, CODE_CANCELLED, MAX_SYSTEM_BYTES, STOP_CANCELLED, STOP_END_TURN,
+    STOP_ERROR, STOP_MAX_TOKENS, STOP_TOOL_USE,
 };
 use crate::tool::{EventLog, ToolRunner};
 
@@ -98,6 +98,11 @@ pub struct Options {
     pub dispatch: crate::dispatch::Dispatch,
     pub clock: Clock,
     pub cancel: Cancel,
+    /// Where requests go, as far as the caller is willing to say. The loop talks
+    /// to a `Provider` and cannot see an endpoint through it, so this is a label
+    /// the caller supplies (usually the host of the configured base URL). Empty
+    /// means "not stated" and the row omits the field rather than guessing.
+    pub provider_name: String,
 }
 
 impl Options {
@@ -129,6 +134,7 @@ impl Options {
             dispatch: crate::dispatch::Dispatch::none(),
             clock: Arc::new(wall_clock_ms),
             cancel: Cancel::default(),
+            provider_name: String::new(),
         }
     }
 }
@@ -169,6 +175,11 @@ pub struct Agent {
     /// The resident phase. `run` moves it to `running` for its duration and back
     /// to `idle`; `kick` drives many `run`s. Nothing else touches it.
     phase: AtomicU8,
+    /// FNV-1a of the system prompt, computed once at construction. It is a
+    /// change detector, not a checksum of trust: it lets `request/context` say
+    /// "these two requests carried the same prompt" without spending eight
+    /// kilobytes per step to say it.
+    system_fingerprint: String,
 }
 
 impl Agent {
@@ -190,12 +201,14 @@ impl Agent {
                 "agent: MaxSteps must be positive",
             ));
         }
+        let system_fingerprint = forge_core::fingerprint(opt.system.as_bytes());
         Ok(Self {
             opt,
             cur_turn: AtomicU32::new(0),
             cur_step: AtomicU32::new(0),
             last_tools: Mutex::new(Vec::new()),
             phase: AtomicU8::new(PHASE_IDLE),
+            system_fingerprint,
         })
     }
 
@@ -313,7 +326,7 @@ impl Agent {
     /// can happen without a model turn in flight. Here the job is a plain
     /// closure, and the phase is recorded on the log because unlike a turn, a
     /// maintenance window is something a reader has no other way to see: without
-    /// gent/status an unexplained gap between two turns is indistinguishable
+    /// agent/status an unexplained gap between two turns is indistinguishable
     /// from a slow provider.
     pub fn run_maintenance<F>(&self, job: F) -> Result<()>
     where
@@ -400,8 +413,12 @@ impl Agent {
                 crate::dispatch::EventView::new(&EventType::TURN_END, turn, 0, Some(&stopping));
             self.opt.dispatch.serial(&view);
         }
+        // A cancelled turn records why, when the token knows. The operator
+        // stopping a turn and an owner being disposed are both `cancelled`, and
+        // telling them apart afterwards is the whole point of the member.
+        let cancelled_by = self.opt.cancel.cause_str();
         // endErr only overrides err when err is nil (Go parity).
-        let end_res = self.emit(turn, 0, turn_end(reason, steps.count));
+        let end_res = self.emit(turn, 0, turn_end(reason, steps.count, cancelled_by));
         let error = match steps.error {
             Some(e) => Some(e),
             None => end_res.err(),
@@ -753,6 +770,25 @@ impl Agent {
             turn,
             step_no,
             request_header(&reason, &self.opt.model, req.messages.len(), &names),
+        );
+        // What the request carries, as opposed to why it exists. The system
+        // prompt is fingerprinted rather than repeated: it is already on
+        // `session/start`, and a per-step copy would be the largest row in the
+        // log for the smallest amount of new information.
+        let _ = self.emit(
+            turn,
+            step_no,
+            request_context(
+                &self.opt.provider_name,
+                &self.opt.model,
+                req.messages.len(),
+                req.tools.len(),
+                req.temperature,
+                req.max_tokens,
+                &req.stop,
+                self.opt.system.len(),
+                &self.system_fingerprint,
+            ),
         );
         let _ = self.emit(
             turn,

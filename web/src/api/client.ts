@@ -15,6 +15,9 @@ import { decodeFrame, HeaderVersion, IdempotencyKeyHeader, Version } from './pro
 import { parseReport, type CapabilityReport } from './capabilities';
 import { parseBoards, type TeamBoardReport } from './teams';
 import { parseGoal, type Goal } from './goal';
+// Its parser has its own name because `parseReport` is already taken twice
+// above and a third import of that name would silently keep the last one.
+import { parseTree, type SubagentTree } from './subagents';
 // Aliased: `capabilities` and `presents` both export a `parseReport`, and they
 // parse different answers. Two imports of one name would silently keep the last.
 import { parseReport as parsePresentReport, type PresentReport } from './presents';
@@ -102,6 +105,8 @@ export interface ForgeApi {
   getGoal(id: string): Promise<Goal | null>;
   /** Files the model handed over with `present`; one GET, no session. */
   presents(): Promise<PresentReport>;
+  /** The subagent tree of one session, joined with each child's timing. */
+  subagents(id: string): Promise<SubagentTree>;
 }
 
 function trimTrailingSlash(baseUrl: string): string {
@@ -272,6 +277,15 @@ export class ForgeClient implements ForgeApi {
     // answer is parsed defensively. Raising here would read as "the route is
     // broken" when the truth is "nothing has been presented yet".
     return this.request<unknown>('/api/presents').then(parsePresentReport);
+  }
+
+  subagents(id: string): Promise<SubagentTree> {
+    // Parsed, not cast: the route is newer than the frozen protocol module, so
+    // a server that does not know it answers 404 and this degrades to an empty
+    // tree instead of leaving the panel with `undefined`.
+    return this.request<unknown>(
+      `/api/sessions/${encodeURIComponent(id)}/subagents`,
+    ).then(parseTree);
   }
 }
 

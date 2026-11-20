@@ -31,6 +31,13 @@ pub struct EventType(pub &'static str);
 impl EventType {
     pub const SESSION_START: EventType = EventType("session/start");
     pub const SESSION_END: EventType = EventType("session/end");
+    /// The session was archived: whoever owns it has decided no more turns should
+    /// start in it, and no child of it should start either.
+    ///
+    /// One record, written at most once, carrying no payload beyond an optional
+    /// `reason`. Archiving is a fact about a session, not a flag on a process: a
+    /// later process reads the log and reaches the same conclusion.
+    pub const SESSION_ARCHIVED: EventType = EventType("session/archived");
     pub const TURN_START: EventType = EventType("turn/start");
     pub const TURN_END: EventType = EventType("turn/end");
     pub const USER_MESSAGE: EventType = EventType("user/message");
@@ -75,6 +82,13 @@ impl EventType {
     /// model it was built for. Log-only; it names what was asked for without
     /// copying the message bodies (those are already on earlier rows).
     pub const REQUEST_HEADER: EventType = EventType("request/header");
+    /// One row per request the loop built, saying what it actually asked for:
+    /// the endpoint that would answer, the model, the sampling parameters in
+    /// force, how many messages and tools went out, and a fingerprint of the
+    /// system prompt. Log-only and additive — it names the inputs rather than
+    /// copying them, so a reader can tell two requests apart without paying for
+    /// the prompt twice.
+    pub const REQUEST_CONTEXT: EventType = EventType("request/context");
     /// One row per provider attempt that did **not** become the visible answer:
     /// a failed or cancelled attempt, with its reason and whether it was
     /// retryable. Never in model history; the successful attempt still lands as
@@ -97,6 +111,7 @@ impl EventType {
     pub const ALL: &'static [EventType] = &[
         EventType::SESSION_START,
         EventType::SESSION_END,
+        EventType::SESSION_ARCHIVED,
         EventType::TURN_START,
         EventType::TURN_END,
         EventType::USER_MESSAGE,
@@ -121,6 +136,7 @@ impl EventType {
         EventType::COMPACTION_END,
         EventType::COMPACTION_SUMMARY_ERROR,
         EventType::REQUEST_HEADER,
+        EventType::REQUEST_CONTEXT,
         EventType::ASSISTANT_ATTEMPT,
         EventType::AGENT_INBOX,
         EventType::AGENT_STATUS,

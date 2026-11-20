@@ -86,12 +86,16 @@ fn every_case_file_is_present() {
     // attempt-level record that makes a retried turn readable. The agent-inbox
     // case is the seventh: G3/G4 added `agent/inbox` (a splice-shaped durable
     // queue row) and `agent/status`; a file that silently disappears would
-    // otherwise show up as "everything passes".
+    // otherwise show up as "everything passes". The request-context case is the
+    // eighth: H1 added `request/context`, which names a request's inputs rather
+    // than copying them. The cancelled-by case is the ninth: H2 gave the
+    // cancellation token a cause, and `turn/end.cancelledBy` was already a
+    // free-form member the recovery path filled in.
     let found = cases();
     assert_eq!(
         found.len(),
-        29,
-        "expected 29 conformance cases, found {}: {:?}",
+        32,
+        "expected 32 conformance cases, found {}: {:?}",
         found.len(),
         found.iter().map(|c| c.name.as_str()).collect::<Vec<_>>()
     );

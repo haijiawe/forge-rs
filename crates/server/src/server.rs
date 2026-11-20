@@ -1528,12 +1528,14 @@ impl Server {
                 "cancel" if request.method == "POST" => self.handle_cancel(request, segments[1]),
                 "steer" if request.method == "POST" => self.handle_steer(request, segments[1]),
                 "goal" if request.method == "GET" => self.handle_goal(segments[1]),
+                "subagents" if request.method == "GET" => self.handle_subagents(segments[1]),
                 "stream" => Err(method_not_allowed("GET")),
                 "events" => Err(method_not_allowed("GET")),
                 "messages" => Err(method_not_allowed("POST")),
                 "cancel" => Err(method_not_allowed("POST")),
                 "steer" => Err(method_not_allowed("POST")),
                 "goal" => Err(method_not_allowed("GET")),
+                "subagents" => Err(method_not_allowed("GET")),
                 _ => Err(ApiFailure::new(404, code::NOT_FOUND, "no such endpoint")),
             },
             4 if segments[2] == "approvals" => {
@@ -1575,6 +1577,34 @@ impl Server {
                     code::LOG_READ_FAILED,
                     "the session log could not be read",
                 ),
+            })?;
+        Ok(Response::json(200, &reply))
+    }
+
+    /// The subagent tree of one session, joined with each child's timing.
+    ///
+    /// A read: it starts no process and appends nothing. A session that has run
+    /// but delegated nothing answers with an empty tree, because "no children"
+    /// is a fact about a session that exists; only a session with no log at all
+    /// is a 404.
+    fn handle_subagents(&self, id: &str) -> ApiResult<Response> {
+        if !valid_session_id(id) {
+            return Err(ApiFailure::new(404, code::NOT_FOUND, "no such session"));
+        }
+        let reply =
+            crate::subagent_route::read(&self.shared.options.data_dir, id).map_err(|problem| {
+                match problem {
+                    crate::subagent_route::Problem::NotFound => {
+                        ApiFailure::new(404, code::NOT_FOUND, "no such session")
+                    }
+                    // The log is there but the walk could not read it. Reporting
+                    // that as "no such session" would blame the caller for the disk.
+                    crate::subagent_route::Problem::Read(message) => ApiFailure::new(
+                        500,
+                        code::LOG_READ_FAILED,
+                        format!("the subagent tree could not be read: {message}"),
+                    ),
+                }
             })?;
         Ok(Response::json(200, &reply))
     }
