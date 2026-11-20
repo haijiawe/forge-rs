@@ -65,6 +65,28 @@ Two environment facts, both measured, both non-negotiable:
   (`dlltool.exe: program not found`), and crates.io is unreachable; the rsproxy
   mirror in `D:\Rust\.cargo\config.toml` is what `--offline` reads.
 
+## Pushing
+
+`git push` and `git fetch` both die against github.com:443 on this network
+(connection reset), so `origin/master` is maintained through the REST API
+instead. One command does the whole loop:
+
+```powershell
+node scripts/sync.cjs "commit message"   # commit, push, align
+node scripts/sync.cjs --no-commit        # push and align the current HEAD
+node scripts/sync.cjs --dry "message"    # say what would happen, write nothing
+```
+
+The third step matters: a commit created through the API is a new object, so its
+SHA differs from the local one even though the tree is identical. `sync.cjs`
+rebuilds that object locally (the API normalises timestamps to `Z`, so it tries
+the plausible offsets) and refuses to move the branch unless the rebuilt object
+hashes to the SHA GitHub reported. After it runs, `git status` says
+`master...origin/master` with nothing ahead and nothing behind.
+
+The token comes from `$GITHUB_PAT`, or from `GITHUB_PAT:` in
+`$HEARTH_CREDENTIALS` (default `D:\dsh\.credentials.yaml`). It is never printed.
+
 ## Task card
 
 Before you write code, write four lines in your head (or in the task):
