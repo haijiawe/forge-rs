@@ -216,7 +216,7 @@ weaker instant assertion and a stronger statement about the contract: after
 `turn/end` the log is quiescent, so agreement is permanent, and a permanent
 disagreement is still a failure.
 
-## Rehearsed once, and what it still does not prove
+## Rehearsed, and what it still does not prove
 
 - **`release.yml` has now run for real.** A `workflow_dispatch` dry run
   ([44588872748](https://github.com/haijiawe/forge-rs/actions/runs/44588872748))
@@ -226,8 +226,12 @@ disagreement is still a failure.
   `sha256sum --check`. The `Publish GitHub release` step was skipped because the
   ref was not a tag. That proves the build path; it does not prove
   `gh release create` itself, which needs a real `v*` tag and cannot be undone.
-- Anything about a machine that is neither Windows nor the runners above, e.g.
-  Linux sandbox confinement under a non-Ubuntu kernel, or macOS versions other
-  than the `macos-latest` image (which is Apple Silicon).
-- A macOS *bench* record: the matrix now asks for `macos-latest` because
-  `macos-14` could not be assigned, but no dispatch has produced a record yet.
+- **The sandbox is exercised on all three families.** `test` runs the shared
+  suite on Windows and `crates/sandbox/tests/linux.rs` on a real Ubuntu kernel;
+  `sandbox-macos` runs `crates/sandbox/tests/macos.rs` on Apple Silicon. What is
+  still not covered is a kernel other than Ubuntu's, or a macOS older than the
+  `macos-latest` image.
+- **All three bench baselines exist**, recorded on 2026-11-19:
+  linux/amd64 at 17:58:45Z, windows/amd64 at 17:36:04Z, macos/arm64 at
+  21:44:26Z. A platform without a record skips rather than fails, so a missing
+  fourth entry is a coverage gap, not a broken gate.
