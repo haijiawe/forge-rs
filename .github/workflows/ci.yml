@@ -1,9 +1,16 @@
 name: ci
 
-# Runs on every push and pull request. This is the gate the repository promises
-# in AGENTS.md and README.md: formatting, lints, the architecture contract, the
-# test suite, and a web-bundle build. `release.yml` is separate because it needs
-# a tag and produces artifacts; nothing here uploads anything.
+# Runs on pushes and pull requests, but not on changes that cannot affect a
+# build: a `docs:` commit must not buy three operating systems of compilation.
+#
+# The cost model matters here. GitHub bills a private repository's hosted
+# runners out of a shared monthly pool (2,000 minutes on the free and education
+# plans), and not at the same rate: Linux counts 1×, Windows 2×, macOS 10×. A
+# five-job matrix on every push therefore spends its minutes unevenly — the
+# macOS sandbox job alone costs as much as ten Linux jobs of the same length.
+# See docs/ci.md for the measured numbers. Nothing in this file exists to make
+# the gate weaker: `test` and `lint` still run on every change that can break a
+# build, and the `release.yml` workflow is untouched.
 #
 # Two jobs, two toolchains, on purpose:
 #   * `test` builds and runs the suite on the *minimum* supported rustc (1.89,
@@ -22,12 +29,24 @@ name: ci
 on:
   push:
     branches: ["**"]
+    # A documentation-only commit leaves every source file byte-identical, so
+    # there is nothing for a compiler to disagree with. Markdown and docs/ are
+    # the only things skipped; anything else — including a workflow edit — runs.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# A superseded run is worth nothing: the newer commit contains the older one.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -39,8 +58,74 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  # One cheap Linux job decides what the expensive jobs should do. Without it
+  # every job needs its own checkout-and-diff, and a macOS runner would have to
+  # start before it could discover it had nothing to do.
+  changes:
+    name: what changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      rust: ${{ steps.diff.outputs.rust }}
+      web: ${{ steps.diff.outputs.web }}
+      sandbox: ${{ steps.diff.outputs.sandbox }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Comparing against the push's base commit needs history. The
+          # repository is small enough that a full clone is cheaper than the
+          # minutes an under-fetched diff would waste.
+          fetch-depth: 0
+
+      - name: diff against the base commit
+        id: diff
+        shell: bash
+        run: |
+          set -eu
+          base=""
+          case "$GITHUB_EVENT_NAME" in
+            push) base="${{ github.event.before }}" ;;
+            pull_request) base="${{ github.event.pull_request.base.sha }}" ;;
+          esac
+
+          # A manual run is a person asking for everything, a new branch has no
+          # base to compare against, and a force-push can name a commit the
+          # runner never fetched. In all three cases: run everything.
+          if [ -n "$base" ] \
+             && [ "$base" != "0000000000000000000000000000000000000000" ] \
+             && git cat-file -e "$base^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "$base" "$GITHUB_SHA")
+          else
+            changed=$(git ls-files)
+          fi
+
+          rust=false
+          web=false
+          sandbox=false
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              docs/*) continue ;;
+              *.md) continue ;;
+              LICENSE) continue ;;
+              web/*) web=true ;;
+              crates/sandbox/*|crates/exec/*) rust=true; sandbox=true ;;
+              Cargo.toml|Cargo.lock|.github/*|rust-toolchain*|Makefile|check.ps1) rust=true ;;
+              *) rust=true ;;
+            esac
+          done <<< "$changed"
+
+          echo "changed:"; printf '%s\n' "$changed"
+          {
+            echo "rust=$rust"
+            echo "web=$web"
+            echo "sandbox=$sandbox"
+          } >> "$GITHUB_OUTPUT"
+
   test:
     name: test ${{ matrix.os }}
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -75,8 +160,14 @@ jobs:
   # is compiled for every host by `test`; this job actually runs the profile on
   # a real macOS kernel. Do not add `--offline` here: hosted runners start with
   # an empty registry, same reason as the `test` job above.
+  #
+  # This is the most expensive job in the file — macOS bills at ten times the
+  # Linux rate — and it can only fail in the two crates it exercises, so it runs
+  # only when those changed (or when anything re-resolves dependencies).
   sandbox-macos:
     name: sandbox macos-latest
+    needs: changes
+    if: needs.changes.outputs.sandbox == 'true'
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -101,6 +192,8 @@ jobs:
 
   lint:
     name: lint (stable)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -128,6 +221,8 @@ jobs:
 
   web:
     name: web bundle
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

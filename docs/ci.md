@@ -12,6 +12,7 @@ defects in tests that would have kept hiding indefinitely on a single machine.
 
 | Job | Runner | What it proves |
 | --- | --- | --- |
+| `changes` | ubuntu-latest | classifies the diff so the jobs below only open when the change could reach them (see *When each job runs*) |
 | `test` | ubuntu-latest, windows-latest | builds and runs the whole suite on the minimum supported rustc (1.89, set by `rusqlite`) |
 | `sandbox-macos` | macos-latest | runs `crates/sandbox/tests/macos.rs` on a real kernel: mode matrix, write scope, `read-only`, `extra_write`, network both ways |
 | `lint` | ubuntu-latest | `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings` on current stable |
@@ -20,6 +21,34 @@ defects in tests that would have kept hiding indefinitely on a single machine.
 Two toolchains on purpose: `test` proves the floor, `lint` runs where developers
 work. A pinned-toolchain lint job cannot see a lint that only a newer clippy
 knows (`is_multiple_of` was exactly that kind of lint).
+
+## When each job runs, and what that costs
+
+Hosted runners for a private repository are billed from one monthly pool — 2,000
+minutes on the free and education plans — and not at one rate: Linux counts 1×,
+Windows 2×, macOS 10×. November's usage for this repository was $12.00 of
+compute: 942 Linux, 1,438 Windows and 64 macOS minutes, which is roughly 4,458
+*billed* minutes against a 2,000 minute pool. That overage is what produced
+`The job was not started because recent account payments have failed or your
+spending limit needs to be increased` on every job of every run, four seconds
+after the run was created and with `steps=0`.
+
+Two changes followed, and neither weakens the gate:
+
+| Change | Effect |
+| --- | --- |
+| `paths-ignore` for `**/*.md`, `docs/**`, `LICENSE` | a documentation-only commit runs nothing. No source file it could break changed. |
+| a `changes` job classifies the diff; the rest open on it | `test` and `lint` need a Rust change; `web` needs a `web/` change; `sandbox-macos` only needs `crates/{sandbox,exec}/**` or `Cargo.*` |
+
+`sandbox-macos` is the reason any of this exists. At ten times the Linux rate it
+cost more than the other four jobs combined, and it can only fail inside the two
+crates it exercises. `release.yml` is untouched: a tag still builds everything.
+
+The direction of failure is deliberate. The `changes` job runs under `set -eu`,
+so an error there fails the run rather than silently skipping the gate; when it
+cannot identify a base commit — a new branch, a force-push, a manual dispatch —
+it falls back to `git ls-files` and every job opens. A skipped job is only
+acceptable when the diff proves the job has nothing to say about the change.
 
 ## Every run it took, and what each one caught
 
