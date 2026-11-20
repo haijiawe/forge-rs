@@ -54,9 +54,13 @@ make check                    # all of the above, in the order CI uses
 
 Two environment facts, both measured, both non-negotiable:
 
-- **The target directory must be ASCII.** `.cargo/config.toml` points it at
-  `D:/hearth-target/hearth`. Moving it inside this tree makes every crate
-  that compiles C fail with `cl: D8050 ... 未能将命令行放入调试记录中`.
+- **The build path must be ASCII.** This checkout is `D:\hearth`, so the
+  default in-tree `target/` is fine and nothing needs to be set. If you move
+  the tree somewhere with a non-ASCII character in the path, point
+  `CARGO_TARGET_DIR` at an ASCII directory first — otherwise every crate that
+  compiles C (rusqlite bundled, ring) fails with
+  `cl: D8050 ... 未能将命令行放入调试记录中`. `.cargo/config.toml` explains why
+  that setting does not live in the file.
 - **MSVC only, offline.** The GNU toolchain is installed but broken
   (`dlltool.exe: program not found`), and crates.io is unreachable; the rsproxy
   mirror in `D:\Rust\.cargo\config.toml` is what `--offline` reads.

@@ -1,26 +1,27 @@
 # Nothing in this file may name a machine-specific absolute path.
 #
 # Why that rule exists: this file used to pin
-#   [build] target-dir = "D:/hearth-target/hearth"
+#   [build] target-dir = "D:/<project>-target/<project>"
 # to work around an MSVC bug on the development box. On Linux that value is a
 # single path segment containing `:`, so cargo died before compiling anything:
 #   error: failed to join paths from `$LD_LIBRARY_PATH` together
 #   Caused by: path segment contains separator `:`
 # The workaround was real, but it belonged to the machine, not to the tree.
 #
-# The MSVC bug it works around, measured 2026-11-16: when the target directory
-# lives under a non-ASCII path (this checkout is D:\魔改版Agent框架\...), every
-# crate that compiles C (rusqlite bundled, ring) fails with
-#   cl: 命令行 error D8050 : 无法执行 c1.dll: 未能将命令行放入调试记录中
+# The MSVC bug it worked around, measured 2026-11-16: when the target directory
+# lives under a non-ASCII path (the checkout was D:\魔改版Agent框架\... at the
+# time), every crate that compiles C (rusqlite bundled, ring) fails with
+#   cl: 命令行 error D8050 : 无法执行 c1.dll : 未能将命令行放入调试记录中
 # because cl.exe stores its command line in a debug record encoded in the ANSI
 # code page and the /Fo path is not representable there. The fix is to point
 # the *target* directory at an ASCII path; the source tree may keep its name.
 #
-# So the setting lives in the environment instead:
-#   PowerShell:  $env:CARGO_TARGET_DIR = 'D:\hearth-target\hearth'
+# As of 2026-11-21 the checkout is D:\hearth, which is ASCII, so the default
+# in-tree `target/` works and no override is needed. Keep it that way: if you
+# move this tree somewhere with a non-ASCII character in the path, set
+#   PowerShell:  $env:CARGO_TARGET_DIR = 'D:\hearth-target'
 #   bash:        export CARGO_TARGET_DIR=/tmp/hearth-target
-# `check.ps1` does this automatically when the checkout path is not ASCII, and
-# `tests/e2e` finds the built binary through the same variable.
+# `check.ps1` does that automatically when the checkout path is not ASCII.
 
 [net]
 # crates.io is unreachable through schannel on the development network; cargo
