@@ -1088,6 +1088,63 @@ fn the_capability_report_is_read_only() {
     assert_eq!(status, 405, "{}", String::from_utf8_lossy(&bytes));
 }
 
+/// `present` hands the operator a path and nothing else; this route is the only
+/// reader of the manifest that records it, so without it the tool's whole
+/// purpose is invisible in the browser.
+#[test]
+fn the_present_manifest_is_served_newest_first() {
+    let data_dir = unique_dir("presents");
+    fs::create_dir_all(&data_dir).expect("data dir");
+    let manifest = format!(
+        "{}\n{}\n{}\n",
+        json!({"ts": 1_700_000_000_000u64, "path": "reports/a.xlsx", "size": 10, "description": "the first"}),
+        json!({"ts": 1_700_000_001_000u64, "path": "reports/b.docx", "size": 20, "description": "the second"}),
+        "not json at all"
+    );
+    fs::write(data_dir.join("presented.jsonl"), manifest).expect("manifest");
+
+    let fixture = fixture_for(&data_dir);
+    let (status, headers, bytes) = fixture.api("GET", "/api/presents", None, &[]);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    assert!(headers
+        .iter()
+        .any(|(name, value)| name.eq_ignore_ascii_case("content-type")
+            && value.starts_with("application/json")));
+
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    let presents = body["presents"].as_array().expect("presents");
+    assert_eq!(presents.len(), 2);
+    // The newest handoff is what an operator opened this pane to find.
+    assert_eq!(presents[0]["path"], "reports/b.docx");
+    assert_eq!(presents[0]["size"], 20);
+    assert_eq!(presents[1]["path"], "reports/a.xlsx");
+    // One torn line is counted, never a 500 and never a reason to hide the rest.
+    assert_eq!(body["skipped"], 1);
+    assert_eq!(body["truncated"], false);
+}
+
+#[test]
+fn the_present_route_creates_nothing() {
+    // A box that has never presented anything: the answer is an empty list, and
+    // the read must not leave a manifest behind for the next reader to find.
+    let data_dir = unique_dir("presents-empty");
+    fs::create_dir_all(&data_dir).expect("data dir");
+    let fixture = fixture_for(&data_dir);
+
+    let (status, _, bytes) = fixture.api("GET", "/api/presents", None, &[]);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    assert_eq!(body["presents"], json!([]));
+    assert_eq!(body["skipped"], 0);
+    assert!(
+        !data_dir.join("presented.jsonl").exists(),
+        "a read must not create the manifest it could not find"
+    );
+
+    let (status, _, _) = fixture.api("POST", "/api/presents", Some(&json!({})), &[]);
+    assert_eq!(status, 405);
+}
+
 /// A fixture whose data dir is a path the test already prepared, so a board can
 /// be written the way `forge team run` writes one before the server starts.
 fn fixture_for(data_dir: &Path) -> Fixture {

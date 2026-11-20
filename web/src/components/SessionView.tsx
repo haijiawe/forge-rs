@@ -6,11 +6,13 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { ForgeApi, OutgoingAttachment } from '../api/client';
 import type { CapabilityReport } from '../api/capabilities';
+import type { Goal } from '../api/goal';
 import type { ApprovalDecision } from '../api/types';
 import { SessionStore } from '../state/sessionStore';
 import { ApprovalDialog } from './ApprovalDialog';
 import { CapabilityPanel } from './CapabilityPanel';
 import { Composer } from './Composer';
+import { GoalPill } from './GoalPill';
 import { StatusBar } from './StatusBar';
 import { Transcript } from './Transcript';
 
@@ -64,6 +66,37 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
     };
   }, [api]);
 
+  // The goal is three lines in the log, and only a turn writes them, so the read
+  // is rare and cheap: once when the stream is settled and again after every
+  // finished turn. `settled` is that trigger -- it is null while a turn is in
+  // flight, and the effect re-runs each time it turns from null back into a
+  // status word.
+  const settled =
+    state.status === 'idle' || state.status === 'ended' ? state.status : null;
+  const [goal, setGoal] = useState<Goal | null>(null);
+  const [goalError, setGoalError] = useState<string | null>(null);
+  useEffect(() => {
+    if (settled === null) return;
+    let live = true;
+    api.getGoal(sessionId).then(
+      (value) => {
+        if (!live) return;
+        setGoal(value);
+        setGoalError(null);
+      },
+      // A goal that cannot be read must not take the turn controls with it: the
+      // session still works, so the pill carries the failure and nothing else
+      // changes.
+      (error: unknown) => {
+        if (!live) return;
+        setGoalError(error instanceof Error ? error.message : 'goal unavailable');
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [api, sessionId, settled]);
+
   const send = useCallback(
     (text: string, attachments: readonly OutgoingAttachment[]) =>
       store.sendMessage(text, attachments),
@@ -101,6 +134,7 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
             </span>
           )}
         </div>
+        <GoalPill goal={goal} error={goalError} />
         {state.blocks.length > 0 && (
           <span
             className="session-compressed"

@@ -934,6 +934,62 @@ body {
   white-space: nowrap;
 }
 
+/* What this session is working toward. The status word is always a text node, so
+   the four colours below are emphasis and never the only label: a reader who
+   cannot tell green from amber still reads "blocked". */
+.goal-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  max-width: 34ch;
+  padding: 1px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.goal-pill-status {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.goal-pill-round {
+  color: var(--text-muted);
+}
+
+.goal-pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+
+.goal-pill-active { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.goal-pill-active .goal-pill-status { color: var(--accent); }
+.goal-pill-complete { border-color: color-mix(in srgb, var(--good) 55%, var(--border)); }
+.goal-pill-complete .goal-pill-status { color: var(--good); }
+.goal-pill-blocked { border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); }
+.goal-pill-blocked .goal-pill-status { color: var(--warn); }
+.goal-pill-cancelled,
+.goal-pill-exhausted { border-color: var(--border-strong); }
+.goal-pill-cancelled .goal-pill-status,
+.goal-pill-exhausted .goal-pill-status { color: var(--text-muted); }
+.goal-pill-unknown { border-style: dashed; }
+.goal-pill-unknown .goal-pill-status { color: var(--warn); }
+
+/* A goal that could not be read replaces the chip rather than sitting beside a
+   stale one: two numbers about the same goal is the worse failure. */
+.goal-error {
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--bad);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 /* --- team boards ---
  *
  * On the session list, below the table: a board belongs to `forge team run`, not

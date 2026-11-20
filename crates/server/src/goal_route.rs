@@ -15,8 +15,11 @@
 //!    `server.rs` does for the other read-only routes.
 //! 2. **Report the decision, do not re-derive it.** `rounds` and `nextRound`
 //!    come from `Goal::next_action`, so the round the browser shows is the
-//!    round the turn loop would act on. Recomputing `rounds + 1` here would be
-//!    a second opinion that could disagree with the loop.
+//!    round the turn loop would act on. `nextRound` is a **round number**, not
+//!    the continuation index `Action::Continue` carries: `rounds` counts
+//!    continuations, every other surface counts rounds, and `goal/created` is
+//!    round 1. The two differ by one, and that one is a round the loop may
+//!    never run.
 //! 3. **An unreadable line is data.** `fold` skips a goal payload this build
 //!    cannot project (AGENTS.md rule 2); this module skips an envelope it
 //!    cannot parse. One torn byte never hides a good goal, and neither turns
@@ -138,9 +141,17 @@ fn events_in(content: &str) -> Vec<Event> {
 }
 
 /// Project one folded goal, taking the next round from `next_action`.
+///
+/// `Action::Continue`'s member is the **continuation** index, not the round
+/// number: `rounds` counts continuations while `max_rounds` and every surface
+/// count rounds, and `goal/created` already spent round 1. So a goal with
+/// `rounds: 0` is on round 1 and its next round is round 2 — `round + 1` here.
+/// Reporting the raw member would promise a round the loop has already
+/// numbered differently, and `forge goal status` would print "next round 2"
+/// while this route said "nextRound": 1 about the same log.
 fn view(goal: &Goal) -> GoalView {
     let next_round = match goal.next_action() {
-        Action::Continue { round } => Some(round),
+        Action::Continue { round } => Some(round + 1),
         // Every `Stop` reason — including `Exhausted` for a goal the log still
         // calls active — means no round is coming.
         Action::Stop { .. } => None,
@@ -201,7 +212,7 @@ mod tests {
         let reply = report(&[created(10), continued(1), continued(2)]);
         assert_eq!(
             encoded(&reply),
-            r#"{"goal":{"id":"g1","text":"ship the goal route","maxRounds":10,"rounds":2,"status":"active","nextRound":3}}"#
+            r#"{"goal":{"id":"g1","text":"ship the goal route","maxRounds":10,"rounds":2,"status":"active","nextRound":4}}"#
         );
     }
 
@@ -267,7 +278,7 @@ mod tests {
         let surviving = report(&[anonymous, created(10), unknown_reason]);
         assert_eq!(
             encoded(&surviving),
-            r#"{"goal":{"id":"g1","text":"ship the goal route","maxRounds":10,"rounds":0,"status":"active","nextRound":1}}"#
+            r#"{"goal":{"id":"g1","text":"ship the goal route","maxRounds":10,"rounds":0,"status":"active","nextRound":2}}"#
         );
     }
 
@@ -348,7 +359,7 @@ mod tests {
         let reply = read(log.path()).expect("read log");
         let goal = reply.goal.expect("one goal");
         assert_eq!(goal.rounds, 1);
-        assert_eq!(goal.next_round, Some(2));
+        assert_eq!(goal.next_round, Some(3));
     }
 
     #[test]
@@ -363,7 +374,7 @@ mod tests {
         let goal = reply.goal.expect("the good goal survives");
         assert_eq!(goal.id, "g1");
         assert_eq!(goal.max_rounds, 10);
-        assert_eq!(goal.next_round, Some(1));
+        assert_eq!(goal.next_round, Some(2));
     }
 
     #[test]
@@ -393,7 +404,7 @@ mod tests {
         let reply = report(&events);
         assert_eq!(
             reply.goal.as_ref().and_then(|goal| goal.next_round),
-            Some(1)
+            Some(2)
         );
         let _: Value = serde_json::to_value(reply).expect("encode");
     }

@@ -243,7 +243,10 @@ fn an_active_goal_is_reported_with_the_round_that_comes_next() {
                 "maxRounds": 10,
                 "rounds": 1,
                 "status": "active",
-                "nextRound": 2,
+                // Round 1 was the creating turn, round 2 is this continuation,
+                // so the next round is round 3 -- a round number, not the
+                // `Action::Continue` index the loop keeps internally.
+                "nextRound": 3,
             }
         })
     );

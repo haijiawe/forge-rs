@@ -1492,6 +1492,21 @@ impl Server {
                 _ => Err(ApiFailure::new(404, code::NOT_FOUND, "no such endpoint")),
             };
         }
+        // The read side of `present`: the tool hands the operator a path, and
+        // this is the only thing that turns the manifest into something openable.
+        // A GET that reads one file and starts nothing, beside `teams` for the
+        // same reason -- it describes the machine, not one session log -- and it
+        // answers on a box that has never presented anything, because "nothing
+        // has been handed over" is a fact and not an error.
+        if segments.len() == 1 && segments[0] == "presents" {
+            return match request.method.as_str() {
+                "GET" => Ok(Response::json(
+                    200,
+                    &crate::present_route::Report::read(&self.shared.options.data_dir),
+                )),
+                _ => Err(method_not_allowed("GET")),
+            };
+        }
         if segments.first().copied() != Some("sessions") {
             return Err(ApiFailure::new(404, code::NOT_FOUND, "no such endpoint"));
         }

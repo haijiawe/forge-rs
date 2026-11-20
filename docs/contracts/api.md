@@ -141,6 +141,7 @@ All paths are under `{base}`. `{id}` is a session id; an unknown id is
 | 12 | `GET` | `/api/capabilities` | What this process can offer, session or not | `200` |
 | 13 | `GET` | `/api/teams`, `/api/teams/{board}` | Team boards this machine has run | `200` |
 | 14 | `GET` | `/api/sessions/{id}/goal` | The goal this session is still working toward | `200` |
+| 15 | `GET` | `/api/presents` | Files the model handed to the operator, newest first | `200` |
 
 ### 4.1 `GET /healthz`
 
@@ -636,7 +637,7 @@ A session that has one:
     "maxRounds": 10,
     "rounds": 2,
     "status": "active",
-    "nextRound": 3
+    "nextRound": 4
   }
 }
 ```
@@ -653,6 +654,15 @@ A session that has one:
   only when `next_action` says `Continue`. It is **absent** for every inactive
   goal — `complete`, `blocked`, `cancelled`, `exhausted` — because a round
   number there would promise a round nobody will run.
+- `nextRound` is a **round number**, the same numbering `maxRounds`, `rounds`
+  and `forge goal status` use, in which `goal/created` already spent round 1.
+  So the example above (on its third turn) reports `nextRound: 4`, and a goal
+  with `rounds: 0` reports `nextRound: 2`. `Goal::next_action` hands back a
+  *continuation* index instead — one lower — and this route adds the one back.
+  A client that mirrors this field must not also add it: `rounds + 2` is the
+  round number, `rounds + 1` is the continuation index, and reporting the
+  latter as a round is the off-by-one that makes the browser and
+  `forge goal status` disagree about the same log.
 - It is also **absent for an `active` goal whose budget is spent**: `fold` still
   says `active` because no `goal/ended` has been written yet, while
   `next_action` already says `Stop { Exhausted }`. `status: "active"` with no
@@ -684,6 +694,66 @@ A session that has one:
 - `forge goal status --json` folds the same records but names the id `goalId`
   and carries no `nextRound`. This route is the HTTP shape; a client porting one
   to the other renames the field rather than assuming they are byte-identical.
+
+### 4.15 `GET /api/presents`
+
+The files the model handed to the operator with the `present` tool. A handoff is
+a pointer, not a transfer: the tool copies nothing and puts nothing in the
+conversation, it appends one JSON line to `<dataDir>/presented.jsonl`. This route
+is the read side of that manifest, and the only reader of it.
+
+```json
+{
+  "presents": [
+    {
+      "ts": 1732000000000,
+      "path": "reports/q3.xlsx",
+      "size": 20480,
+      "description": "the numbers you asked for"
+    }
+  ],
+  "skipped": 0,
+  "truncated": false
+}
+```
+
+- **Newest first.** The manifest is append-only, so the newest handoff is its
+  last line and the first element of `presents`. The route reverses the file
+  instead of returning it in the order it was written: an operator opening this
+  list wants the file the model just produced at the top, not 200 entries deep.
+- One entry carries the manifest's own members, whose shape the tool's writer
+  defines: `ts` (unix milliseconds), `path` (absolute), `size` (bytes at the time
+  of the handoff), `description` (one line, possibly empty).
+- A missing `ts`, `size` or `description` is a default, not damage: `0`, `0`,
+  `""`. The same defaults apply to a member of the wrong type and to a negative
+  number, and the entry is still returned: a handoff the operator can open is
+  worth more than a strict reader. `size` is what the file measured when it was
+  presented, not what it measures now, so a since-deleted file still shows up.
+- A line that is not a JSON object, or whose `path` is missing or empty, is
+  skipped and counted in `skipped`; every readable line is still returned. A bad
+  line is never a `500`: the manifest is appended to, so a crash mid-write can
+  leave one torn line, and one torn byte must not blind an operator to the other
+  handoffs.
+- At most 200 entries are returned and at most 8 MiB of manifest is read. When
+  either limit cuts the answer short, `truncated` is `true` and the answer is
+  still `200`: a partial list plus a flag beats an error that shows nothing. The
+  8 MiB window is the file's **tail**, where the newest lines are, and a line cut
+  in half at either edge of the window is dropped rather than counted as
+  `skipped`, because that cut is the reader's and `truncated` already says so.
+- `note` is present only when `truncated` alone would not explain the answer: the
+  manifest could not be read, is not a regular file, or was cut by the byte cap
+  rather than by the entry count. It is absent otherwise, so the ordinary answer
+  is exactly the shape above.
+- **The route creates nothing.** Opening the manifest for reading must not create
+  the file or the data directory. A missing manifest is
+  `{"presents":[],"skipped":0,"truncated":false}` — "nothing has been presented"
+  is a fact, not an error, and not a `404`. A `GET` that manufactured the file
+  would answer its own question.
+- The route answers from the configured data directory only. The
+  `<workspace>/.forge/presented.jsonl` fallback `present` uses when no data
+  directory is configured is a different path, and serving it here would report
+  handoffs this host's data directory never recorded.
+- `GET` only; anything else is `405 method_not_allowed`.
 
 ---
 

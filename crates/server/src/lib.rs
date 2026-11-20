@@ -17,6 +17,9 @@ pub mod capabilities;
 /// Private for the same reason as `teams`: a wire shape for one route, not
 /// part of this crate's boundary.
 mod goal_route;
+/// The files the model handed over with `present`, read from the manifest the
+/// tool appends to. Private for the same reason as `teams` and `goal_route`.
+mod present_route;
 pub mod ratelimit;
 pub mod server;
 /// Reads the boards `forge team run` leaves in the data dir. Private: it is

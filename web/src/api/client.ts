@@ -14,6 +14,7 @@
 import { decodeFrame, HeaderVersion, IdempotencyKeyHeader, Version } from './protocol';
 import { parseReport, type CapabilityReport } from './capabilities';
 import { parseBoards, type TeamBoardReport } from './teams';
+import { parseGoal, type Goal } from './goal';
 import type {
   ApprovalDecision,
   ApprovalDecisionResponse,
@@ -94,6 +95,8 @@ export interface ForgeApi {
   capabilities(): Promise<CapabilityReport>;
   /** Team boards `forge team run` left in the data dir; one GET, no session. */
   teams(): Promise<TeamBoardReport>;
+  /** The goal a session pursues, or null when it pursues none. */
+  getGoal(id: string): Promise<Goal | null>;
 }
 
 function trimTrailingSlash(baseUrl: string): string {
@@ -250,6 +253,13 @@ export class ForgeClient implements ForgeApi {
     // answer is parsed defensively. A raise here would read as "the routes are
     // broken" when the truth is "nothing has run a team yet".
     return this.request<unknown>('/api/teams').then(parseBoards);
+  }
+
+  getGoal(id: string): Promise<Goal | null> {
+    // `null` is the sentence "this session pursues no goal", which is a fact
+    // about an empty log, not a fault to report. Parsed for the same reason as
+    // `capabilities`: the route is newer than the frozen protocol module.
+    return this.request<unknown>(`/api/sessions/${encodeURIComponent(id)}/goal`).then(parseGoal);
   }
 }
 
