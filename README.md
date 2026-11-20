@@ -255,7 +255,9 @@ for them.
 on ubuntu and windows against the **minimum** rustc (1.89), `sandbox macos-latest`
 (the `sandbox-exec` evidence, on a real macOS kernel), `lint` on current stable
 (`fmt --check`, `clippy --all-targets -D warnings`), and `web` (`npm ci`,
-`tsc --noEmit`, `vitest run`, `npm run build`, 2 MB raw bundle budget). Two
+`tsc --noEmit`, `vitest run`, `npm run build`, then `scripts/bundle-budget.cjs`,
+which holds the eager payload to 600 KiB gzip and the lazily-loaded set — Monaco
+and its grammars — to its own ceiling). Two
 toolchains because clippy grows lints in new releases: a developer on stable can
 otherwise write code that a pinned-toolchain lint job never sees — `% 2 != 0`
 becoming `is_multiple_of` was exactly that. CI deliberately does **not** pass

@@ -47,11 +47,20 @@ npm ci            # exact pinned versions, lockfile committed
 npm run typecheck # tsc --noEmit
 npx vitest run    # tests
 npm run build     # -> web/dist/index.html + web/dist/assets/*
+node scripts/bundle-budget.cjs   # two budgets: eager payload, and the lazy set
 ```
 
 The npm cache must live inside the repo: the sandbox blocks the default cache
 under the user profile (`E:\Cache\npm`), so a bare `npm install` fails. The
 variables above are the fix, not a preference.
+
+`scripts/bundle-budget.cjs` measures two payloads, because the workbench has two
+kinds of JavaScript. The **eager** one — `index.html` plus its static imports, the
+thing a reader waits for — is held to 600 KiB gzip, which is the number the UI
+design promises. Monaco is a dynamic `import()`, so it is not fetched until a file
+is opened; its chunks and their grammar files are measured separately as the
+**lazy** set. Both numbers print on every run and both ceilings live in the
+script, so raising one is a visible edit rather than a silent drift.
 
 `npm run build` writes `web/dist`, which the `hearth-cli` binary embeds with
 `include_dir!` at compile time — a running binary does not read this directory,

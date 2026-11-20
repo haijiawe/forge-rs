@@ -256,13 +256,10 @@ jobs:
 
       - name: bundle budget
         working-directory: web
-        # docs/02 §10.1 promises a 600 KiB gzip budget for the whole JS payload;
-        # this measures the raw bundle, where 2 MB raw is the equivalent ceiling
-        # (the shipped bundle is ~266 kB raw / ~82 kB gzip).
-        run: |
-          total=$(find dist/assets -name '*.js' -printf '%s\n' | awk '{s+=$1} END {print s+0}')
-          echo "js bytes: $total"
-          if [ "$total" -gt 2000000 ]; then
-            echo "::error::web bundle is $total bytes, over the 2,000,000 byte budget"
-            exit 1
-          fi
+        # Two numbers, because there are two kinds of JavaScript here. The eager
+        # payload — index.html plus its static imports, which is what a reader
+        # waits for — keeps the 600 KiB gzip promise from the UI design. Monaco is
+        # a dynamic import fetched when a file is opened, so it is held to its own
+        # ceiling instead of either deleting the budget or forbidding the editor.
+        # Both numbers print on every run; the ceilings live in the script.
+        run: node scripts/bundle-budget.cjs
