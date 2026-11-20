@@ -89,6 +89,7 @@ acceptable when the diff proves the job has nothing to say about the change.
 | 44663090396 | `790c157` | ✓ | ✓ | ✓ | ✓ | — (counting the commands the binary actually prints) |
 | 44676607395 | `1924819` | ✓ | ✓ | ✓ | ✓ | — (the DSH rc.5 source comparison; a duplicate trigger was cancelled by concurrency) |
 | 44767162264 | `4a18fe5` | ✓ | ✓ | ✓ | ✓ | — (`sandbox macos-latest` ✓: first run of the classified gate, on a manual dispatch, so `changes` fell back to "run everything" as designed) |
+| 44769558010 | `295035b` | ✓ | skip | ✓ | ✓ | — (first classified *push*: `.github/**` and `docs/**` only, so `sandbox-macos` and `web` were skipped and the three Rust jobs ran) |
 
 The eleven defects, in the order they surfaced:
 
