@@ -447,11 +447,6 @@ fn decode_code_page(bytes: &[u8], page: u32) -> Vec<u8> {
     String::from_utf16_lossy(&wide).into_bytes()
 }
 
-#[cfg(not(windows))]
-fn decode_code_page(bytes: &[u8], _page: u32) -> Vec<u8> {
-    String::from_utf8_lossy(bytes).into_owned().into_bytes()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -374,8 +374,14 @@ fn cmd_line_keeps_metacharacters_inside_quotes() {
 /// verbatim, after dropping the variable. Applied the old way — appended before
 /// the rebuild — the line was re-quoted into one argument and every output line
 /// ended with a stray quote (`plain"`).
+///
+/// Windows-only, like the test that uses it: `std::os::windows` does not exist
+/// anywhere else, and an unguarded double here breaks the whole test target off
+/// Windows before a single test runs.
+#[cfg(windows)]
 struct RebuildingSandbox;
 
+#[cfg(windows)]
 impl Sandbox for RebuildingSandbox {
     fn name(&self) -> &str {
         "rebuilding"
