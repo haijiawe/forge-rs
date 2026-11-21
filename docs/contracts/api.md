@@ -890,8 +890,10 @@ the agent was told it may touch.
 - `kind` is `"dir"` or `"file"`. Entries that are neither (sockets, pipes, device
   nodes) are omitted rather than mislabelled: an entry that cannot be opened is
   not a file.
-- Directories sort before files, then case-insensitively by name. `.git` is
-  omitted.
+- Directories sort before files, then case-insensitively by name. `.git`,
+  `target` and `node_modules` are omitted: the first is not source, and the other
+  two are build output — listing a 4 GB `target` to find `src` is the wrong trade,
+  and every entry costs the reader a line.
 - `size` is present for files only.
 - Path rules (shared by §4.17–4.20): no leading `/` or `\`, no drive letter or
   `:`, no `..` component, and — after the path exists — it must canonicalise
@@ -899,9 +901,9 @@ the agent was told it may touch.
   path is `400 bad_request`. A path that is well formed but absent is
   `404 not_found`; a file asked for as a directory is `400`.
 - **Nothing here writes.** No directory is created, no file touched, no process
-  started. Edits go through the agent, because a write from the UI would bypass
-  the policy, the approval prompt and the `tool/call` record — the three things
-  that make a session reviewable.
+  started. Saving an edited buffer is §4.20 (`PUT .../file`), which records a
+  `file/write` event — not `tool/call`, because no model is involved in a person
+  pressing Ctrl+S.
 - A session with no log at all is `404 no such session`; a `workspace` that is no
   longer on disk is `404 not_found` (the tree moved, and saying so beats
   inventing one).

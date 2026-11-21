@@ -280,9 +280,11 @@ pub fn list_dir(workspace: &str, relative: &str) -> Result<Listing, Problem> {
     let mut out = Vec::new();
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        // Editor and tooling droppings: a tree that lists `.git` is a tree that
-        // hides the files someone opened the panel to find.
-        if name == ".git" {
+        // 编辑器与工具链的垃圾：列出 `.git` 的树，会把读面板的人真正要找的文件挤下去。
+        // `target` 与 `node_modules` 同理，而且它们是**大**垃圾——这棵树自己的
+        // `target` 有 4 GB，列一个目录要读几万个条目，为的是让 `node_modules`
+        // 出现在一份源码清单里。
+        if name == ".git" || name == "target" || name == "node_modules" {
             continue;
         }
         let meta = match entry.metadata() {
@@ -922,6 +924,9 @@ mod tests {
         let root = scratch("listing");
         fs::create_dir_all(root.join("zeta")).expect("dir");
         fs::create_dir_all(root.join(".git")).expect("git dir");
+        // 构建产物也是垃圾，而且是大垃圾：列它一次要读几万个条目，而它从来不是源码。
+        fs::create_dir_all(root.join("target").join("debug")).expect("target dir");
+        fs::create_dir_all(root.join("node_modules").join("left-pad")).expect("modules dir");
         fs::write(root.join("Beta.txt"), "b").expect("file");
         fs::write(root.join("alpha.txt"), "a").expect("file");
         let listing = list_dir(root.to_str().expect("utf8"), "").expect("listing");

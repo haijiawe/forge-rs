@@ -140,6 +140,19 @@ function MonacoEditor({ path, text, onChange, onSave, readOnly, notice }: Editor
         automaticLayout: true,
         minimap: { enabled: false },
         fontSize: 13,
+        // Monaco 的默认字体栈没有 CJK 回退，全角字形会落到系统随便挑的字体上；
+        // 显式给一个带中文回退的栈：等宽西文优先，中文落到雅黑/苹方。
+        fontFamily:
+          "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Cascadia Mono', 'Microsoft YaHei', 'PingFang SC', monospace",
+        // Monaco 默认把「模糊字符」用方框标出来——它指的是与 ASCII 形近的字符，
+        // 而中文文档里每一个全角标点（`；`、`，`、`：`）都符合这个定义。于是一份
+        // 中文契约满屏都是框，标记的不是异常而是常态。关掉它，保留真正看不见的
+        // 字符（零宽空格、方向控制符）的提示——那些是有人可能藏东西的地方。
+        unicodeHighlight: {
+          ambiguousCharacters: false,
+          invisibleCharacters: true,
+          nonBasicASCII: false,
+        },
         lineHeight: 20,
         scrollBeyondLastLine: false,
         renderWhitespace: 'selection',
