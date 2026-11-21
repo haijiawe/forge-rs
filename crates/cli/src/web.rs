@@ -285,6 +285,10 @@ struct WebRunner {
     model: String,
     workspace: String,
     sandbox: SandboxMode,
+    /// Installed on every child process this runner's tool sets start. `None` only
+    /// in tests: a runner without an enforcer would start commands unrestricted
+    /// while `--sandbox` claimed otherwise.
+    exec_sandbox: Option<Arc<dyn hearth_exec::Sandbox>>,
     approve: WebApproveMode,
     env: TurnEnv,
     /// The agent's cancellation flag; `cancel()` flips it without appending.
@@ -325,6 +329,7 @@ impl WebRunner {
             model,
             workspace,
             sandbox,
+            exec_sandbox: None,
             approve,
             env,
             agent_cancel: Arc::new(Mutex::new(hearth_agent::Cancel::default())),
@@ -332,6 +337,15 @@ impl WebRunner {
             hosts: Mutex::new(HashMap::new()),
             host_builds: std::sync::atomic::AtomicUsize::new(0),
         }
+    }
+
+    /// Hand the enforcer to every tool set this runner builds.
+    ///
+    /// Separate from `new` because only `hearth web` has one to give: the unit
+    /// tests build runners that never start a child process.
+    fn with_exec_sandbox(mut self, sandbox: Option<Arc<dyn hearth_exec::Sandbox>>) -> Self {
+        self.exec_sandbox = sandbox;
+        self
     }
 }
 
@@ -518,6 +532,7 @@ impl WebRunner {
             data_dir: self.env.data_dir.clone(),
             workspace: self.workspace.clone(),
             sandbox: self.sandbox.as_str().to_string(),
+            exec_sandbox: self.exec_sandbox.clone(),
             approver,
             limits: DefaultLimits,
             system: self.env.system.clone(),
@@ -810,6 +825,9 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
     // The runner factory cannot see `cfg` closures cheaply, and every turn
     // rebuilds the tool set (the approver is bound to one session log), so hand
     // the shared pieces over as owned values.
+    // The same enforcer the terminal installs, handed to each session's tool set.
+    let exec_sandbox: Option<Arc<dyn hearth_exec::Sandbox>> =
+        Some(crate::exec_sandbox::tool_sandbox(Arc::clone(&enforcer)));
     let cfg = Arc::new(cfg);
     let server_slot: Arc<Mutex<Option<Arc<hearth_server::Server>>>> = Arc::new(Mutex::new(None));
     {
@@ -819,6 +837,7 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
         let workspace_str = workspace_str.clone();
         let cfg = Arc::clone(&cfg);
         let data_dir = data_dir.clone();
+        let exec_sandbox = exec_sandbox.clone();
         server_options.new_runner = Some(Arc::new(move |_session_id: &str| {
             let server = slot
                 .lock()
@@ -826,20 +845,23 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
                 .as_ref()
                 .cloned()
                 .expect("web: runner created before server was ready");
-            Arc::new(WebRunner::new(
-                server,
-                Arc::clone(&provider),
-                provider_name.clone(),
-                model.clone(),
-                workspace_str.clone(),
-                sandbox,
-                approve,
-                TurnEnv {
-                    cfg: Arc::clone(&cfg),
-                    data_dir: data_dir.clone(),
-                    system: String::new(),
-                },
-            )) as Arc<dyn TurnRunner>
+            Arc::new(
+                WebRunner::new(
+                    server,
+                    Arc::clone(&provider),
+                    provider_name.clone(),
+                    model.clone(),
+                    workspace_str.clone(),
+                    sandbox,
+                    approve,
+                    TurnEnv {
+                        cfg: Arc::clone(&cfg),
+                        data_dir: data_dir.clone(),
+                        system: String::new(),
+                    },
+                )
+                .with_exec_sandbox(exec_sandbox.clone()),
+            ) as Arc<dyn TurnRunner>
         }));
     }
 

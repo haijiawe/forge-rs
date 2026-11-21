@@ -153,6 +153,61 @@ mod tests {
 
     /// The platform tools appear only when their capability is configured, so a
     /// caller can read the tool list and know what this turn can actually do.
+    /// A sandbox that records being asked to confine a command.
+    ///
+    /// The bug this guards against is not a wrong restriction but an absent one:
+    /// the shell tool used to be built with no sandbox at all, so `--sandbox`
+    /// decided which calls were asked about and nothing about what ran.
+    struct CountingSandbox(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl hearth_exec::Sandbox for CountingSandbox {
+        fn name(&self) -> &str {
+            "counting"
+        }
+        fn apply(&self, _command: &mut std::process::Command) -> hearth_core::Result<()> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn the_shell_tool_is_given_the_sandbox_the_host_built() {
+        let applies = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut options = Options::new(DefaultLimits);
+        options.sandbox = Some(Arc::new(CountingSandbox(Arc::clone(&applies))));
+        let registry = Registry::new(all(&options));
+
+        let spec = registry
+            .specs()
+            .into_iter()
+            .find(|spec| spec.name == "shell")
+            .expect("the shell tool is in the set");
+        assert!(
+            spec.description.contains("counting"),
+            "the shell tool must describe the enforcer it will submit to: {}",
+            spec.description
+        );
+
+        let tool = registry.lookup("shell").expect("shell");
+        let dir = std::env::temp_dir().to_string_lossy().into_owned();
+        let result = tool.call(Call::new(
+            "c1",
+            "shell",
+            json!({"command": "echo sandboxed"}),
+            dir,
+        ));
+        assert!(!result.is_error, "{}", result.output);
+        assert_eq!(
+            applies.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the command must be submitted to the enforcer exactly once"
+        );
+        assert_eq!(
+            result.meta.get("sandbox").and_then(|value| value.as_str()),
+            Some("counting")
+        );
+    }
+
     #[test]
     fn configured_capabilities_add_tools_rather_than_enabling_them() {
         // `present` is registered even with no data directory: it degrades to

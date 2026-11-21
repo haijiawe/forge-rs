@@ -164,6 +164,7 @@ impl JobEnforcer {
                 extra_write,
                 extra_read,
                 allow_net,
+                raw_cmd_line: None,
             },
         })
     }
@@ -223,12 +224,25 @@ impl Enforcer for JobEnforcer {
             return Err(error);
         }
 
+        // A raw command line cannot ride on the command itself: `raw_arg` text is
+        // invisible to `Command::get_args`, and the wrapper below rebuilds the line
+        // from program and args. The runner therefore leaves it in
+        // `RAW_CMDLINE_ENV`; taking it here — into the payload, out of the
+        // environment — is also the signal that it was taken at all: a runner that
+        // comes back to this variable still set knows the enforcer did not wrap.
+        let mut spec = self.spec.clone();
+        spec.raw_cmd_line = command
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new(crate::RAW_CMDLINE_ENV))
+            .and_then(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()));
+        command.env_remove(crate::RAW_CMDLINE_ENV);
+
         // The confinement is installed by the wrapper, which is why the command is
         // rewritten here rather than merely flagged: a primary token cannot be
         // lowered in place, so the only way to hand a child an AppContainer token is
         // to have a process start it. The wrapper is what lands in the job and is
         // resumed above; its child inherits the job, so the tree still dies whole.
-        let payload = serde_json::to_string(&self.spec).map_err(|error| {
+        let payload = serde_json::to_string(&spec).map_err(|error| {
             let _ = close_handle(job);
             Error::new(
                 ErrorKind::Invalid,

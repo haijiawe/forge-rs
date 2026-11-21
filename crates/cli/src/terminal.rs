@@ -47,28 +47,6 @@ impl Terminal {
     }
 }
 
-/// Bridges the sandbox crate's enforcer onto `hearth-exec`'s trait.
-///
-/// The two traits have the same shape but live in crates that must not know
-/// about each other (exec is L1 and has no sandbox dependency). Without this
-/// bridge the terminal would run unconfined while `--sandbox` claimed otherwise.
-struct Enforced(Arc<dyn hearth_sandbox::Enforcer>);
-
-impl hearth_exec::Sandbox for Enforced {
-    fn name(&self) -> &str {
-        self.0.name()
-    }
-    fn apply(&self, command: &mut std::process::Command) -> Result<()> {
-        self.0.apply(command)
-    }
-    fn abort_apply(&self) {
-        self.0.abort_apply()
-    }
-    fn after_start(&self, pid: u32) -> Result<()> {
-        self.0.after_start(pid)
-    }
-}
-
 impl TerminalRunner for Terminal {
     fn run(
         &self,
@@ -114,7 +92,9 @@ impl TerminalRunner for Terminal {
         let mut command = Command::new(path)
             .args(argv)
             .dir(request.cwd.to_string_lossy().to_string())
-            .sandbox(Arc::new(Enforced(Arc::clone(&self.enforcer))))
+            .sandbox(crate::exec_sandbox::tool_sandbox(Arc::clone(
+                &self.enforcer,
+            )))
             .observe(observer);
         if let Some(line) = cmd_line {
             command = command.cmd_line(line);

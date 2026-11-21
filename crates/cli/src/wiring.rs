@@ -88,6 +88,13 @@ pub struct BuildOptions<'a> {
     pub data_dir: PathBuf,
     pub workspace: String,
     pub sandbox: String,
+    /// The sandbox installed on every child process the tools start.
+    ///
+    /// `None` runs them with this process's own privileges, which is right for a
+    /// test harness that builds a registry and starts nothing, and wrong for a
+    /// real turn: `chat` and `web` both build an enforcer before they get here, so
+    /// a missing value would be a bug rather than a mode.
+    pub exec_sandbox: Option<Arc<dyn hearth_exec::Sandbox>>,
     /// `None` means no human is available; every `ask` is refused by the
     /// executor, which is the intended unattended behaviour.
     pub approver: Option<Arc<dyn hearth_tool::Approver>>,
@@ -705,6 +712,8 @@ pub fn build(options: BuildOptions<'_>) -> WiredTools {
     let mut tool_options = hearth_tool::Options::new(options.limits);
     tool_options.data_dir = options.data_dir.clone();
     tool_options.goal = options.goal;
+    // The shell tool starts children; this is the enforcer they are submitted to.
+    tool_options.sandbox = options.exec_sandbox.clone();
     match hearth_net::Client::new(hearth_net::ClientOptions {
         ca_file: options.cfg.ca_file.as_deref().map(PathBuf::from),
         ..hearth_net::ClientOptions::default()
@@ -1568,6 +1577,9 @@ mod tests {
             data_dir: data_dir.to_path_buf(),
             workspace: workspace.to_string(),
             sandbox: SANDBOX_WORKSPACE_WRITE.to_string(),
+            // The bridge tests build a registry; they start no process, so there
+            // is nothing for an enforcer to confine.
+            exec_sandbox: None,
             approver: None,
             limits: DefaultLimits,
             system: String::new(),
@@ -1686,6 +1698,38 @@ mod tests {
                 ((*name).to_string(), decision.as_str().to_string(), reason)
             })
             .collect()
+    }
+
+    /// `--sandbox` reaches the kernel only if the tool set is built with the
+    /// enforcer the host made. `build` used to drop it on the floor: the value
+    /// existed, nothing read it, and every `shell` command ran unrestricted.
+    #[test]
+    fn the_tool_set_is_built_with_the_sandbox_the_host_built() {
+        struct Named;
+        impl hearth_exec::Sandbox for Named {
+            fn name(&self) -> &str {
+                "host-enforcer"
+            }
+            fn apply(&self, _command: &mut std::process::Command) -> hearth_core::Result<()> {
+                Ok(())
+            }
+        }
+        let cfg = Config::defaults();
+        let data_dir = std::env::temp_dir();
+        let mut options = build_options(&cfg, &data_dir, ".");
+        options.exec_sandbox = Some(Arc::new(Named));
+        let wired = build(options);
+        let shell = wired
+            .registry
+            .specs()
+            .into_iter()
+            .find(|spec| spec.name == "shell")
+            .expect("the shell tool is in the set");
+        assert!(
+            shell.description.contains("host-enforcer"),
+            "the shell tool must carry the host's enforcer: {}",
+            shell.description
+        );
     }
 
     #[test]

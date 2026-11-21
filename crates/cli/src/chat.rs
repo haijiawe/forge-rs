@@ -1027,9 +1027,14 @@ fn execute_turn(
     spec.extra_read = grants.read;
     spec.extra_write = grants.write;
     spec.allow_net = grants.allow_net;
-    // Hold the enforcer for the turn: its Drop closes the sandbox hook.
-    let _enforcer = hearth_sandbox::new(spec, None)
-        .map_err(|e| runtime_error_str(stderr, &format!("sandbox: {}", e.message())))?;
+    // Hold the enforcer for the turn: its Drop closes the sandbox hook. It is
+    // handed to the tool set below as well, so every child process the `shell`
+    // tool starts is submitted to it — without that, `--sandbox` only decided
+    // which calls were asked about.
+    let enforcer: Arc<dyn hearth_sandbox::Enforcer> = Arc::from(
+        hearth_sandbox::new(spec, None)
+            .map_err(|e| runtime_error_str(stderr, &format!("sandbox: {}", e.message())))?,
+    );
 
     // An empty `data_dir` means "here", and every consumer below wants an actual
     // path: the log lives in `<data_dir>/sessions`, and a subagent session has to
@@ -1181,6 +1186,7 @@ fn execute_turn(
         data_dir: data_dir.clone(),
         workspace: workspace.to_string(),
         sandbox: sandbox.as_str().to_string(),
+        exec_sandbox: Some(crate::exec_sandbox::tool_sandbox(Arc::clone(&enforcer))),
         approver,
         limits: DefaultLimits,
         system: opts.system.clone(),

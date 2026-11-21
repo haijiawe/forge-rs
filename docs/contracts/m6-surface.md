@@ -275,12 +275,19 @@ bin/hearth.exe chat --sandbox=read-only "写一个文件到 /tmp"   # 必须被�
   授权的完整条件是"目标 + 祖先可穿过"：打开 `~/.gitconfig` 要逐组件 stat，缺 `FILE_TRAVERSE`
   的 `git` 直接死在 `failed to stat '...\AppData\Local': Permission denied`，执行前就退出。
   因此授权会连带祖先目录，跳过盘根（重写 `E:\` 的 DACL 实测 160 秒，且盘根本来就放行）。
-  写 DACL 会让 Windows 重算整棵子树的继承：本机实测 `%TEMP%` 9 秒、`AppData\Local` 11 秒、
-  `AppData` 20 秒、用户主目录 25 秒。每个目录每个身份只付一次——重复授权先用
-  `GetEffectiveRightsFromAclW` 问 ACL，已有就跳过（实测第二次 7.65 秒跑完 11 个集成测试）；
-  超过两秒会打印"正在为某目录首次授权"而不是装作没卡。也是因为这份成本，workspace 自身
-  只授权目录本身、不连带祖先：容器对 workspace 的祖先本来就可穿过（测试里子进程从 `%TEMP%`
-  下面读到自己的副本即是证据）。
+  写 DACL 会让 Windows 重算整棵子树的继承：本机实测 `%TEMP%` 8–9 秒、`AppData\Local` 10–12 秒、
+  `AppData` 18–28 秒、用户主目录 23–28 秒。重复授权先用 `GetEffectiveRightsFromAclW` 问 ACL，
+  已有就跳过；超过两秒会打印"正在为某目录首次授权"而不是装作没卡。
+  这份成本原本按**工作区**付，因为祖先的 traverse ACE 授给每工作区自己的 package SID（profile 名是
+  workspace 路径的哈希）。所以祖先的 traverse ACE 改授给一个本项目所有容器共享的 capability SID
+  （`S-1-15-3-2048-40`，写进 `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` 的能力数组里），
+  而工作区与 `sandboxAccess.read/write` 的每个路径**本身**仍只授给那个工作区的 package SID：
+  数据隔离不变，只有"穿过祖先目录"从每工作区一次变成每机器一次
+  （`a_fresh_workspace_does_not_pay_the_ancestors_again`：第一块新工作区 61 秒、第二块 5 秒内）。
+  这个 capability 不单独给予访问权：只有 traverse ACE 提到它，而 traverse 不让人列目录或读文件。
+  冷启动那一分钟仍发生在子进程里，所以算在那条命令的耗时里（`shell` 工具默认 120 秒超时）。
+  也是因为这份成本，workspace 自身只授权目录本身、不连带祖先：容器对 workspace 的祖先
+  本来就可穿过（测试里子进程从 `%TEMP%` 下面读到自己的副本即是证据）。
 - 不做网络代理/防火墙规则（需要管理员）；`AllowNet=false` 在 Windows（无
   `internetClient` 能力，loopback 也一样不通）、macOS 与 landlock ABI≥4 上生效。
 - 不做容器/VM（那是另一个产品）。

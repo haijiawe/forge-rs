@@ -51,6 +51,20 @@ pub const ERR_CMDLINE_CONFLICT: &str = "exec: CmdLine and Args are mutually excl
 /// Stable error text for a sandbox that refuses or fails to install.
 pub const ERR_SANDBOX: &str = "exec: sandbox refused the process";
 
+/// Name of the variable that carries a raw command line across a rebuild.
+///
+/// `Command::raw_arg` appends text that `Command::get_args` does not return, so
+/// an enforcer that rebuilds the command from program and args (every wrapper-
+/// inserting one does) cannot see it. The runner therefore hands the line over
+/// in the environment before `apply`, and the wrapper reads it back and removes
+/// it before starting the child. An enforcer that wraps nothing never reads it,
+/// and the runner deletes it again in that case.
+///
+/// `hearth-sandbox` declares the same literal — the dependency direction (both
+/// sit above core, neither below the other) leaves no crate to share it with,
+/// so `crates/cli` holds a test that the two agree.
+pub const RAW_CMDLINE_ENV: &str = "HEARTH_EXEC_RAW_CMDLINE";
+
 /// How long we keep draining a pipe after the child was reaped.
 ///
 /// A grandchild can inherit the pipe handle and keep it open after the direct
@@ -342,7 +356,9 @@ fn run_command(
         process.current_dir(dir);
     }
     env::apply(&mut process, command.env.as_deref());
-    cmdline::apply(&mut process, command.cmd_line.as_deref())?;
+    if let Some(line) = &command.cmd_line {
+        process.env(RAW_CMDLINE_ENV, line);
+    }
 
     // The tree job is created before spawn so the child cannot outrun us
     // between CreateProcess and assignment. Failure to create it is not fatal
@@ -360,6 +376,30 @@ fn run_command(
                     error.message()
                 ),
             ));
+        }
+    }
+
+    if let Some(line) = &command.cmd_line {
+        // An enforcer that inserts a wrapper rebuilt the command just above from
+        // program and args, and that rebuild cannot see `raw_arg` text. Such an
+        // enforcer takes `RAW_CMDLINE_ENV` (set before `apply`) out of the command
+        // and appends it verbatim itself, which is the only way a line like
+        // `/c echo "a&b|c"` keeps the quotes that make it mean one command.
+        // The runner set the variable, so its state now says who took it: still
+        // `Some` means no enforcer touched the command and the line is ours to
+        // append; `None` (an explicit removal) or no entry at all (a rebuild from
+        // scratch) means it was taken. The variable is then deleted, so a child
+        // never inherits it either way.
+        let wrapped = match process
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new(RAW_CMDLINE_ENV))
+        {
+            Some((_, value)) => value.is_none(),
+            None => true,
+        };
+        if !wrapped {
+            process.env_remove(RAW_CMDLINE_ENV);
+            cmdline::apply(&mut process, Some(line))?;
         }
     }
 

@@ -43,6 +43,17 @@ pub const ERR_UNAVAILABLE: &str = "sandbox: restrictions unavailable on this hos
 /// Stable text for use of an enforcer after [`Enforcer::close`].
 pub const ERR_CLOSED: &str = "sandbox: enforcer is closed";
 
+/// Name of the variable that carries a raw Windows command line into the
+/// wrapper this crate inserts.
+///
+/// The exec runner sets it before asking for a command to be wrapped, because
+/// `raw_arg` text is invisible to `Command::get_args` and a rebuild from program
+/// and args would re-quote it. The wrapper reads it, appends it verbatim to the
+/// child's line and removes it before starting the child. The literal is
+/// declared a second time in `hearth-exec` (the two crates sit side by side and
+/// neither may depend on the other); `crates/cli` has a test that they agree.
+pub const RAW_CMDLINE_ENV: &str = "HEARTH_EXEC_RAW_CMDLINE";
+
 /// The three policy names from the config file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Mode {

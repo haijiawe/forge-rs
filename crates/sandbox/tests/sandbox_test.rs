@@ -560,6 +560,69 @@ fn windows_reads_are_granted_only_where_asked() {
 
 #[cfg(windows)]
 #[test]
+fn a_fresh_workspace_does_not_pay_the_ancestors_again() {
+    // The traverse ACEs on the directories above %TEMP% used to name each workspace's
+    // own package SID, which is derived from the workspace path: every new workspace
+    // rewrote those DACLs before its first command could run (12 s + 21 s + 28 s
+    // measured, 70-90 s in total). They now name a capability every container this
+    // crate starts carries, so the rewrite is paid once per machine.
+    //
+    // This is the acceptance test for that claim, and it is a timing test on purpose:
+    // the bug was a pause, not a wrong answer. The bound is loose enough for a loaded
+    // machine (one container start) and far below what a second rewrite costs.
+    let outside = scratch("shared-traverse-outside");
+    let deep = outside.join("a").join("b").join("c");
+    std::fs::create_dir_all(&deep).expect("create deep directory");
+    let allowed = deep.join("allowed.txt");
+    std::fs::write(&allowed, "shared-contents").expect("write allowed file");
+
+    let run = |workspace: &Path, name: &str| -> (String, Duration) {
+        let mut spec = spec_in(Mode::WorkspaceWrite, workspace);
+        spec.extra_read = vec![allowed.display().to_string()];
+        let enforcer = new(spec, None).expect("install");
+        let marker = marker(workspace, name);
+        let mut command = std::process::Command::new(contained_helper(workspace));
+        command.args([
+            "read",
+            allowed.to_str().expect("read path"),
+            marker.to_str().expect("marker path"),
+        ]);
+        enforcer.apply(&mut command).expect("apply");
+        let started = Instant::now();
+        let mut child = command.spawn().expect("spawn");
+        enforcer.after_start(child.id()).expect("adopt");
+        if !wait_for(&marker, Duration::from_secs(300)) {
+            panic!("the contained child never reported a read result");
+        }
+        let elapsed = started.elapsed();
+        let outcome = std::fs::read_to_string(&marker).expect("read marker");
+        let _ = enforcer.close();
+        let _ = child.kill();
+        let _ = child.wait();
+        (outcome, elapsed)
+    };
+
+    let first = scratch("shared-traverse-first");
+    let (first_outcome, first_elapsed) = run(&first, "first");
+    assert!(
+        first_outcome.starts_with("read: shared-contents"),
+        "a granted path was unreadable from the first workspace: {first_outcome}"
+    );
+
+    let second = scratch("shared-traverse-second");
+    let (second_outcome, elapsed) = run(&second, "second");
+    assert!(
+        second_outcome.starts_with("read: shared-contents"),
+        "a granted path was unreadable from the second workspace: {second_outcome}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "a fresh workspace paid the ancestor DACLs again: {elapsed:?}, and the first workspace took {first_elapsed:?}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
 fn windows_apply_after_close_is_refused() {
     let workspace = scratch("closed");
     let enforcer = new(spec_in(Mode::WorkspaceWrite, &workspace), None).expect("install");

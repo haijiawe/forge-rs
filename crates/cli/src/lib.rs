@@ -26,6 +26,7 @@ pub mod capabilities;
 pub mod chat;
 pub mod context_tools;
 pub mod doctor;
+pub mod exec_sandbox;
 pub mod expertcmd;
 pub mod goalcmd;
 pub mod goalfence;

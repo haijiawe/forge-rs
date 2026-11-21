@@ -86,6 +86,24 @@ const INVALID_HANDLE_VALUE: isize = -1;
 /// future capability is a one-line change rather than a struct.
 const INTERNET_CLIENT: &str = "S-1-15-3-1";
 
+/// A capability SID this crate owns and every container it starts carries, used for
+/// exactly one thing: the traverse ACE on the directories *above* a granted path.
+///
+/// Those ancestors used to be granted to the workspace's own package SID, which is
+/// derived from the workspace path, so every new workspace rewrote the DACLs of
+/// `%LOCALAPPDATA%`, `AppData` and the profile root: 12 s, 21 s and 28 s measured, 70-90 s
+/// in total, on the first command of a fresh workspace. Windows' answer for "grant the
+/// same small right to a family of containers" is a capability, so the ACE names this
+/// SID instead and the rewrite is paid once per machine.
+///
+/// It buys no access on its own. Only traverse ACEs name it, and traverse reaches a
+/// path without listing or reading it; the workspace and every extra path are still
+/// granted to the per-workspace package SID. What it does share is one thing worth
+/// knowing: any container this crate starts can now *traverse* the ancestors of
+/// another workspace's extra paths — the shared profile directory and the user's
+/// `AppData` — without gaining read or write access to anything under them.
+const TRAVERSE_CAPABILITY: &str = "S-1-15-3-2048-40";
+
 /// `OpenProcessToken` access for a read-only query.
 const TOKEN_QUERY: u32 = 0x0008;
 /// `TOKEN_INFORMATION_CLASS::TokenIntegrityLevel`.
@@ -549,15 +567,33 @@ fn transient_profile_error(hresult: i32) -> bool {
     code == ERROR_ACCESS_DENIED || code == ERROR_PATH_NOT_FOUND || code == ERROR_SHARING_VIOLATION
 }
 
-/// Grant `sid` access to `path` and the traverse rights it needs on every ancestor.
+/// Resolve a capability SID written as text, for the token and for the ACEs that
+/// name it. The caller owns the SID and frees it with `LocalFree`.
+fn capability_sid(text: &str) -> CoreResult<Sid> {
+    let encoded = wide(OsStr::new(text));
+    let mut sid: Sid = std::ptr::null_mut();
+    let converted = unsafe { ConvertStringSidToSidW(encoded.as_ptr(), &mut sid) };
+    if converted == 0 || sid.is_null() {
+        return Err(last_error(&format!("cannot resolve the capability {text}")));
+    }
+    Ok(sid)
+}
+
+/// Grant `sid` access to `path`, and the traverse rights it needs on every ancestor.
 ///
 /// The ancestors matter as much as the target: on Windows a container opening
 /// `C:\Users\Ann\AppData\Local\Temp\scratch.txt` walks each component, and a component
-/// with no ACE for the package SID answers "permission denied" for the whole path. That
+/// with no ACE for the token's SIDs answers "permission denied" for the whole path. That
 /// is why granting `%TEMP%` alone produced `failed to stat 'C:/Users/Ann/AppData/Local':
 /// Permission denied` from a real `git`. Traverse is granted non-inherited and read-only,
 /// so it lets the child *reach* a path without letting it *enumerate* the parent.
+///
+/// The ancestors get the shared capability rather than `sid`: see TRAVERSE_CAPABILITY.
 fn grant_path(path: &Path, sid: Sid, access: u32) -> CoreResult<()> {
+    // The ancestors are shared real estate: they get the capability (one ACE for every
+    // container this crate ever starts) while the path itself gets the workspace's own
+    // package SID. See TRAVERSE_CAPABILITY for the cost this avoids and what it shares.
+    let traverse = capability_sid(TRAVERSE_CAPABILITY)?;
     let mut ancestor = path.parent();
     while let Some(directory) = ancestor {
         // Never touch a volume root. Rewriting `E:\`'s DACL measured 160 s, because
@@ -579,7 +615,7 @@ fn grant_path(path: &Path, sid: Sid, access: u32) -> CoreResult<()> {
         // container, and the target grant below is what decides whether the command
         // runs at all. Say so, then continue.
         let started = std::time::Instant::now();
-        let step = grant_entry(directory, sid, ACCESS_TRAVERSE, false);
+        let step = grant_entry(directory, traverse, ACCESS_TRAVERSE, false);
         let elapsed = started.elapsed();
         debug_log(&format!(
             "traverse {} -> {} in {} ms",
@@ -609,7 +645,9 @@ fn grant_path(path: &Path, sid: Sid, access: u32) -> CoreResult<()> {
         }
         ancestor = directory.parent();
     }
-    grant_entry(path, sid, access, true)
+    let result = grant_entry(path, sid, access, true);
+    unsafe { LocalFree(traverse) };
+    result
 }
 
 /// Grant `sid` access to `path` by appending one inheritable ACE to its DACL.
@@ -810,6 +848,37 @@ pub struct WrapperSpec {
     pub extra_read: Vec<String>,
     #[serde(default)]
     pub allow_net: bool,
+    /// A raw command line to start instead of quoted args, for the Windows
+    /// shells that need their own quoting rules. Taken from
+    /// `RAW_CMDLINE_ENV` by the enforcer and appended verbatim.
+    #[serde(default)]
+    pub raw_cmd_line: Option<String>,
+}
+
+/// The child's command line: the program quoted, then either the raw line the
+/// runner supplied (verbatim — its quotes are the shell's grammar, not ours) or
+/// each argument quoted for `CommandLineToArgvW`.
+///
+/// The two forms are exclusive. Passing a raw line through the argument quoting
+/// would turn `/c echo "a&b|c"` into `/c echo a&b|c`, and a shell would then
+/// read the pipe as a pipe.
+fn child_command_line(program: &OsStr, args: &[String], raw: Option<&str>) -> String {
+    let mut command_line = quote_argument(&program.to_string_lossy());
+    match raw {
+        Some(raw) => {
+            if !raw.is_empty() {
+                command_line.push(' ');
+                command_line.push_str(raw);
+            }
+        }
+        None => {
+            for argument in args {
+                command_line.push(' ');
+                command_line.push_str(&quote_argument(argument));
+            }
+        }
+    }
+    command_line
 }
 
 /// Run `program args…` inside an AppContainer, and return its exit code.
@@ -819,7 +888,12 @@ pub struct WrapperSpec {
 /// callers: grant nothing you were not asked for, and never continue when the
 /// package could not be created — a container that silently did not happen is the
 /// downgrade this crate exists to prevent.
-pub fn run_in_container(spec: &WrapperSpec, program: &OsStr, args: &[String]) -> CoreResult<u32> {
+pub fn run_in_container(
+    spec: &WrapperSpec,
+    program: &OsStr,
+    args: &[String],
+    raw_cmd_line: Option<&str>,
+) -> CoreResult<u32> {
     let workspace = Path::new(&spec.workspace);
     if !workspace.is_absolute() {
         return Err(Error::new(
@@ -887,24 +961,30 @@ pub fn run_in_container(spec: &WrapperSpec, program: &OsStr, args: &[String]) ->
         return Err(error);
     }
 
-    let exit = spawn(spec, sid, program, args);
+    let exit = spawn(spec, sid, program, args, raw_cmd_line);
     unsafe { LocalFree(sid) };
     exit
 }
 
-fn spawn(spec: &WrapperSpec, sid: Sid, program: &OsStr, args: &[String]) -> CoreResult<u32> {
+fn spawn(
+    spec: &WrapperSpec,
+    sid: Sid,
+    program: &OsStr,
+    args: &[String],
+    raw_cmd_line: Option<&str>,
+) -> CoreResult<u32> {
     // Capabilities decide the network. No `internetClient` means the container has
     // no outbound sockets at all, which is what `allow_net == false` promises.
     let mut capabilities: Vec<SidAndAttributes> = Vec::new();
+    // Always on: it is what the traverse ACEs above the workspace name, and a token
+    // without it cannot cross the directories between %TEMP% and the workspace.
+    capabilities.push(SidAndAttributes {
+        sid: capability_sid(TRAVERSE_CAPABILITY)?,
+        attributes: 0x0000_0004, // SE_GROUP_ENABLED
+    });
     if spec.allow_net {
-        let text = wide(OsStr::new(INTERNET_CLIENT));
-        let mut capability: Sid = std::ptr::null_mut();
-        let converted = unsafe { ConvertStringSidToSidW(text.as_ptr(), &mut capability) };
-        if converted == 0 || capability.is_null() {
-            return Err(last_error("cannot resolve the internetClient capability"));
-        }
         capabilities.push(SidAndAttributes {
-            sid: capability,
+            sid: capability_sid(INTERNET_CLIENT)?,
             attributes: 0x0000_0004, // SE_GROUP_ENABLED
         });
     }
@@ -955,11 +1035,7 @@ fn spawn(spec: &WrapperSpec, sid: Sid, program: &OsStr, args: &[String]) -> Core
         ));
     }
 
-    let mut command_line = quote_argument(&program.to_string_lossy());
-    for argument in args {
-        command_line.push(' ');
-        command_line.push_str(&quote_argument(argument));
-    }
+    let command_line = child_command_line(program, args, raw_cmd_line);
     let mut command_line = wide(OsStr::new(&command_line));
 
     let mut startup = StartupInfoExW::default();
@@ -1012,6 +1088,11 @@ fn spawn(spec: &WrapperSpec, sid: Sid, program: &OsStr, args: &[String]) -> Core
         )
     };
     unsafe { DeleteProcThreadAttributeList(list) };
+    // The token kept what it needed; the wrapper is about to exit, but freeing the
+    // SIDs is still the correct end to their story.
+    for capability in &capabilities {
+        unsafe { LocalFree(capability.sid) };
+    }
     for inherit in &inherits {
         inherit.restore();
     }
@@ -1062,6 +1143,12 @@ pub(crate) fn helper_code() -> Option<i32> {
     let args: Vec<String> = arguments
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
+    // A raw command line the runner could not pass as an argument: `raw_arg`
+    // text is not visible to a rebuild from program and args, so the enforcer
+    // carried it in the payload. It is appended verbatim rather than re-quoted —
+    // quotes in a shell command line are what make `a&b|c` one word instead of
+    // two commands.
+    let raw = spec.raw_cmd_line.as_deref();
     debug_log(&format!(
         "workspace={} program={} args={args:?} mode={} read={} write={} net={}",
         spec.workspace,
@@ -1071,7 +1158,7 @@ pub(crate) fn helper_code() -> Option<i32> {
         spec.extra_write.len(),
         spec.allow_net
     ));
-    match run_in_container(&spec, &program, &args) {
+    match run_in_container(&spec, &program, &args, raw) {
         Ok(code) => {
             debug_log(&format!("exit code {code}"));
             Some(code as i32)
@@ -1258,7 +1345,9 @@ fn delete_profile(name: &str) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{available, quote_argument, run_in_container, PruneReport, WrapperSpec};
+    use super::{
+        available, child_command_line, quote_argument, run_in_container, PruneReport, WrapperSpec,
+    };
     use std::ffi::OsStr;
     use std::path::{Path, PathBuf};
 
@@ -1330,7 +1419,28 @@ mod tests {
             extra_write: Vec::new(),
             extra_read: Vec::new(),
             allow_net: false,
+            raw_cmd_line: None,
         }
+    }
+
+    /// A raw command line is appended verbatim, not re-quoted: quotes inside a
+    /// shell command are what make `a&b|c` one word instead of two commands,
+    /// and the wrapper has no business deciding that.
+    #[test]
+    fn a_raw_command_line_is_kept_verbatim() {
+        assert_eq!(
+            child_command_line(OsStr::new("cmd.exe"), &[], Some("/c echo \"a&b|c\"")),
+            "cmd.exe /c echo \"a&b|c\""
+        );
+        // Without a raw line the arguments are quoted for CommandLineToArgvW.
+        assert_eq!(
+            child_command_line(
+                OsStr::new("cmd.exe"),
+                &["/c".into(), "echo a b".into()],
+                None
+            ),
+            "cmd.exe /c \"echo a b\""
+        );
     }
 
     /// The claim this module makes is "a child inside the container can write the
@@ -1348,6 +1458,7 @@ mod tests {
             &spec(&root),
             OsStr::new(&cmd_exe()),
             &["/c".to_string(), "echo container> hello.txt".to_string()],
+            None,
         )
         .expect("spawn inside the container");
         assert_eq!(code, 0, "cmd should succeed inside the workspace");
@@ -1378,6 +1489,7 @@ mod tests {
             &spec(&root),
             OsStr::new(&cmd_exe()),
             &["/c".to_string(), command],
+            None,
         )
         .expect("spawn inside the container");
         assert_ne!(code, 0, "cmd must fail to redirect outside the workspace");

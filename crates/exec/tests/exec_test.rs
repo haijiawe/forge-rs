@@ -366,6 +366,65 @@ fn cmd_line_keeps_metacharacters_inside_quotes() {
     assert_eq!(String::from_utf8_lossy(&result.stdout).trim(), "\"a&b|c\"");
 }
 
+/// An enforcer that rebuilds the command from its program and args, the way a
+/// wrapper-inserting one does (`crates/sandbox/src/lib.rs`, `wrap_command`).
+///
+/// Such a rebuild cannot see `raw_arg` text, so the runner hands the line over
+/// in `RAW_CMDLINE_ENV`; this fake delivers it the way the real wrapper does,
+/// verbatim, after dropping the variable. Applied the old way — appended before
+/// the rebuild — the line was re-quoted into one argument and every output line
+/// ended with a stray quote (`plain"`).
+struct RebuildingSandbox;
+
+impl Sandbox for RebuildingSandbox {
+    fn name(&self) -> &str {
+        "rebuilding"
+    }
+
+    fn apply(&self, command: &mut std::process::Command) -> hearth_core::Result<()> {
+        use std::os::windows::process::CommandExt;
+
+        let raw = command
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new(hearth_exec::RAW_CMDLINE_ENV))
+            .and_then(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()));
+        let mut rebuilt = std::process::Command::new(command.get_program());
+        for arg in command.get_args() {
+            rebuilt.arg(arg);
+        }
+        if let Some(dir) = command.get_current_dir() {
+            rebuilt.current_dir(dir);
+        }
+        if let Some(raw) = &raw {
+            rebuilt.env_remove(hearth_exec::RAW_CMDLINE_ENV);
+            rebuilt.raw_arg(raw);
+        }
+        *command = rebuilt;
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn a_cmd_line_survives_a_sandbox_that_rebuilds_the_command() {
+    let shell =
+        std::env::var("COMSPEC").unwrap_or_else(|_| "C:\\Windows\\System32\\cmd.exe".to_string());
+    // The quotes matter: without them a shell reads the pipe as a pipe.
+    let result = Pipe
+        .run(
+            Command::new(&shell)
+                .cmd_line("/c echo \"a&b|c\"")
+                .sandbox(Arc::new(RebuildingSandbox)),
+        )
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&result.stdout).trim(),
+        "\"a&b|c\"",
+        "the raw command line did not survive the rebuild; stdout was {:?}",
+        String::from_utf8_lossy(&result.stdout)
+    );
+}
+
 #[cfg(not(windows))]
 #[test]
 fn cmd_line_is_refused_off_windows() {

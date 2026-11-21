@@ -51,7 +51,7 @@ pub struct Options {
     pub search: Option<SearchConfig>,
     /// Where `present` writes its manifest.
     pub data_dir: PathBuf,
-    /// Process runner and sandbox for tools that shell out (`worktree`).
+    /// Process runner and sandbox for tools that shell out (`shell`, `worktree`).
     pub runner: Option<Arc<dyn Runner + Send + Sync>>,
     pub sandbox: Option<Arc<dyn Sandbox>>,
     /// Whether this turn belongs to an open goal. `goal_end` exists only then:
@@ -73,6 +73,14 @@ impl Options {
 /// Construct the builtin set for these options.
 pub fn all(options: &Options) -> Vec<Arc<dyn Tool>> {
     let limits = options.limits;
+    // The shell tool starts child processes, so it is the tool a sandbox mode is
+    // about. Handing it the enforcer here is what makes `--sandbox` describe the
+    // kernel rather than the policy layer: without it the mode only decided which
+    // calls were asked about, and an approved command ran unrestricted.
+    let mut shell = ShellTool::new(limits);
+    if let Some(sandbox) = &options.sandbox {
+        shell = shell.with_sandbox(Arc::clone(sandbox));
+    }
     let mut tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(FsRead),
         Arc::new(FsWrite),
@@ -80,7 +88,7 @@ pub fn all(options: &Options) -> Vec<Arc<dyn Tool>> {
         Arc::new(FsGlob),
         Arc::new(FsGrep),
         Arc::new(ReadImageTool),
-        Arc::new(ShellTool::new(limits)),
+        Arc::new(shell),
         Arc::new(TodoWriteTool::new(limits)),
     ];
 
