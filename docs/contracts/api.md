@@ -1135,7 +1135,10 @@ queued. A refused frame writes no event at all.
   knows nothing ran. `exitCode` is `-1` when nothing ran; the reason, when there is
   one, rides on the `terminal/end` event — this frame reports numbers only.
 - `output` carries exactly one stream per frame (`stdout` or `stderr`), split on whole
-  UTF-8 characters. Each stream is streamed up to **1 MiB**
+  UTF-8 characters. The bytes a child wrote in the console's own code page (GBK on a
+  Chinese Windows, which is what `ping` and `ipconfig` write) are decoded in the runner
+  before they reach the frame, so `text` is UTF-8 and the client needs no code-page table;
+  the same decoding produces both tails. Each stream is streamed up to **1 MiB**
   (`TERMINAL_STREAM_BUDGET`); past that the bytes are dropped and one note per stream
   is sent instead.
 - `exit` ends the run: exit code, duration, whether it was cancelled, and the last

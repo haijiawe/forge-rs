@@ -977,9 +977,11 @@ socket 上成立、在这个 socket 上被忘掉。`hearth.v1` 被提供了才�
 
 - `start` 在进程启动**之前**发出：从没收到它的客户端就知道什么都没跑。什么都没跑时
   `exitCode` 为 `-1`；原因（如果有）搭在 `terminal/end` 事件上——这一帧只报数字。
-- `output` 一帧只装一条流（`stdout` 或 `stderr`），按完整的 UTF-8 字符切。每条流最多
-  回传 **1 MiB**（`TERMINAL_STREAM_BUDGET`）；超过之后字节被丢掉，改为每条流发一条
-  说明。
+- `output` 一帧只装一条流（`stdout` 或 `stderr`），按完整的 UTF-8 字符切。子进程按
+  控制台自己的代码页写出的字节（中文 Windows 上是 GBK——`ping`、`ipconfig` 就是那样写
+  的）在 runner 里先解码再进帧，所以 `text` 是 UTF-8，客户端不需要任何代码页表；两条
+  尾巴走的是同一套解码。每条流最多回传 **1 MiB**（`TERMINAL_STREAM_BUDGET`）；超过之后
+  字节被丢掉，改为每条流发一条说明。
 - `exit` 结束这次运行：退出码、耗时、是否被取消，以及两条流各自的末 **4 KiB**
   （`TAIL_BYTES`）——给实时输出已经滚掉之后才来的读者。
 - `denied` 拒绝一帧并让 socket 继续可用，所以面板能把原因显示在被拒的那条命令旁边。

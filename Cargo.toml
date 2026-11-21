@@ -40,7 +40,15 @@ regex = "1"
 # space without spawning PowerShell (~600 ms on this host, and unavailable when
 # policy blocks it). Already in the lock file as a `ring` dependency, so this
 # costs no new crate.
-windows-sys = { version = "0.52", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+windows-sys = { version = "0.52", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_Foundation",
+    # doctor asks for free space (above); the terminal asks the console what
+    # code page the child wrote in, and converts it (crates/cli/src/terminal.rs).
+    "Win32_Globalization",
+    # ...and that console is asked for its output code page (GetConsoleOutputCP).
+    "Win32_System_Console",
+] }
 
 [profile.release]
 opt-level = 3

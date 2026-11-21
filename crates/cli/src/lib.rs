@@ -8,11 +8,12 @@
 //! reproduced byte for byte, including the em dash and the two trailing spaces
 //! that align the descriptions, because a test compares the bytes.
 
-// deny, not forbid: exactly one function reaches the Windows API for disk
-// free space (doctor.rs disk_free_windows), because the alternative is
-// spawning PowerShell for a number the kernel already knows. That function
-// carries its own #[allow(unsafe_code)] and a safety comment; everything else
-// in this crate is safe Rust.
+// deny, not forbid: two places reach the Windows API. doctor.rs asks for free
+// disk space, because the alternative is spawning PowerShell for a number the
+// kernel already knows; terminal.rs asks the console for the code page a child
+// wrote in and converts it, because the alternative is a browser full of
+// replacement characters. Both carry their own #[allow(unsafe_code)] and a
+// safety comment; everything else in this crate is safe Rust.
 #![deny(unsafe_code)]
 #![forbid(unsafe_op_in_unsafe_fn)]
 
