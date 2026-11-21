@@ -91,6 +91,9 @@ const RETIRED = [
   // DSH 参考实现仓库（D:\reference\deepseek-harness-master），不是本仓库。
   { token: 'docs/architecture.md', qualifier: /DSH|deepseek-harness/ },
   { token: 'docs/subsystems/webhook.md', qualifier: /DSH|deepseek-harness/ },
+  // 本仓库里被改过名的文件（2026-11-21 forge 改成 hearth）。旧名出现在删除台账里
+  // 是它的职责，但同一行必须说清楚这是个旧名，否则读者会去点它。
+  { token: 'docs/dsh-vs-forge.md', qualifier: /旧名|改名为|已改名|renamed/ },
 ];
 
 // 能当文件读的后缀。一条反引号路径要么带这些后缀之一，要么以 `/` 结尾表示目录，

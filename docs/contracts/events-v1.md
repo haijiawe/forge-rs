@@ -1,12 +1,31 @@
-<!  
+<!--
 Porting note (Rust tree). This document was frozen while the Go implementation
 was the reference, so its code samples are Go. The behaviour it pins — the event
 envelope, the CLI surface, the HTTP/WS API, the crate surfaces — is what the Rust
 crates implement, and the language neutral conformance corpora under
 tests/conformance/cases/ are what proves it. Read Go signatures as history:
 the Rust signatures live in the crates' README.md files.
-  >
+-->
 # hearth event format, version 1
+
+> **中文导读。** 这份契约管一件事：`<dataDir>/sessions/<会话 id>.jsonl` 里每一行长什么样、
+> 什么算合法、什么必须拒绝。任何语言的实现只靠这份文本就该能读写本树的事件日志。
+>
+> 怎么读：§1–§3 讲一条日志是什么、信封长什么样（`v`/`seq`/`id`/`ts`/`session`/`turn`/`step`/`type`/`payload`）、
+> 以及三条不变式——**只追加**、**`seq` 必须稠密递增**、**未知 `type` 是数据而未知 `v` 是错误**；
+> §4 是类型目录（一张表定全）；后面各节逐类解释载荷。
+>
+> 几个术语：`seq` 是这条日志内的行号，从 1 开始不能跳号；`payload` 的形状由本契约描述，
+> 但**不强制**读者校验（见 [AGENTS.md](../../AGENTS.md) 法则 2）；「稠密」指去掉任何一行都会
+> 让后面的 `seq` 出现缺口。
+>
+> 改动时必须同步五处，少一处就会有东西对不上：
+> ① `crates/core/src/event.rs`——加常量**并且**加进 `EventType::ALL`；
+> ② 本文 §4 的表格行；③ `tests/conformance/cases/events/` 下一条用例；
+> ④ `crates/core/tests/contract.rs`——它逐字核对本表与 `ALL` 的集合差、拼写出来的数字、
+> 以及 `docs/README.md` 里的语料计数，漏改会红；
+> ⑤ `docs/README.md` 与本文开头的数字。
+> 这五处是 `AGENTS.md`「我要加东西」表里事件类型那一行的完整版。
 
 Status: **normative for the v1 on disk format.** This document is written so that
 a reimplementation in any language (Rust, TypeScript, Go, ...) can read and write

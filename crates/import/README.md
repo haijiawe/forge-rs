@@ -12,7 +12,8 @@ public:
   - ERR_COMPRESSED
   - ERR_NO_DIR
 may_import:
-  - crates/core
+  - hearth-core
+  - hearth-session
 must_not:
   - import any other hearth crate at runtime
   - read old-format files outside this crate

@@ -171,6 +171,40 @@ pub fn check(root: &Path, crate_dir: &str, expected_layer: Option<&str>) -> Vec<
         }
     }
 
+    // `may_import` is a claim about what the crate is allowed to depend on. Until
+    // this check existed it was the one thing in the file nothing verified, and
+    // it had already drifted: `crates/server` imported `hearth-goal` while its
+    // README named three neighbours. A boundary that is *narrower* than the
+    // manifest is the harmful direction — a reader trusts it and adds an import
+    // that looks new but is already there. Being wider than the manifest is
+    // harmless (`may` is permission, not an inventory), so only missing entries
+    // are reported.
+    if let Some((value, line_no)) = frontmatter.get("may_import") {
+        let promised: Vec<String> = list_items(value)
+            .into_iter()
+            .map(|item| item.replace('_', "-"))
+            .collect();
+        for dep in declared_dependencies(root, crate_dir) {
+            if !promised.contains(&dep) {
+                findings.push(Finding::error(
+                    &rel,
+                    *line_no,
+                    "readme.may_import",
+                    format!(
+                        "Cargo.toml depends on {dep:?}, which {} does not list; \
+                         a boundary narrower than the manifest teaches the next \
+                         reader the wrong thing",
+                        if promised.is_empty() {
+                            "may_import".to_string()
+                        } else {
+                            format!("may_import {promised:?}")
+                        }
+                    ),
+                ));
+            }
+        }
+    }
+
     // A section exists only when its `## title` appears after the frontmatter
     // and has at least one non-blank, non-heading line. A bare heading is the
     // documentation equivalent of a stub — it should not satisfy a gate.
@@ -219,6 +253,61 @@ pub fn check(root: &Path, crate_dir: &str, expected_layer: Option<&str>) -> Vec<
     }
 
     findings
+}
+
+/// The items of a `[a, b, c]` frontmatter value, unquoted.
+fn list_items(value: &str) -> Vec<String> {
+    let inner = value
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_string();
+    inner
+        .split(',')
+        .map(unquote)
+        .filter(|item| !item.trim().is_empty())
+        .collect()
+}
+
+/// The `hearth-*` crates this crate's `[dependencies]` names.
+///
+/// Only `[dependencies]`: a `dev-dependency` is allowed to point anywhere a test
+/// needs (a test may compare two layers without the shipped binary gaining an
+/// edge), and `[build-dependencies]` never link into the product. Checking those
+/// would report boundaries that are not real.
+fn declared_dependencies(root: &Path, crate_dir: &str) -> Vec<String> {
+    let path = root.join(crate_dir).join("Cargo.toml");
+    let Ok(text) = fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let mut section = String::new();
+    let mut out = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if let Some(header) = line
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+        {
+            section = header.trim().to_string();
+            continue;
+        }
+        if section != "dependencies" || line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((name, _)) = line.split_once('=') else {
+            continue;
+        };
+        // `hearth-core = { path = "../core" }` and `hearth_core.workspace = true`
+        // both name the dependency before the first `.` or `=`.
+        let name = name.trim().split('.').next().unwrap_or("").trim();
+        let name = name.replace('_', "-");
+        if name.starts_with("hearth-") {
+            out.push(name);
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
 }
 
 fn check_shape(key: &str, value: &str, line: usize, file: &str, findings: &mut Vec<Finding>) {
@@ -312,5 +401,59 @@ mod tests {
         assert!(findings
             .iter()
             .any(|f| f.rule == "readme.section" && f.message.contains("不要做")));
+    }
+
+    fn write_manifest(root: &Path, body: &str) {
+        fs::write(root.join("crates/demo/Cargo.toml"), body).expect("write manifest");
+    }
+
+    #[test]
+    fn a_dependency_the_readme_does_not_promise_is_reported() {
+        let (root, dir) = write_fixture("dep-missing", valid_readme());
+        write_manifest(
+            &root,
+            "[package]\nname = \"demo\"\n\n[dependencies]\nhearth-core = { path = \"../core\" }\nhearth-session = { path = \"../session\" }\n",
+        );
+        let findings = check(&root, &dir, Some("L1"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.rule == "readme.may_import" && f.message.contains("hearth-session")),
+            "{findings:?}"
+        );
+        assert!(
+            !findings.iter().any(|f| f.rule == "readme.may_import"
+                && f.message.contains("depends on \"hearth-core\"")),
+            "hearth-core is promised, so it must not be reported: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn a_promise_wider_than_the_manifest_is_allowed() {
+        // `may` is permission, not an inventory: listing a crate you do not use
+        // yet is a decision, and the rule must not punish it.
+        let (root, dir) = write_fixture("dep-wide", valid_readme());
+        write_manifest(
+            &root,
+            "[package]\nname = \"demo\"\n\n[dependencies]\nhearth-core = { path = \"../core\" }\n",
+        );
+        let findings = check(&root, &dir, Some("L1"));
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
+    fn a_dev_dependency_is_not_a_boundary() {
+        // A test may compare two layers; that does not give the shipped crate an
+        // upward edge, so it must not be reported as one.
+        let (root, dir) = write_fixture("dep-dev", valid_readme());
+        write_manifest(
+            &root,
+            "[package]\nname = \"demo\"\n\n[dependencies]\nhearth-core = { path = \"../core\" }\n\n[dev-dependencies]\nhearth-server = { path = \"../server\" }\n",
+        );
+        let findings = check(&root, &dir, Some("L1"));
+        assert!(
+            !findings.iter().any(|f| f.rule == "readme.may_import"),
+            "{findings:?}"
+        );
     }
 }

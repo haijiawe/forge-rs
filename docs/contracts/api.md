@@ -8,6 +8,25 @@ the Rust signatures live in the crates' README.md files.
 -->
 # hearth HTTP + WebSocket API contract, protocol version 1
 
+> **中文导读。** 这份契约管一件事：`hearth web` 对外暴露的 HTTP + WebSocket 面（协议版本 1）。
+> 浏览器 UI、桌面壳、任何脚本客户端都只按这份文本工作；一旦有客户端按协议 1 发布，服务端就不能单方面改它。
+>
+> 怎么读：§1 是整个面的形状；§2 讲认证（loopback 之外一律拒绝、`?token=` 会换成 cookie）；
+> §3 讲协议协商（`X-Hearth-Protocol: 1`，WebSocket 上等价的是子协议 `hearth.v1`）；
+> §4 一条路由一节，每节给方法、请求体、成功响应、以及每种失败的状态码与错误码；
+> §5 是错误信封（`{code, message, details?}`）；§6 讲哪些还能改、哪些不能。
+>
+> 几个术语：**token** 是启动时打印到 stderr 的凭据，`GET /?token=` 之后变成 `hearth_token` cookie；
+> **Idempotency-Key** 是 `POST /messages` 的必填头，缺了返回 428 而不是默默重放；
+> **lastSeq** 是这条会话日志当前的最大 `seq`，客户端拿它判断自己有没有落后；
+> **「不只是 GET」** ——同一路径不同方法常常对应不同能力（`/file` 的 GET 读、PUT 存），405 是真实答案。
+>
+> 改动时必须同步四处：① `crates/protocol/src/protocol.rs` 的 wire 类型；
+> ② `web/src/api/protocol.ts`——**没有生成器**，是手工维护的镜像，必须同一次提交改；
+> ③ `crates/server/src/server.rs` 的 handler；
+> ④ `crates/server/src/routes.rs` 的 `ROUTES` 表——`crates/server/tests/routes_table.rs` 会逐行发真请求，
+> 声明了却服务不了会红，服务得了却没声明没人发现。再加一条 `tests/conformance/cases/http/` 用例。
+
 > **Implemented.** Protocol 1 shipped in M3 and is served today by
 > `hearth web` (`docs/contracts/cli.md` §2.7), which also serves the browser UI from
 > the same origin. `internal/server` is the implementation; `web/` is the

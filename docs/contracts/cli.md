@@ -8,6 +8,21 @@ the Rust signatures live in the crates' README.md files.
 -->
 # hearth CLI contract
 
+> **中文导读。** 这份契约管一件事：`hearth` 这个二进制的命令行面——哪些命令存在、每个命令输出什么、
+> 退出码是什么。它**逐字**约束输出，因为脚本和 agent 会按字节比对。
+>
+> 怎么读：§1 是调用模型（`hearth [命令] [参数]`、`--flag` 可以后置、`--` 结束选项）；
+> §2 是**今天存在的**命令，一条一节，给用法、输出、退出码；§3 是保留但**没实现**的名字
+> （写了也不许出现在 `help` 里）；§4 给实现者的兼容说明；§5–§10 是几个子命令族的细节。
+>
+> 几个术语：**usage 文本**指 `hearth help` 打出的那段，它被测试逐字节比对；
+> **退出码** 0 成功、1 失败、2 用法错误——三者都是契约的一部分；
+> **`--json`** 出现时输出稳定的键集而不是给人看的排版，脚本应该只用这种形态。
+>
+> 改动时必须同步两处：① `crates/cli/src/lib.rs` 的 `USAGE` 常量——
+> `crates/cli/tests/cli.rs` 的 `usage_is_byte_equal_to_the_frozen_contract` 会逐字节比对它；
+> ② 本文对应的那一节。只改代码不改本文，或者只改本文不改代码，都会红。
+
 Status: **normative for the commands that exist today**, as implemented by
 `cmd/forge` at version `0.0.0-dev`. Anything not in [§2](#2-commands-that-exist-today)
 is not part of the CLI.
