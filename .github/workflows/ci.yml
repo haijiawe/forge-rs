@@ -113,7 +113,12 @@ jobs:
               # A markdown-only change cannot break the build, but it can break a
               # link, and a dead link is the only defect a reader hits before the
               # first test. The `markdown` job below is what pays attention.
-              docs/*|*.md) markdown=true; continue ;;
+              #
+              # The checker itself is in the list: editing the rule that decides
+              # what counts as a broken link is exactly the change that most needs
+              # to run it, and a `.cjs` file would otherwise be classified as Rust
+              # and leave the markdown job skipped.
+              docs/*|*.md|scripts/check-links.cjs) markdown=true; continue ;;
               LICENSE) continue ;;
               web/*) web=true ;;
               crates/sandbox/*|crates/exec/*) rust=true; sandbox=true ;;
