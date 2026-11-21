@@ -1710,6 +1710,46 @@ body {
   overflow: hidden;
 }
 
+/* 包住 Monaco 的那一层，只为了让「问 agent」浮层有个定位父元素。它自己不画
+   任何东西，也不能参与尺寸决定：flex 交给里面的编辑器，这里只提供坐标系。 */
+.wb-editor-monaco-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 选区旁边的那个入口。浮在代码上，所以底色不能透；颜色与其它主按钮一致，
+   它做的事和「发送」是同一类：把材料交给代理。 */
+.wb-ask-chip {
+  position: absolute;
+  z-index: 20;
+  transform: translateY(-100%);
+  padding: 2px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.wb-ask-chip:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* 文本兜底编辑器里没有坐标可算，按钮就占一行，摆在正文上方。 */
+.wb-ask-chip-bar {
+  position: static;
+  transform: none;
+  align-self: flex-start;
+  margin: 4px 10px;
+}
+
 /* Monaco renders a 1px focus outline of its own on the wrapper, which reads as
    a second border against the pane's. Its `aria-label` is on the host element,
    so the outline is not what makes the pane reachable by keyboard. */

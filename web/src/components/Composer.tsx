@@ -9,7 +9,7 @@
 // size caps is decided here — this file only renders what that module decided,
 // so a refusal is always a sentence the user can read rather than a file that
 // vanished.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import type { OutgoingAttachment } from '../api/client';
 import {
@@ -22,6 +22,7 @@ import {
   type AttachmentRefusal,
   type DraftAttachment,
 } from '../state/attachments';
+import { onAskRequested, snippetFor } from '../state/ask';
 
 export interface ComposerProps {
   /** True while the composer must not accept input (an approval is pending). */
@@ -62,6 +63,9 @@ export function Composer({
   // future caller that batches) both read the old state and both reach the
   // network. ApprovalDialog learned this first; the composer matches it.
   const sendingRef = useRef(false);
+  // 编辑器把选区交过来时要聚焦到这里，并把光标放到末尾：那段代码是问题前面的
+  // 引用，光标必须落在它后面，否则用户一敲字就把引用切断了。
+  const area = useRef<HTMLTextAreaElement | null>(null);
   const stoppingRef = useRef(false);
   // A pick is read asynchronously, so the handler must append to the list as it
   // is when the read finishes, not as it was when the handler closed over it;
@@ -71,6 +75,19 @@ export function Composer({
   // turn ended meanwhile), so it is only offered when the surface can do it.
   const steering = running && onSteer !== undefined;
   const blocked = disabled || sending;
+
+  useEffect(() => onAskRequested((ask) => {
+    const snippet = snippetFor(ask);
+    // 追加而不是替换：用户可能已经写了一半问题，选一段代码是要补材料，不是
+    // 要清空重来。前一段末尾的空白先去掉，否则两条引用之间会有空行堆积。
+    setDraft((previous) => (previous.trim() === '' ? snippet : `${previous.replace(/\s+$/, '')}\n\n${snippet}`));
+    window.setTimeout(() => {
+      const box = area.current;
+      if (box === null) return;
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+    }, 0);
+  }), []);
 
   const commitAttachments = (next: DraftAttachment[]): void => {
     attachmentsRef.current = next;
@@ -212,6 +229,7 @@ export function Composer({
 
       <textarea
         className="composer-input"
+        ref={area}
         value={draft}
         rows={2}
         placeholder={placeholder}

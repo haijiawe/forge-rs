@@ -14,6 +14,7 @@
 // had.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent, PointerEvent, ReactNode } from 'react';
+import { askAboutSelection } from '../../state/ask';
 import { WorkbenchStore } from '../../state/workbench';
 import type { FileTab, WorkbenchApi } from '../../state/workbench';
 import { DiffList } from './DiffList';
@@ -390,6 +391,7 @@ export function Workbench({
                     onSave={() => {
                       void store.saveFile(tab.path);
                     }}
+                    onAskSelection={askAboutSelection}
                     notice={editorNotice(tab)}
                   />
                 )}

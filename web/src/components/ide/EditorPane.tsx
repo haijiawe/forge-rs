@@ -16,6 +16,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, UIEvent } from 'react';
 import type { editor as MonacoEditorApi } from 'monaco-editor';
 import { canvasAvailableOnce } from './canvas';
+import { rangeLabel } from '../../state/ask';
+import type { SelectionAsk } from '../../state/ask';
 
 export interface EditorPaneProps {
   path: string;
@@ -41,10 +43,23 @@ export interface EditorPaneProps {
   revealLine?: number | null;
   /** Called once the reveal has been applied, so the parent can forget it. */
   onRevealed?: () => void;
+  /**
+   * 把选中的一段交给 agent。
+   *
+   * 面板只负责报告「哪段、在哪」，怎么送到输入框、要不要清空，是父组件的
+   * 事：编辑器不该知道会话、输入框、消息这些东西的存在。
+   */
+  onAskSelection?: (ask: SelectionAsk) => void;
 }
 
 /** Numbers are capped: a 1 MiB file can be 30k lines, and 30k spans cost more than the text. */
 const MAX_GUTTER_LINES = 5000;
+
+/** 一个选区，外加「问 agent」浮层该落在编辑器的哪个位置。 */
+interface MonacoPick extends SelectionAsk {
+  top: number;
+  left: number;
+}
 
 function lineNumbers(text: string): { numbers: number[]; more: number } {
   const total = text === '' ? 1 : text.split('\n').length;
@@ -70,10 +85,33 @@ function PlainEditor({
   notice,
   revealLine,
   onRevealed,
+  onAskSelection,
 }: EditorPaneProps) {
   const gutter = useRef<HTMLDivElement | null>(null);
   const area = useRef<HTMLTextAreaElement | null>(null);
   const { numbers, more } = lineNumbers(text);
+  // 选区在这里只有 select 一个事件，行号要自己从光标位置数出来；Monaco 那条
+  // 路有 selection 对象，但两条路对上层的说法必须是同一个（见 props）。
+  const [pick, setPick] = useState<SelectionAsk | null>(null);
+
+  function selected(area: HTMLTextAreaElement): void {
+    const start = area.selectionStart ?? 0;
+    const end = area.selectionEnd ?? 0;
+    if (end <= start) {
+      setPick(null);
+      return;
+    }
+    // 发给 agent 的是整行，不是从鼠标落点开始的半截：按钮上写的是「第 A–B 行」，
+    // 内容就必须是那几行。在行中间松手时，光标位置只说明选区从哪个字符起，
+    // 拿它当起点会切出 `t line5 = 5;` 这种半个词。
+    const lineStart = area.value.lastIndexOf('\n', start - 1) + 1;
+    const breakAfter = area.value.indexOf('\n', end);
+    const lineEnd = breakAfter === -1 ? area.value.length : breakAfter;
+    const picked = area.value.slice(lineStart, lineEnd);
+    const fromLine = 1 + (area.value.slice(0, lineStart).match(/\n/g)?.length ?? 0);
+    const toLine = fromLine + (picked.match(/\n/g)?.length ?? 0);
+    setPick({ path, fromLine, toLine, text: picked });
+  }
 
   useEffect(() => {
     if (revealLine === null || revealLine === undefined) return;
@@ -117,6 +155,21 @@ function PlainEditor({
         {path}
       </div>
       {notice !== null && notice !== undefined && <p className="wb-editor-notice">{notice}</p>}
+      {pick !== null && (
+        <button
+          type="button"
+          className="wb-ask-chip wb-ask-chip-bar"
+          title="把选中的代码放进输入框，后面接着写你要它做什么"
+          // 按下不抢焦点：抢走之后光标不在输入框里，人接着敲的头几个字会掉进
+          // 空处（真机上实测：点完按钮，焦点停在按钮上）。
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            onAskSelection?.(pick);
+          }}
+        >
+          问 agent（{rangeLabel(pick.fromLine, pick.toLine)}）
+        </button>
+      )}
       <div className="wb-editor-body">
         <div className="wb-gutter" ref={gutter} aria-hidden="true">
           {numbers.map((number) => (
@@ -136,6 +189,18 @@ function PlainEditor({
           aria-label={`contents of ${path}`}
           onChange={edited}
           onScroll={follow}
+          onSelect={(event) => {
+            selected(event.currentTarget);
+          }}
+          // 拖动和 Shift+方向键也会改选区，而 onSelect 不是每个宿主都会为这两条
+          // 路径触发（jsdom 就不会）。同一个处理函数挂三处，代价只有一次重算。
+          onMouseUp={(event) => {
+            selected(event.currentTarget);
+          }}
+          onKeyUp={(event) => {
+            if (!event.shiftKey) return;
+            selected(event.currentTarget);
+          }}
           onKeyDown={keyed}
         />
       </div>
@@ -160,6 +225,7 @@ function MonacoEditor({
   notice,
   revealLine,
   onRevealed,
+  onAskSelection,
 }: EditorPaneProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const editor = useRef<MonacoEditorApi.IStandaloneCodeEditor | null>(null);
@@ -168,6 +234,9 @@ function MonacoEditor({
   // because its whole job is to re-run the effects that had nothing to act on
   // during the first render: a ref changes no output and re-renders nothing.
   const [ready, setReady] = useState(false);
+  // 选区落在屏幕上的位置由 Monaco 报告，所以这里存的不只是「选了哪几行」，还有
+  // 浮层该摆在哪。位置随滚动变化，滚动事件会把它重算。
+  const [pick, setPick] = useState<MonacoPick | null>(null);
   // The callbacks live in refs so the editor is built once: re-creating it when
   // a parent re-renders would lose the cursor on every keystroke.
   const change = useRef(onChange);
@@ -262,6 +331,66 @@ function MonacoEditor({
     editor.current?.updateOptions({ readOnly: readOnly === true });
   }, [readOnly]);
 
+  // 选区：Monaco 只在光标或选区变化时通知，而「问 agent」要跟在选区旁边，所以
+  // 还要听滚动——滚出视口的那次必须把按钮收起来，不然它悬在无关的行上。
+  useEffect(() => {
+    const instance = editor.current;
+    if (!ready || instance === null) return;
+    const sync = (): void => {
+      const model = instance.getModel();
+      const selection = instance.getSelection();
+      if (model === null || selection === null) {
+        setPick(null);
+        return;
+      }
+      if (
+        selection.startLineNumber === selection.endLineNumber &&
+        selection.startColumn === selection.endColumn
+      ) {
+        setPick(null);
+        return;
+      }
+      const fromLine = selection.startLineNumber;
+      const toLine = selection.endLineNumber;
+      // 整行，不是从落点开始的那一段：按钮说的是「第 A–B 行」。Monaco 的选区
+      // 记得列号，所以行中间按下时 getValueInRange 只给半截词。
+      const text = model.getValueInRange({
+        startLineNumber: fromLine,
+        startColumn: 1,
+        endLineNumber: toLine,
+        endColumn: model.getLineMaxColumn(toLine),
+      });
+      // 只选中空白时不给入口：把一段空白发给 agent，什么都说明不了。
+      if (text.trim() === '') {
+        setPick(null);
+        return;
+      }
+      const where = instance.getScrolledVisiblePosition({ lineNumber: fromLine, column: 1 });
+      if (where === null || where.top < 0) {
+        setPick(null);
+        return;
+      }
+      // 浮层是绝对定位的：靠右的选区不能把它顶出面板，靠上的选区不能让它压住
+      // 路径栏。宽度是编辑器视口的宽度，不是窗口的。
+      const width = instance.getLayoutInfo().width;
+      setPick({
+        path,
+        fromLine,
+        toLine,
+        text,
+        top: Math.max(0, where.top),
+        left: Math.max(8, Math.min(where.left, width - 210)),
+      });
+    };
+    const moved = instance.onDidChangeCursorSelection(sync);
+    const scrolled = instance.onDidScrollChange(sync);
+    sync();
+    return () => {
+      moved.dispose();
+      scrolled.dispose();
+    };
+  }, [ready, path]);
+
   // A new file means the old mark describes nothing. Declared before the reveal
   // effect on purpose: effects run in the order they are written, so a mark made
   // for the file just opened cannot be cleared by the bookkeeping of the file
@@ -319,7 +448,29 @@ function MonacoEditor({
         {path}
       </div>
       {notice !== null && notice !== undefined && <p className="wb-editor-notice">{notice}</p>}
-      <div className="wb-editor-monaco" ref={host} aria-label={`contents of ${path}`} />
+      <div className="wb-editor-monaco-wrap">
+        <div className="wb-editor-monaco" ref={host} aria-label={`contents of ${path}`} />
+        {pick !== null && (
+          <button
+            type="button"
+            className="wb-ask-chip"
+            style={{ top: pick.top, left: pick.left }}
+            title="把选中的代码放进输入框，后面接着写你要它做什么"
+            // 同兜底编辑器：按钮不能把焦点从输入框手里拿走。
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              onAskSelection?.({
+                path: pick.path,
+                fromLine: pick.fromLine,
+                toLine: pick.toLine,
+                text: pick.text,
+              });
+            }}
+          >
+            问 agent（{rangeLabel(pick.fromLine, pick.toLine)}）
+          </button>
+        )}
+      </div>
     </div>
   );
 }

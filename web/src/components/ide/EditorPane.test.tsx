@@ -55,6 +55,13 @@ const fake = vi.hoisted(() => {
         },
       };
     },
+    // The selection chip's effect subscribes to these; a fake that answered with
+    // undefined would crash the pane rather than prove the reveal.
+    onDidChangeCursorSelection: () => ({ dispose: () => {} }),
+    onDidScrollChange: () => ({ dispose: () => {} }),
+    getSelection: () => null,
+    getScrolledVisiblePosition: () => null,
+    getLayoutInfo: () => ({ width: 800, contentLeft: 60 }),
     dispose: () => {},
   };
 
