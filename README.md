@@ -191,11 +191,15 @@ cargo build --offline --release
 细节——包括为此付出的两个开窗缺陷——在 [apps/desktop/README.md](apps/desktop/README.md)。
 
 界面本身是一个三栏工作台：文件树、Monaco 编辑器、agent 面板。编辑器通过
-`GET /api/sessions/{id}/files|file|diff` 读，通过 `PUT /api/sessions/{id}/file` 存；
-屏幕上的缓冲区不是标签页里那个摘要取自的内容时，保存会被当作冲突拒绝，草稿留在屏幕上。
-一次保存追加一条 `file/write` 事件，写明路径、字节数与写入内容的 SHA-256——**不是**
-`tool/call`，因为这里没有模型参与，转录不许声称有。会话的沙箱模式是 `read-only` 时保存直接拒绝，
-这样工具与编辑器永远不会用两种说法描述同一个会话。模型做过的事仍然全部出现在转录与事件日志里。
+`GET /api/sessions/{id}/files|file|diff` 读，通过 `PUT /api/sessions/{id}/file` 存，
+通过 `POST /api/sessions/{id}/revert` 把改动扔掉、回到 git 已提交的版本；差异列表里
+每一行都能展开成正行（统一 diff 文本，不在这边重新解析成 hunk）。屏幕上的缓冲区不是
+标签页里那个摘要取自的内容时，保存会被当作冲突拒绝，草稿留在屏幕上。一次保存追加一条
+`file/write` 事件，一次还原追加一条 `file/revert`，都写明路径、字节数与内容的 SHA-256
+——**不是** `tool/call`，因为这里没有模型参与，转录不许声称有。会话的沙箱模式是
+`read-only` 时两者都直接拒绝，这样工具与编辑器永远不会用两种说法描述同一个会话。
+git 从没提交过的文件不能被还原（`409`），因为对一个未跟踪文件来说「还原」等于删除。
+模型做过的事仍然全部出现在转录与事件日志里。
 
 ## 文档地图
 
@@ -242,7 +246,7 @@ cargo run --release -q -p hearth-bench --offline -- -strict
 `.github/workflows/ci.yml` 每次推送与 PR 跑四个 job：`test` 在 ubuntu 与 windows 上对着**最低**
 rustc（1.89）跑，`sandbox macos-latest`（`sandbox-exec` 的证据，真 macOS 内核），`lint` 在当前 stable 上
 （`fmt --check`、`clippy --all-targets -D warnings`），以及 `web`（`npm ci`、`tsc --noEmit`、
-`vitest run`、`npm run build`，然后 `scripts/bundle-budget.cjs`——它把首屏压在 600 KiB gzip、
+`vitest run`、`npm run build`，然后 `web/scripts/bundle-budget.cjs`——它把首屏压在 600 KiB gzip、
 把懒加载那一堆（Monaco 与它的语法）压在自己的上限内）。用两套工具链是因为 clippy 会在新版本里长出新
 lint：否则在 stable 上开发的人可以写出一个钉死版本的工具链永远看不见的问题——`% 2 != 0` 变成
 `is_multiple_of` 就正是这件事。CI **刻意不**传 `--offline`（冷 runner 的 registry 是空的）；

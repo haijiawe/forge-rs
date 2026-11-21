@@ -206,6 +206,31 @@ fn seed_workspace(fixture: &Fixture) {
     fs::write(fixture.workspace.join("blob.bin"), [0u8, 1, 2]).expect("blob");
 }
 
+/// Commit the seeded files, so a revert has a version to go back to.
+///
+/// Returns false when git cannot run, and every caller skips rather than failing
+/// on a machine that has no git — the point of the test is the route, not the
+/// installer.
+fn commit_workspace(fixture: &Fixture) -> bool {
+    for args in [
+        vec!["add", "README.md"],
+        vec!["commit", "--quiet", "-m", "seed"],
+    ] {
+        let done = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&fixture.workspace)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+            .args(&args)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output();
+        match done {
+            Ok(output) if output.status.success() => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
 #[test]
 fn a_directory_listing_names_the_tree_the_agent_was_given() {
     let fixture = Fixture::start("list");
@@ -587,4 +612,127 @@ fn a_save_needs_a_path_and_a_body() {
         Some(&json!({"path": "x", "text": "y"})),
     );
     assert_eq!(status, 405, "the listing route is not a save route");
+}
+
+#[test]
+fn a_revert_restores_the_committed_bytes_and_records_that_it_did() {
+    let fixture = Fixture::start_with("revert", true);
+    seed_workspace(&fixture);
+    if !commit_workspace(&fixture) {
+        return;
+    }
+    let session = fixture.create_session();
+    fs::write(fixture.workspace.join("README.md"), "# scribbled\n").expect("edit");
+
+    let (status, _, bytes) = fixture.api(
+        "POST",
+        &format!("/api/sessions/{session}/revert"),
+        Some(&json!({"path": "README.md"})),
+    );
+    assert_eq!(
+        status,
+        200,
+        "revert failed: {}",
+        String::from_utf8_lossy(&bytes)
+    );
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    let on_disk = fs::read(fixture.workspace.join("README.md")).expect("disk");
+    assert_eq!(body["bytes"].as_u64().expect("bytes"), on_disk.len() as u64);
+    // The digest describes the bytes now on disk, which is what lets a reader
+    // match the row against the file later. Comparing against the literal
+    // "# demo\n" would be a statement about the developer's autocrlf setting.
+    assert_eq!(
+        body["sha256"].as_str().expect("digest"),
+        hearth_core::sha256_hex(&on_disk)
+    );
+    assert_eq!(
+        String::from_utf8(on_disk).expect("utf8").trim_end(),
+        "# demo"
+    );
+
+    let lines = log_lines(&fixture, &session);
+    let record = lines
+        .iter()
+        .find(|line| line.contains("file/revert"))
+        .unwrap_or_else(|| panic!("no file/revert record in {lines:?}"));
+    let event: Value = serde_json::from_str(record).expect("record json");
+    assert_eq!(event["type"], "file/revert");
+    assert_eq!(event["payload"]["path"], "README.md");
+    // A revert is not a save: the log must not claim a person typed this.
+    assert!(
+        !lines.iter().any(|line| line.contains("file/write")),
+        "a revert was recorded as a write"
+    );
+    assert!(!lines.iter().any(|line| line.contains("tool/call")));
+}
+
+#[test]
+fn a_revert_refuses_an_untracked_file_and_records_nothing() {
+    let fixture = Fixture::start_with("revert-untracked", true);
+    seed_workspace(&fixture);
+    if !commit_workspace(&fixture) {
+        return;
+    }
+    let session = fixture.create_session();
+    fs::write(fixture.workspace.join("draft.txt"), "mine\n").expect("draft");
+    let before_tree = snapshot(&fixture.workspace);
+    let before_log = log_lines(&fixture, &session);
+
+    let (status, _, bytes) = fixture.api(
+        "POST",
+        &format!("/api/sessions/{session}/revert"),
+        Some(&json!({"path": "draft.txt"})),
+    );
+    assert_eq!(
+        status,
+        409,
+        "untracked revert: {}",
+        String::from_utf8_lossy(&bytes)
+    );
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    assert_eq!(body["error"]["code"], "conflict");
+    // Refused means untouched: reverting is not deleting.
+    assert_eq!(snapshot(&fixture.workspace), before_tree);
+    assert_eq!(log_lines(&fixture, &session), before_log);
+}
+
+#[test]
+fn a_revert_without_the_server_permission_is_forbidden() {
+    let fixture = Fixture::start_with("revert-readonly", false);
+    seed_workspace(&fixture);
+    let session = fixture.create_session();
+    let before_tree = snapshot(&fixture.workspace);
+
+    let (status, _, bytes) = fixture.api(
+        "POST",
+        &format!("/api/sessions/{session}/revert"),
+        Some(&json!({"path": "README.md"})),
+    );
+    assert_eq!(
+        status,
+        403,
+        "read-only revert: {}",
+        String::from_utf8_lossy(&bytes)
+    );
+    assert_eq!(snapshot(&fixture.workspace), before_tree);
+}
+
+#[test]
+fn a_revert_needs_a_path_and_refuses_other_methods() {
+    let fixture = Fixture::start_with("revert-shape", true);
+    seed_workspace(&fixture);
+    let session = fixture.create_session();
+
+    let (status, _, _) = fixture.api(
+        "POST",
+        &format!("/api/sessions/{session}/revert"),
+        Some(&json!({"path": "  "})),
+    );
+    assert_eq!(status, 400, "a blank path");
+
+    let (status, _, _) = fixture.api("POST", &format!("/api/sessions/{session}/revert"), None);
+    assert_eq!(status, 400, "a revert without a body");
+
+    let (status, _, _) = fixture.api("GET", &format!("/api/sessions/{session}/revert"), None);
+    assert_eq!(status, 405, "a revert is not a read");
 }

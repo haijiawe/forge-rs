@@ -397,6 +397,24 @@ fn workspace_failure(problem: crate::workspace_route::Problem) -> ApiFailure {
             "the file changed since it was opened; reload it before saving",
         ),
         Problem::Write => ApiFailure::new(500, code::INTERNAL, "the file could not be written"),
+        // Both refusals describe the same absence — there is no committed version
+        // to go back to — but they are different situations, and the sentence a
+        // reader needs is different in each.
+        Problem::NoRepository => ApiFailure::new(
+            409,
+            code::CONFLICT,
+            "this workspace is not a git repository, so there is no committed version to restore",
+        ),
+        Problem::NotTracked => ApiFailure::new(
+            409,
+            code::CONFLICT,
+            "git has no committed version of that file, so restoring it would delete it instead",
+        ),
+        Problem::Revert(detail) => ApiFailure::new(
+            500,
+            code::INTERNAL,
+            format!("git refused to restore the file: {detail}"),
+        ),
     }
 }
 
@@ -1580,6 +1598,9 @@ impl Server {
                 "file" if request.method == "PUT" => {
                     self.handle_workspace_write(request, segments[1])
                 }
+                "revert" if request.method == "POST" => {
+                    self.handle_workspace_revert(request, segments[1])
+                }
                 "diff" if request.method == "GET" => {
                     self.handle_workspace_diff(request, segments[1])
                 }
@@ -1592,6 +1613,7 @@ impl Server {
                 "subagents" => Err(method_not_allowed("GET")),
                 "files" => Err(method_not_allowed("GET")),
                 "file" => Err(method_not_allowed("GET, PUT")),
+                "revert" => Err(method_not_allowed("POST")),
                 "diff" => Err(method_not_allowed("GET")),
                 _ => Err(ApiFailure::new(404, code::NOT_FOUND, "no such endpoint")),
             },
@@ -1762,7 +1784,64 @@ impl Server {
         Ok(Response::json(200, &written.to_json()))
     }
 
-    /// The changes git knows about in the session's workspace.
+    /// Put one file back to its committed bytes.
+    ///
+    /// It obeys the same permission as a save (`Options.workspace_write`): a
+    /// session whose tools may not touch the workspace must not have its editor
+    /// rewrite it either, or the two faces of one session would describe
+    /// different trees and the quiet one would win.
+    ///
+    /// The event is `file/revert`, not `file/write`: both move bytes, but a reader
+    /// asking "did a person type this, or did they throw their edit away" needs an
+    /// answer the log can give.
+    fn handle_workspace_revert(&self, request: &Request, id: &str) -> ApiResult<Response> {
+        if !self.shared.options.workspace_write {
+            return Err(ApiFailure::new(
+                403,
+                code::FORBIDDEN,
+                "this server was started without permission to edit the workspace",
+            ));
+        }
+        self.prepare_post(request)?;
+        let workspace = self.session_workspace(id)?;
+        let Some(body) = self.parse_json::<FileRevertRequest>(request)? else {
+            return Err(ApiFailure::new(
+                400,
+                code::BAD_REQUEST,
+                "a body with a path is required",
+            ));
+        };
+        if body.path.trim().is_empty() {
+            return Err(ApiFailure::new(
+                400,
+                code::BAD_REQUEST,
+                "the path is required",
+            ));
+        }
+        let written = crate::workspace_route::revert_file(&workspace, &body.path)
+            .map_err(workspace_failure)?;
+
+        let _guard = lock_append(&self.shared.append_lock);
+        let state = self.fold_session(id).map_err(fold_failure)?;
+        let mut event = Event::new(
+            id,
+            EventType::FILE_REVERT,
+            Some(json!({
+                "path": written.path,
+                "bytes": written.bytes,
+                "sha256": written.sha256,
+            })),
+        );
+        event.turn = state.running;
+        self.append_locked(id, &event).map_err(|error| {
+            ApiFailure::new(
+                500,
+                code::INTERNAL,
+                format!("the file was restored but its record could not be appended: {error}"),
+            )
+        })?;
+        Ok(Response::json(200, &written.to_json()))
+    }
     ///
     /// A workspace that is not a repository, or a machine with no `git`, answers
     /// with an empty list: "nothing is versioned here" is a fact about the tree,

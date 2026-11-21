@@ -9,10 +9,10 @@ TypertRemoteService / gateway 这些远程服务器面，也不依赖任何 DSH 
 
 | 波次 | 提交 | 交付 | 证据 |
 | --- | --- | --- | --- |
-| S1 持久标识 | `47118db` | `subagent/catalog` + `subagent/descriptor` 两个事件入 `EventType::ALL`（22 类型）；`names.rs`（`^[a-z][a-z0-9-]{0,31}$`、非 `lead`、默认 `agent-N`）、`descriptor.rs`（version 3、one-shot/continuable、first-wins fold）、`catalog.rs`、`list.rs`；runner 起子时写 descriptor 并在父日志占名；`hearth subagent list --session <id> [--json]` | conformance 26 用例；`tests/identity.rs` 2 例；`check.ps1` ok |
+| S1 持久标识 | `47118db` | `subagent/catalog` + `subagent/descriptor` 两个事件入 `EventType::ALL`（22 类型）；`names.rs`（`^[a-z][a-z0-9-]{0,31}$`、非 `lead`、默认 `agent-N`）、`descriptor.rs`（version 3、one-shot/continuable、first-wins fold）、`catalog.rs`、`list.rs`；runner 起子时写 descriptor 并在父日志占名；`hearth subagent list --session <id> [--json]` | conformance 26 用例；`crates/subagent/tests/identity.rs` 2 例；`check.ps1` ok |
 | S2 并发池 | `cec20ec` | 单槽信号量 → 计数池，容量由 `Options::max_active` 定（0 取默认 1 = Go oracle 的串行行为；设大即并发）；超限排队而非 DSH 的 `ACTIVATION_LIMIT_REACHED` | runner 3 个池单测 |
-| S3 冷恢复 | `a42df34` | `continuable:true` 的 child 不写 `session/end`（停在最后一个 `turn/end`）；`Runner::resume(childId, prompt, …)` 打开同一日志追加新 turn，只靠 durable 日志，换进程也能续；one-shot / 已 end / 非 child id 在写任何事件前被拒 | `tests/resume.rs` 3 例 |
-| S4 父→子消息 | `ea42128` | `subagent` 工具加 `resume` 参数：模型可对一个 continuable child 继续发工作；resume 拒绝改 schema、不写新 catalog 行；未知/one-shot/已 end 的 id 是**报错结果**而非 panic | `tests/resume.rs` 共 5 例 |
+| S3 冷恢复 | `a42df34` | `continuable:true` 的 child 不写 `session/end`（停在最后一个 `turn/end`）；`Runner::resume(childId, prompt, …)` 打开同一日志追加新 turn，只靠 durable 日志，换进程也能续；one-shot / 已 end / 非 child id 在写任何事件前被拒 | `crates/subagent/tests/resume.rs` 3 例 |
+| S4 父→子消息 | `ea42128` | `subagent` 工具加 `resume` 参数：模型可对一个 continuable child 继续发工作；resume 拒绝改 schema、不写新 catalog 行；未知/one-shot/已 end 的 id 是**报错结果**而非 panic | `crates/subagent/tests/resume.rs` 共 5 例 |
 
 ## S5（进程外后端）— 已交付：worker 模式，我们自己的二进制
 

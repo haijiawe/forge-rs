@@ -29,7 +29,7 @@
 - **用 Go 写调度/goal 循环**：多一条 GC 运行时 + 第二套交叉编译 + 第二套错误边界；而
   `forge-go` 已经证明"Go 写过一版"这条路走了又删，重走等于交两次学费。
 - **把 Python 嵌进二进制**：打包、ABI、信号处理、GIL 在长驻进程里全是坑；插件已经能用
-  外部 Python 进程（P3 的 `tests/reference-node/smoke.py` 就是）。
+  外部 Python 进程（P3 的 `crates/plugin/tests/reference-node/smoke.py` 就是）。
 - **用 WASM/wasmtime 承载插件**：把"进程隔离"降级成"同进程沙箱"，与 `docs/contracts/`
   里的沙箱契约（真进程、真文件系统遏制）正面冲突；多一个引擎依赖也超出 9 条预算。
 

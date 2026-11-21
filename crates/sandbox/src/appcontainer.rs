@@ -815,7 +815,7 @@ pub struct WrapperSpec {
 /// Run `program args…` inside an AppContainer, and return its exit code.
 ///
 /// Public because the honest test for this is a real spawn (see
-/// `tests/appcontainer.rs`), not an inspection of the attribute list. Rule for
+/// `crates/sandbox/tests/sandbox_test.rs`), not an inspection of the attribute list. Rule for
 /// callers: grant nothing you were not asked for, and never continue when the
 /// package could not be created — a container that silently did not happen is the
 /// downgrade this crate exists to prevent.

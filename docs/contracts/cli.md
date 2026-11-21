@@ -796,6 +796,24 @@ the transcript must not claim otherwise (see §4.0.10 of
   `expectedSha256` — appends **nothing**. A record of something that did not happen
   is worse than a missing record.
 
+**Restoring a file from the editor.** The same window can throw an edit away and
+put back the version git has committed (§4.21 of [`api.md`](api.md)). That is a
+third kind of act and it gets a third event: a restore appends one `file/revert`
+naming the path, the byte count and the SHA-256 of the bytes that are now on disk
+— not `file/write`, because nothing was written by hand, and not `tool/call` for
+the same reason `file/write` is not one (see §4.0.11 of
+[`events-v1.md`](events-v1.md)). Three consequences:
+
+- The request carries the path and nothing else. There is no `expectedSha256` and
+  no text: the committed bytes are the server's to read, so a restore may be
+  repeated and may be issued by a client that never opened the file.
+- A file that git has never committed is refused with `409`, not deleted. An
+  untracked file's "committed version" does not exist, and restoring over it would
+  remove a file the operator did not ask to remove.
+- Saving every dirty buffer at once is a UI convenience with no wire shape of its
+  own: it issues one save per tab, in order, and keeps going after a failure so
+  that one stale buffer does not strand the rest.
+
 ---
 
 ## 3. Reserved, not implemented

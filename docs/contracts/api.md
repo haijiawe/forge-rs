@@ -16,10 +16,9 @@ the Rust signatures live in the crates' README.md files.
 >
 > The document was written before the code, and it remains the compatibility
 > promise: once a client ships against protocol 1 the server cannot unilaterally
-> change it. Where the shipped server and this text still disagree, the
-> disagreement is recorded as a defect in `docs/audit-m7.md` and flagged inline in
-> the affected section — that is a list of work, not permission to bend the wire
-> format.
+> change it. Where the shipped server and this text still disagree, that is a
+> defect, and it is flagged inline in the affected section — a list of work, not
+> permission to bend the wire format.
 >
 > The event format underneath is frozen: `docs/contracts/events-v1.md`. This API is
 > a transport for those events, and it must never expose state that cannot be
@@ -969,6 +968,41 @@ PUT /api/sessions/abc/file
 - **A refused save appends nothing.** Only a successful one writes a `file/write`
   event (see `events-v1.md` §4.0.10), and it is appended *after* the bytes land: a
   line describing bytes that never landed is worse than a failed save.
+
+### 4.21 `POST /api/sessions/{id}/revert`
+
+Put one file back to the bytes git has committed for it, discarding the
+working-tree change. Like §4.20 this is a **person's** act: no turn, no approval
+prompt, no `tool/call`.
+
+```
+POST /api/sessions/abc/revert
+{ "path": "src/main.rs" }
+
+200 OK
+{ "path": "src/main.rs", "bytes": 13, "sha256": "…64 hex…" }
+```
+
+- It takes no `text` and no `expectedSha256`. The bytes come from git, so there is
+  nothing for the caller to send and nothing for it to claim to know.
+- 403 when the server was started without permission to edit the workspace, for
+  the same reason as §4.20.
+- 409 `conflict` when there is no committed version to go back to: an untracked
+  file, a file added to the index and never committed, or a workspace that is not
+  a repository. **An untracked file is refused, never deleted** — removing a file
+  a person created is not going back, it is data loss with a reassuring name.
+- 500 `internal` when git refuses, carrying git's own sentence (for instance
+  "local changes would be overwritten"). That reason is the only useful thing to
+  tell the operator, so it is not thrown away.
+- 400 for a missing or blank `path`, and for every way out of the workspace
+  (§4.17's rules). `GET` on this path is `405`.
+- It restores both the index and the working tree; reverting by half would leave
+  the diff list and the disk disagreeing.
+- **A refused revert appends nothing.** A successful one writes a single
+  `file/revert` event (`events-v1.md` §4.0.11) *after* the bytes land. It is not a
+  `file/write`: both move bytes, but "a person typed this" and "a person threw
+  their edit away" are different facts, and a reader asking which happened must
+  not have to guess.
 
 ---
 

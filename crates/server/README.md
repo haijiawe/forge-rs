@@ -3,7 +3,7 @@ dir: crates/server
 layer: L3
 role: HTTP/1.1 and WebSocket over the session log
 public: [Server, Report, Entry]
-may_import: [hearth-core, hearth-session, hearth-protocol, hearth-subagent]
+may_import: [hearth-core, hearth-session, hearth-protocol, hearth-goal, hearth-subagent]
 must_not:
   - import a crate from a higher layer
   - claim behaviour that does not exist yet
@@ -77,7 +77,7 @@ impl EventWriter for Server { /* append, last_seq, path */ }
 
 - **鉴权与协议**：每个响应都带 `X-Hearth-Protocol: 1`。`/healthz` 不需要鉴权，也不碰磁盘。`/api/*` 要求 `Authorization: Bearer <token>` 或 `hearth_token` cookie，外加 `X-Hearth-Protocol: 1`；缺头是 `400 code=protocol_required`，版本不对是 `400 code=protocol_unsupported`。只接受 loopback 对端。
 - **路由**：`GET/POST /api/sessions`、`GET /api/sessions/{id}`、`.../events`、`POST .../messages`、`.../cancel`、`.../steer`、`GET .../stream`、`POST .../approvals/{id}`。不支持的方法返回 `405`，带 `Allow` 头和 `code=method_not_allowed`。
-- **工作区路由**：`GET .../files`、`GET .../file`、`GET .../diff` 与 `PUT .../file`，实现在 [`workspace_route`](src/workspace_route.rs)。工作区来自 `session/start`；`..`、绝对路径和符号链接逃逸一律拒绝；文本上限 1 MiB。写路径是唯一会改动日志之外东西的路由：除非设了 `Options.workspace_write`（CLI 从 `--sandbox` 推导它），否则一律 `403` 拒绝；它接受一个可选的 `expectedSha256` 作为乐观令牌；它经临时文件加一次 rename 落盘；事后恰好追加一条 `file/write` 事件——被拒绝的保存什么都不追加。
+- **工作区路由**：`GET .../files`、`GET .../file`、`GET .../diff`、`PUT .../file` 与 `POST .../revert`，实现在 [`workspace_route`](src/workspace_route.rs)。工作区来自 `session/start`；`..`、绝对路径和符号链接逃逸一律拒绝；文本上限 1 MiB。写路径是唯一会改动日志之外东西的路由：除非设了 `Options.workspace_write`（CLI 从 `--sandbox` 推导它），否则一律 `403` 拒绝；保存接受一个可选的 `expectedSha256` 作为乐观令牌、经临时文件加一次 rename 落盘、事后恰好追加一条 `file/write`；还原把文件退回 git 的已提交版本，事后追加一条 `file/revert`（不是 `file/write`：一个说「人写了这行」，一个说「人把改动扔了」），未被跟踪的文件会被拒绝而不是删除。两条路径上被拒绝的请求都什么都不追加。
 - **幂等**：`POST .../messages` 要求 `Idempotency-Key`；首次投递是 `202`，重放是 `200` 且带 `deduplicated: true`。追加 `turn/start(number)` 再追加信封 `turn` 匹配的 `user/message` 的是**服务端**，不是 runner，同时把该 key 存进消息 payload。
 - **WebSocket**：`GET .../stream` 做一次手写的 RFC 6455 握手（SHA-1 accept 值、掩码客户端帧），然后发一份快照、`(after, lastSeq]` 区间的积压事件，以及后续的实时事件/delta。升级之前的策略失败是普通 HTTP 状态码（401/403/400）。
 - **静态 UI**：`StaticSource::Dir(path)` 对壳路由返回 `index.html`（`no-cache`），把 `assets/*` 当不可变资源提供；`StaticSource::Embedded` 提供由 [`build.rs`](build.rs) 从 `web/dist` 生成的文件，UI 尚未构建时则返回一个 200 的占位页。`/api/*` 永远不会被静态回退吞掉。

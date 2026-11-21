@@ -118,7 +118,7 @@ func Available() Support
 macOS 是 `sandbox macos-latest` job 的 `crates/sandbox/tests/macos.rs`。仍未被证明的是
 **其他 macOS 版本与 Intel 主机**——CI 的 `macos-latest` 是 Apple Silicon。`Support.Detail`
 不再带 "unverified on this host"，但也不能说"在所有 macOS 上都验证过"。
-`docs/deps.md` 与 `docs/05-roadmap.md` 由集成者同步这条限制。
+已退役的 Go 树里的 `docs/deps.md` 与 `docs/05-roadmap.md` 由集成者同步这条限制。
 
 ### fail-closed 规则（写进 `New` 的注释并测试）
 
@@ -233,7 +233,7 @@ func Dangerous(command string) (reason string)
 | `internal/exec/exec.go`（`Sandbox` 接口 + `Cmd.Sandbox` + `ErrSandbox`） | agent U2 |
 | `internal/tool/builtin/danger.go`、`internal/tool/builtin/danger_test.go`、`internal/tool/builtin/shell.go`（拒绝分支） | agent U3 |
 | `internal/doctor/doctor.go` + 测试 | agent U4 |
-| `cmd/forge/**`、`internal/config/config.go`、`architecture.yaml`、所有 README frontmatter、`docs/05-roadmap.md`、`docs/deps.md`、`docs/README.md` | **集成者** |
+| `cmd/forge/**`、`internal/config/config.go`、`architecture.yaml`、所有 README frontmatter、已退役的 Go 树里的 `docs/05-roadmap.md`、`docs/deps.md`、本树的 `docs/README.md` | **集成者** |
 
 ## 7. 验收（集成者跑，命令与真实输出进 roadmap）
 

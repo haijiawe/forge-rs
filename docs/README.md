@@ -1,6 +1,6 @@
 # docs —— 这里有什么，以及先读哪一篇
 
-这棵树是 `hearth`，一个 Rust 实现：二十四个 crate 架在一条只追加的事件日志之上，[architecture.yaml](../architecture.yaml) 说明哪个 crate 可以 import 哪个，[tools/archcheck](../tools/archcheck) 在依赖边指向上层时让构建失败。冻结的东西是 [docs/contracts/](contracts/README.md)——v1 事件格式、CLI 文本、HTTP/WS 协议以及 M4–M6 的 crate 接口面——因为一个要由别的实现来遵守的承诺不能悄悄挪动。[tests/](../tests) 下的语料才是证明 Rust 读取器守住了这个承诺的东西：32 个事件用例、34 个 HTTP 用例、8 个 WS 用例、5 份 fixture 日志、`tests/golden/` 与 `crates/agent/tests/golden/` 下的 3 个 golden，以及内联在 `crates/llm/tests/openai.rs` 里的 SSE 转录——全部语言中立，并且是在 Go 树于 2026-11-17 被删除之前拷进来的。
+这棵树是 `hearth`，一个 Rust 实现：二十四个 crate 架在一条只追加的事件日志之上，[architecture.yaml](../architecture.yaml) 说明哪个 crate 可以 import 哪个，[tools/archcheck](../tools/archcheck) 在依赖边指向上层时让构建失败。冻结的东西是 [docs/contracts/](contracts/README.md)——v1 事件格式、CLI 文本、HTTP/WS 协议以及 M4–M6 的 crate 接口面——因为一个要由别的实现来遵守的承诺不能悄悄挪动。[tests/](../tests) 下的语料才是证明 Rust 读取器守住了这个承诺的东西：34 个事件用例、34 个 HTTP 用例、8 个 WS 用例、5 份 fixture 日志、`tests/golden/` 与 `crates/agent/tests/golden/` 下的 3 个 golden，以及内联在 `crates/llm/tests/openai.rs` 里的 SSE 转录——全部语言中立，并且是在 Go 树于 2026-11-17 被删除之前拷进来的。
 
 下面每一篇文档都属于两类之一，而类别很重要：**决策**（decision）记录某件事为什么是现在这样，并且不该自行改变；**记录**（record）是对已经发生的工作的叙述，带提交和数字，预期是收尾而不是继续延长。一个已经执行完的计划留在树里就是记录，因为它里面的验收标准是那份工作形状唯一的书面出处。
 

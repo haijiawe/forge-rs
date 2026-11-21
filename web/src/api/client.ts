@@ -282,6 +282,20 @@ export class HearthClient implements HearthApi {
     });
   }
 
+  /**
+   * Put a file back to its committed bytes.
+   *
+   * No digest travels with it: the server reads the committed version itself,
+   * so there is nothing for the caller to be stale about. That is also why a
+   * revert is safe to repeat — the second one restores the same bytes.
+   */
+  revertFile(id: string, path: string): Promise<{ path: string; bytes: number; sha256: string }> {
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/revert`, {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    });
+  }
+
   capabilities(): Promise<CapabilityReport> {
     // Decoded through parseReport rather than cast: this endpoint is newer than
     // the frozen protocol module, so an older or partial server must degrade to

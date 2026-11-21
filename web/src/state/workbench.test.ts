@@ -39,6 +39,8 @@ function fakeApi(overrides: Partial<WorkbenchApi> = {}): WorkbenchApi {
       Promise.resolve({ path, status: 'modified', text: '', truncated: false }),
     saveFile: (_sessionId, path, text) =>
       Promise.resolve({ path, bytes: text.length, sha256: digestOf(text) }),
+    revertFile: (_sessionId, path) =>
+      Promise.resolve({ path, bytes: 0, sha256: digestOf('') }),
     ...overrides,
   };
 }
@@ -430,4 +432,96 @@ describe('WorkbenchStore', () => {
     expect(store.getSnapshot().pendingClose).toBeNull();
     expect(store.getSnapshot().open).toEqual([]);
   });
-});
+
+  it('saves every dirty tab, one after another, and keeps going past a failure', async () => {
+    const order: string[] = [];
+    const saveFile = vi.fn((_sessionId: string, path: string, text: string) => {
+      order.push(path);
+      if (path === 'a.ts') {
+        return Promise.reject(new ApiError('conflict', 'the file changed since it was opened', 409));
+      }
+      return Promise.resolve({ path, bytes: text.length, sha256: digestOf(text) });
+    });
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ saveFile }) });
+    store.openFile('a.ts');
+    store.openFile('b.ts');
+    await settle();
+    store.editFile('a.ts', 'one\n');
+    store.editFile('b.ts', 'two\n');
+
+    await store.saveAll();
+
+    // Sequential, not parallel: two saves racing through one server put their
+    // `file/write` lines in an order nobody chose.
+    expect(order).toEqual(['a.ts', 'b.ts']);
+    // The failure on the first tab did not stop the second, and each tab holds
+    // its own verdict.
+    const tabs = store.getSnapshot().open;
+    expect(tabs.find((tab) => tab.path === 'a.ts')?.saveError).toContain('conflict');
+    expect(tabs.find((tab) => tab.path === 'b.ts')?.draft).toBeNull();
+    expect(tabs.find((tab) => tab.path === 'b.ts')?.file?.text).toBe('two\n');
+  });
+
+  it('saves nothing when every tab is clean', async () => {
+    const saveFile = vi.fn(() => Promise.resolve({ path: 'a.ts', bytes: 0, sha256: digestOf('') }));
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ saveFile }) });
+    store.openFile('a.ts');
+    await settle();
+
+    await store.saveAll();
+    expect(saveFile).not.toHaveBeenCalled();
+  });
+
+  it('restores the committed bytes and adopts the digest the server reported', async () => {
+    const revertFile = vi.fn((_sessionId: string, path: string) =>
+      Promise.resolve({ path, bytes: 3, sha256: digestOf('old') }),
+    );
+    const readFile = vi.fn((_sessionId: string, path: string) =>
+      Promise.resolve(textFile(path, 'old')),
+    );
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ revertFile, readFile }) });
+    store.openFile('a.ts');
+    await settle();
+    store.editFile('a.ts', 'changed\n');
+    // The draft is thrown away first, deliberately: restore is not discard.
+    store.discardDraft('a.ts');
+
+    const refusal = await store.revertToCommitted('a.ts');
+
+    expect(refusal).toBeNull();
+    const tab = store.getSnapshot().open[0];
+    // The text comes from the re-read, and the digest from the restore: the tab
+    // must be able to save again without a manual reload.
+    expect(tab?.file?.text).toBe('old');
+    expect(tab?.file?.sha256).toBe(digestOf('old'));
+    expect(tab?.draft).toBeNull();
+  });
+
+  it('refuses to restore over a draft and says why instead of throwing it away', async () => {
+    const revertFile = vi.fn((_sessionId: string, path: string) =>
+      Promise.resolve({ path, bytes: 0, sha256: digestOf('') }),
+    );
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ revertFile }) });
+    store.openFile('a.ts');
+    await settle();
+    store.editFile('a.ts', 'unsaved\n');
+
+    const refusal = await store.revertToCommitted('a.ts');
+
+    // Nothing was written and the draft survives: the button said "restore",
+    // not "discard", so it must not discard.
+    expect(revertFile).not.toHaveBeenCalled();
+    expect(refusal).toContain('未保存');
+    expect(store.getSnapshot().open[0]?.draft).toBe('unsaved\n');
+  });
+
+  it('reports a refused restore instead of only parking it on a tab that may be closed', async () => {
+    const revertFile = vi.fn(() =>
+      Promise.reject(new ApiError('conflict', 'git has no committed version of that file', 409)),
+    );
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ revertFile }) });
+
+    const refusal = await store.revertToCommitted('notes.txt');
+
+    expect(refusal).toContain('no committed version');
+  });});

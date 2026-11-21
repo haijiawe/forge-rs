@@ -213,6 +213,17 @@ pub struct FileWriteRequest {
     pub expected_sha256: Option<String>,
 }
 
+/// What `POST /api/sessions/{id}/revert` asks for: one path, no body bytes.
+///
+/// Reverting takes no text because the bytes come from git, not from the caller.
+/// That is also why it takes no digest: a digest would be the caller claiming to
+/// know what the committed version holds, and the point of asking git is that
+/// nobody has to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileRevertRequest {
+    pub path: String,
+}
+
 /// What a `user/message` event records about an attachment.
 ///
 /// The body is not in the event: it lives under a name in the data

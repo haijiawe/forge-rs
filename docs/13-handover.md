@@ -97,6 +97,7 @@ node scripts/sync.cjs --dry "message"    # 只说会做什么，不写任何东�
 - **转录是增量扫描的。** `compressedBlocks` 以前每个动画帧都走一遍所有事件；`collectBlocks`/`blocksFromScan` 保留一个扫描位置，而 `toBeyondHead` 的结论是重算而不是缓存，因为它随着 head 增长会翻转。
 - **窗口能读 workspace**，走 `GET /api/sessions/{id}/files`、`/file` 与 `/diff`——它们从 `session/start` 解析出 workspace，拒绝 `..` 与符号链接逃逸，文本上限 1 MiB，且从不写入。
 - **窗口也能把它写回去**，走 `PUT /api/sessions/{id}/file`，前面挡着一个乐观的 `expectedSha256` 校验和一个 Monaco 编辑器。一次保存追加一条 `file/write` 事件——刻意不是 `tool/call`，因为没有任何模型参与，而一份说反了的转录是没法读的；被拒的保存（会话只读、路径逃逸、摘要过期）则什么都不追加。Monaco 是打包进来的，不是从 CDN 拉的：桌面壳没有网络。
+- **改动也能被扔掉**，走 `POST /api/sessions/{id}/revert`，落一条 `file/revert` 事件（第三类动作，理由同 `file/write`）。请求只带路径：提交过的字节是服务端去读的，所以客户端的摘要过期不了，还原也能重复执行。git 从没提交过的文件返回 `409` 而不是被删掉——「已提交版本」不存在时，还原就是删除，而操作者没要求删除。界面里「保存全部（N）」是纯前端便利：逐个标签保存、一个失败不中断其余，wire 上没有任何新形状。
 
 ## 刻意没造的东西
 

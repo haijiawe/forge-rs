@@ -30,7 +30,7 @@ the Rust signatures live in the crates' README.md files.
 | U1 索引 `internal/store` | `internal/store/**` | 其它一切 |
 | U2 旧会话导入 `internal/import` | `internal/import/**` | 其它一切 |
 | U3 真实摘要器 | `internal/agent/summarizer.go`、`internal/agent/summarizer_test.go` | `internal/agent/agent.go` 等既有文件 |
-| — 集成者（lead） | `cmd/forge/main.go`、`cmd/forge/*.go` 的命令装配、所有 `README.md` frontmatter、`architecture.yaml`、`docs/deps.md` | 单元内部实现 |
+| — 集成者（lead） | `cmd/forge/main.go`、`cmd/forge/*.go` 的命令装配、所有 `README.md` frontmatter、`architecture.yaml`、已退役的 Go 树里的 `docs/deps.md` | 单元内部实现 |
 
 ## 2. U1：`internal/store`（SQLite 索引）
 
@@ -182,5 +182,5 @@ type ProviderSummarizer struct {
 - `cmd/forge/main.go`：`index`、`import` 两个 case 与 `usage` 文本。
 - 各目录 `README.md` 的 `may_import`（archcheck R3 会逼你加）。
 - `architecture.yaml`：新增 `internal/store`、`internal/import` 的层。
-- `docs/deps.md`：`modernc.org/sqlite` 一行（版本、理由、替代方案、实测构建时间）。
+- 已退役的 Go 树里的 `docs/deps.md`：`modernc.org/sqlite` 一行（版本、理由、替代方案、实测构建时间）。
 - `docs/contracts/cli.md`：`hearth index`、`hearth import` 两节。

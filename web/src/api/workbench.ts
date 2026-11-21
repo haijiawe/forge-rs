@@ -270,6 +270,20 @@ export function parseFileDiff(value: unknown, requested = ''): FileDiff {
     truncated: body.truncated === true,
   };
 }
+/**
+ * Throw the buffer away and restore the committed bytes.
+ *
+ * `bytes` and `sha256` describe what landed on disk, so the pane adopts them as
+ * the new baseline exactly as it would after a save. The call fails with
+ * `conflict` in the two cases the server refuses — no git repository, or a file
+ * git has never committed (restoring it would delete it) — and with `forbidden`
+ * when the server was started read-only.
+ */
+export async function revertFile(sessionId: string, path: string): Promise<SaveResult> {
+  const value = await http().revertFile(sessionId, path);
+  return parseSave(value, path);
+}
+
 /** Decode `{files[]}`; an answer without the key is the empty list, not an error. */
 export function parseDiff(value: unknown): DiffEntry[] {
   const body = asRecord(value);

@@ -70,7 +70,7 @@ Go 树定义过的东西现在冻结在 `docs/contracts/` 与 `tests/` 下的语
 | 加一个 agent 工具 | `crates/tool/src/builtin/`，然后在 `policy.rs` 里点名 | 没被点名的工具会被兜底规则静默拒绝 |
 | 加一个 HTTP 路由 | `crates/server/src/<x>_route.rs` + `handle_api` 里一个分支 | 路由表刻意就是一个函数 |
 | 加一个 wire 类型 | `crates/protocol/src/protocol.rs` **和** `web/src/api/protocol.ts` | 没有生成器；漂移是静默的 |
-| 加一个事件类型 | `EventType::ALL`、`docs/contracts` 里一行、一个一致性用例 | 法则 2 让类型可加，而用例才是证明 |
+| 加一个事件类型 | 五处，缺一处就有一条谎：`EventType::ALL`、`docs/contracts/events-v1.md` 的目录表行与 §4 小节、`tests/conformance/cases/events/` 一个用例、`crates/core/tests/conformance.rs` 的用例计数、`docs/README.md` 的语料计数 | 法则 2 让类型可加，而用例才是证明；`crates/core/tests/contract.rs` 会替你核对表格与计数 |
 | 加一个平台集成 | 新的 L1 或 L2 crate | crate 才是边界；模块不是 |
 | 加一个由操作者打开的能力 | 一个 `Config` 段 + `wiring.rs`，绝不默认开启 | 缺一个工具是可发现的；一个永远失败的工具不是 |
 | 加一个界面面板 | `web/src/components/`，不先问就不加 npm 依赖 | 那份预算是一份决策记录 |
@@ -85,8 +85,15 @@ crate 里的一个 trait，不是一句 import。
 cargo test --offline          # 单测 + 一致性测试
 cargo run -q -p archcheck --  # 依赖门禁
 cargo clippy -- -D warnings
+node scripts/check-links.cjs  # 文档链接与反引号里的仓库路径
 make check                    # 以上全部，顺序与 CI 一致
 ```
+
+`check-links.cjs` 查两样东西：markdown 里的相对链接，以及**反引号里写出来的仓库路径**。
+后者是因为实测过：239 条相对链接全部解析成功的同时，散文里有四处指向不存在的文件。
+它只把「顶层目录名 + 已知后缀或以 `/` 结尾」的 token 当路径，所以 `tools/call` 这种
+JSON-RPC 方法名不会被误判；指向已退役的 Go 树或 DSH 仓库的路径必须在同一行写明来历，
+否则照样报错——一个不带限定的 `docs/…` 旧文档名会让读者去本树的 docs 里找，然后什么都不信。
 
 两条环境事实，都实测过，都不可商量：
 
@@ -138,7 +145,7 @@ unknowns:  哪些东西你会如实报告而不是编出来
 | 改动 | 完成的含义 |
 | --- | --- |
 | 新 crate | 带 frontmatter 与四个小节的 README；`make arch` 绿 |
-| 新事件类型 | 进了 `EventType::ALL`、`docs/contracts` 里有对应行、有一个一致性用例 |
+| 新事件类型 | 上面「我要加东西」表里那五处都改到；`cargo test -p hearth-core --test contract` 会核对表格与计数 |
 | 修 bug | 一个在旧代码上失败、在新代码上通过的测试 |
 | 性能声明 | 这台机器上测出来的数字，以及产生它的那条命令 |
 | 平台声明 | 要么在这台机器上测过，要么标成 `本机未验证` |

@@ -12,7 +12,7 @@
 // "empty" text a statement about the workspace rather than about the network.
 
 import { ApiError } from '../api/client';
-import { listDir, listDiff, readDiff, readFile, writeFile } from '../api/workbench';
+import { listDir, listDiff, readDiff, readFile, revertFile, writeFile } from '../api/workbench';
 import type { DiffEntry, DirListing, FileDiff, FileText, SaveResult } from '../api/workbench';
 
 /** The reads and the one write the workbench performs, faked whole in tests. */
@@ -22,6 +22,7 @@ export interface WorkbenchApi {
   listDiff(sessionId: string): Promise<DiffEntry[]>;
   readDiff(sessionId: string, path: string): Promise<FileDiff>;
   saveFile(sessionId: string, path: string, text: string, expectedSha256: string): Promise<SaveResult>;
+  revertFile(sessionId: string, path: string): Promise<SaveResult>;
 }
 
 /** The real HTTP module; a module constant so a prop default keeps its identity. */
@@ -31,6 +32,7 @@ export const defaultWorkbenchApi: WorkbenchApi = {
   listDiff,
   readDiff,
   saveFile: writeFile,
+  revertFile,
 };
 
 /** One directory in the tree, keyed by its relative path ('' is the root). */
@@ -289,9 +291,89 @@ export class WorkbenchStore {
     this.patchTab(path, { draft: text === tab.file.text ? null : text, saveError: null });
   }
 
-  /** Discard the draft and show the bytes that were read. */
-  revertFile(path: string): void {
+  /**
+   * Drop the draft and go back to the bytes that were read.
+   *
+   * This is the cheap undo — it touches no disk and asks no server. Restoring
+   * the *committed* version is `revertToCommitted`, a different thing with a
+   * different name, because "revert" means both and only one of them writes.
+   */
+  discardDraft(path: string): void {
     this.patchTab(path, { draft: null, saveError: null });
+  }
+
+  /**
+   * Ask the server to put the file back to its committed bytes.
+   *
+   * Returns the reason it was refused, or null. The message is returned rather
+   * than only stored on the tab because the caller is usually the diff list,
+   * where the file may not be open at all — a failure recorded only in a tab
+   * that is not on screen is a failure nobody reads.
+   *
+   * Refused while the tab has a draft: the draft is unsaved work that exists
+   * only in this tab, and restoring first would throw it away while the operator
+   * was looking at a button labelled "restore", not "discard".
+   */
+  async revertToCommitted(path: string): Promise<string | null> {
+    const tab = this.state.open.find((entry) => entry.path === path);
+    if (tab !== undefined && tab.saving) return '这个文件正在保存，等它结束再还原。';
+    if (tab !== undefined && tab.draft !== null) {
+      const refusal = '这个标签有未保存的改动：先保存或丢弃，再还原到上次提交。';
+      this.patchTab(path, { saveError: refusal });
+      return refusal;
+    }
+    if (tab !== undefined) this.patchTab(path, { saving: true, saveError: null });
+    try {
+      const restored = await this.api.revertFile(this.state.sessionId, path);
+      // The restore answers with a digest and a size, not the text: the pane
+      // needs the bytes to show them, and re-reading is the same call the tab
+      // would make if it were opened now.
+      const fresh = await this.api.readFile(this.state.sessionId, path);
+      const live = this.state.open.find((entry) => entry.path === path);
+      if (live !== undefined && live.file !== null) {
+        this.patchTab(path, {
+          file: {
+            ...live.file,
+            text: fresh.text,
+            size: restored.bytes,
+            sha256: restored.sha256,
+            truncated: fresh.truncated,
+            binary: fresh.binary,
+          },
+          draft: null,
+          saving: false,
+          saveError: null,
+        });
+      }
+      // The diff list and the expanded row both describe bytes that just moved;
+      // re-reading them is the only way the pane stops showing the change it was
+      // just told to undo.
+      await this.loadDiff();
+      if (this.state.fileDiff?.path === path) await this.loadFileDiff(path);
+      return null;
+    } catch (error) {
+      const refusal = errorMessage(error);
+      if (tab !== undefined) this.patchTab(path, { saving: false, saveError: refusal });
+      return refusal;
+    }
+  }
+
+  /**
+   * Save every dirty tab, one after another.
+   *
+   * Sequential rather than parallel: two saves racing through one server put
+   * their `file/write` lines in an order nobody chose, and the log is the record
+   * of what happened. One failure does not stop the others — the operator asked
+   * for all of them, and a list of which ones failed is more useful than the
+   * first failure and five untouched tabs.
+   */
+  async saveAll(): Promise<void> {
+    const dirty = this.state.open
+      .filter((tab) => tab.draft !== null && !tab.saving)
+      .map((tab) => tab.path);
+    for (const path of dirty) {
+      await this.saveFile(path);
+    }
   }
 
   /**

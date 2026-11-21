@@ -61,6 +61,8 @@ function workspace(overrides: Partial<WorkbenchApi> = {}): WorkbenchApi {
       Promise.resolve({ path, status: 'modified', text: '', truncated: false }),
     saveFile: (_sessionId, path, text) =>
       Promise.resolve({ path, bytes: text.length, sha256: digestOf(text) }),
+    revertFile: (_sessionId, path) =>
+      Promise.resolve({ path, bytes: 0, sha256: digestOf('') }),
     ...overrides,
   };
 }
@@ -71,6 +73,19 @@ function buttonByText(container: HTMLElement, text: string): HTMLButtonElement {
   );
   if (found === undefined) throw new Error(`no button labelled ${text}`);
   return found;
+}
+
+/**
+ * The first button whose label starts with `text`, or null.
+ *
+ * Separate from `buttonByText` because some labels carry a count — "保存全部（2）"
+ * — and an exact match would have to be written once per number.
+ */
+function buttonByTextOrNull(container: HTMLElement, text: string): HTMLButtonElement | null {
+  const found = Array.from(container.querySelectorAll('button')).find((button) =>
+    (button.textContent ?? '').trim().startsWith(text),
+  );
+  return found ?? null;
 }
 
 function click(button: HTMLButtonElement): void {
@@ -506,5 +521,88 @@ describe('useWideLayout', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+  it('restores a row from the diff list and re-reads what it wrote', async () => {
+    const revertFile = vi.fn((_sessionId: string, path: string) =>
+      Promise.resolve({ path, bytes: 15, sha256: digestOf('export const x = 1;\n') }),
+    );
+    const readFile = vi.fn((_sessionId: string, path: string) =>
+      Promise.resolve(textFile(path, 'export const x = 1;\n')),
+    );
+    const view = mount(
+      <Workbench
+        sessionId={SESSION}
+        head={<span>head</span>}
+        agent={<span>agent</span>}
+        connecting={false}
+        needsResync={false}
+        api={workspace({
+          listDiff: () =>
+            Promise.resolve([{ path: 'src/main.ts', status: 'modified', additions: 1, deletions: 1 }]),
+          readDiff: () =>
+            Promise.resolve({
+              path: 'src/main.ts',
+              status: 'modified',
+              text: '@@ -1 +1 @@\n-export const x = 1;\n+export const x = 2;\n',
+              truncated: false,
+            }),
+          revertFile,
+          readFile,
+        })}
+      />,
+    );
+    await waitFor(() => view.container.querySelector('.wb-row-file') !== null);
+    click(buttonByText(view.container, '改动'));
+    await waitFor(() => view.container.querySelector('.wb-diff-toggle') !== null);
+
+    const toggle = view.container.querySelector<HTMLButtonElement>('.wb-diff-toggle');
+    if (toggle === null) throw new Error('no caret');
+    click(toggle);
+    await waitFor(() => buttonByTextOrNull(view.container, '还原到上次提交') !== null);
+
+    await interact(async () => {
+      buttonByText(view.container, '还原到上次提交').click();
+    });
+    await waitFor(() => revertFile.mock.calls.length === 1);
+    // The restore names the file and nothing else: the committed bytes are the
+    // server's to read, so there is no version for the client to send.
+    expect(revertFile).toHaveBeenCalledWith(SESSION, 'src/main.ts');
+    // The row is re-read, because the list still describes the change that was
+    // just undone until something asks again.
+    expect(readFile).toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it('offers one button for all dirty tabs and none when there are none', async () => {
+    const view = mount(
+      <Workbench
+        sessionId={SESSION}
+        head={<span>head</span>}
+        agent={<span>agent</span>}
+        connecting={false}
+        needsResync={false}
+        api={workspace()}
+      />,
+    );
+    await waitFor(() => view.container.querySelector('.wb-row-file') !== null);
+    // A permanent "save all" next to one clean tab teaches the operator to
+    // ignore buttons, so it is absent until something is actually dirty.
+    expect(buttonByTextOrNull(view.container, '保存全部')).toBeNull();
+
+    const file = view.container.querySelector<HTMLButtonElement>('.wb-row-file');
+    if (file === null) throw new Error('no file row');
+    click(file);
+    await waitFor(() => view.container.querySelector('.wb-textarea') !== null);
+    const editor = view.container.querySelector<HTMLTextAreaElement>('.wb-textarea');
+    if (editor === null) throw new Error('no editor');
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    await interact(() => {
+      setValue?.call(editor, '# edited\n');
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    await waitFor(() => buttonByTextOrNull(view.container, '保存全部') !== null);
+    expect(view.container.textContent).toContain('保存全部（1）');
+    view.unmount();
   });
 });

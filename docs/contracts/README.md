@@ -17,8 +17,8 @@ Rust 移植逐条实现这些行为，`tests/conformance/cases/{events,http,ws}/
 
 | 文件 | 钉住什么 |
 |---|---|
-| `events-v1.md` | 事件信封、15 种事件类型、payload 键名、追加与回放规则、压缩记录 |
-| `cli.md` | 九条命令、帮助文本、stdout/stderr 分工、退出码、doctor 十项 |
+| `events-v1.md` | 事件信封、事件类型目录（一张表定全）、payload 键名、追加与回放规则、压缩记录 |
+| `cli.md` | 命令表与用法文本、stdout/stderr 分工、退出码、doctor 的检查表 |
 | `api.md` | HTTP 与 WebSocket 的路径、状态码、错误信封、帧种类、幂等键、快照与增量 |
 | `m4-surface.md` | 索引、旧格式导入、resume/fork、压缩的公开面 |
 | `m5-surface.md` | MCP 客户端、技能加载、子代理运行器的公开面 |

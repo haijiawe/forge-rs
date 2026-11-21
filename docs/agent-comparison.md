@@ -121,7 +121,7 @@ export interface AgentEventDispatch { emit; serial; waterfall }
 3. **接线**：`crates/cli/src/wiring.rs` 在启动时一次性把插件/MCP/技能/团队工具接进来。
 
 **后果**：DSH 能在运行时用配置替换模型适配器、工具注册、甚至 agent loop 本身——这是它的
-"everything is a plugin"（`docs/architecture.md`）。hearth 要改变 agent 行为必须改代码、
+"everything is a plugin"（DSH 仓库的 `docs/architecture.md`）。hearth 要改变 agent 行为必须改代码、
 重新编译；换来的是**没有隐藏的改写者**：拿到一段日志，你能确定每个请求就是投影出来的那个
 样子，不会被某个运行时插件中途改过。
 
@@ -326,7 +326,7 @@ hearth 用一条事件 + 隐藏区间做到同样的"少发旧消息"，失败�
 - `packages/subagent/subagent/src/activation.ts`（184 行）—— ActivationPool、local/external、ChildLock
 - `packages/goal/goal-round-driver/src/index.ts`（484 行）—— 事件驱动续跑、race fence
 - `packages/compaction/compaction/README.zh.md:95-97,142` —— surfaceOp 与三事件事务
-- `docs/architecture.md` —— everything-is-a-plugin / ctx.* seam
+- DSH 仓库的 `docs/architecture.md` —— everything-is-a-plugin / ctx.* seam
 
 **hearth**（相对 `hearth/`）
 - `crates/agent/src/agent.rs`（790 行）—— Agent::run、hooks、steps/step/stream/run_tools

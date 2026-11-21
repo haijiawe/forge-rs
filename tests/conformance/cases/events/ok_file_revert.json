@@ -1,0 +1,61 @@
+{
+  "name": "ok_file_revert",
+  "description": "file/revert, the record that a person put a file back to the bytes git has committed, discarding a working-tree change. It is a separate type from file/write because the two rows describe different actions even though both move bytes: file/write says a person wrote this buffer, file/revert says a person asked for the committed version. A log that could not tell them apart would leave 'who changed this file last, and did they mean to' unanswerable. A revert only succeeds for a path with a committed version; refusals (untracked, no repository) append nothing. Payload is {path, bytes, sha256} of the bytes now on disk.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "b6c7d8091021324354657687990401",
+      "ts": 1794787200700,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "file/revert",
+      "payload": {
+        "path": "crates/agent/src/agent.rs",
+        "bytes": 28719,
+        "sha256": "4d1e2f3a5b6c7d8e9f0011223344556677889900aabbccddeeff001122334455"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "b6c7d8091021324354657687990402",
+      "ts": 1794787200701,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "file/revert",
+      "payload": {
+        "path": "notes.md",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "b6c7d8091021324354657687990401",
+      "ts": 1794787200700,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "file/revert",
+      "payload": {
+        "path": "crates/agent/src/agent.rs",
+        "bytes": 28719,
+        "sha256": "4d1e2f3a5b6c7d8e9f0011223344556677889900aabbccddeeff001122334455"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "b6c7d8091021324354657687990402",
+      "ts": 1794787200701,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "file/revert",
+      "payload": {
+        "path": "notes.md",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ]
+}

@@ -123,6 +123,25 @@ impl EventType {
     /// about the workspace, not about the conversation.
     pub const FILE_WRITE: EventType = EventType("file/write");
 
+    /// One row per file whose committed bytes a person put back through the
+    /// editor, discarding the working-tree change.
+    ///
+    /// It is a separate type from `file/write` for the reason `file/write` is a
+    /// separate type from `tool/call`: the two rows describe different actions
+    /// even though both move bytes. `file/write` says a person wrote this buffer;
+    /// `file/revert` says a person threw away an edit and asked for the version
+    /// git has. A log that could not tell them apart would make "who changed
+    /// this file last, and did they mean to" unanswerable — which is the whole
+    /// reason either row exists.
+    ///
+    /// A revert only succeeds for a path that has a committed version; the route
+    /// refuses untracked files and repositories that are not there, and a refused
+    /// revert appends nothing. Payload: `{path, bytes, sha256}` of the bytes now on
+    /// disk, so a reader can still match the file against the row after the fact.
+    ///
+    /// The projection ignores it and model history never sees it.
+    pub const FILE_REVERT: EventType = EventType("file/revert");
+
     /// Every type this build knows. A test asserts it matches the contract
     /// document, and the reader uses it to decide what it can fold.
     pub const ALL: &'static [EventType] = &[
@@ -158,6 +177,7 @@ impl EventType {
         EventType::AGENT_INBOX,
         EventType::AGENT_STATUS,
         EventType::FILE_WRITE,
+        EventType::FILE_REVERT,
     ];
 
     pub fn as_str(self) -> &'static str {

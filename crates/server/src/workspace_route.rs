@@ -82,6 +82,16 @@ pub enum Problem {
     Conflict,
     /// The bytes did not land.
     Write,
+    /// A revert was asked for a path git does not have a committed version of.
+    ///
+    /// An untracked file is the case this exists for: throwing it away is
+    /// deletion, and deletion is not a revert — the operator asked to go back to
+    /// a version, and there is no version to go back to.
+    NotTracked,
+    /// The workspace is not inside a git repository (or git could not run).
+    NoRepository,
+    /// git refused to restore the file, carrying its own explanation.
+    Revert(String),
 }
 
 /// One entry in a directory listing.
@@ -445,6 +455,70 @@ pub fn write_file(
     })
 }
 
+/// Put a file back to the bytes git has committed for it.
+///
+/// A revert is not a save. A save writes what a person typed; a revert throws the
+/// working-tree change away and asks git for the committed version. Three
+/// consequences follow, and all three are failures rather than quiet fallbacks:
+///
+/// - An untracked file is refused (`NotTracked`) instead of deleted. Removing a
+///   file somebody created is not "going back", it is data loss with a
+///   reassuring name.
+/// - A workspace with no repository is refused (`NoRepository`): there is no
+///   committed version anywhere, so there is nothing this route could mean.
+/// - `git` refusing is reported with git's own words (`Revert`), because the
+///   reason it gives ("local changes would be overwritten") is the only useful
+///   thing to tell the operator.
+pub fn revert_file(workspace: &str, relative: &str) -> Result<Written, Problem> {
+    let parts = components(relative)?;
+    if parts.is_empty() {
+        // The workspace root is a directory, and git cannot revert one.
+        return Err(Problem::NotAFile);
+    }
+    let (clean, path) = resolve(workspace, relative)?;
+    if path.is_dir() {
+        return Err(Problem::NotAFile);
+    }
+    let look = parts.join("/");
+
+    let status =
+        git(workspace, &["status", "--porcelain", "--", &look]).ok_or(Problem::NoRepository)?;
+    let status = status
+        .lines()
+        .next()
+        .map(|line| status_word(&line[..2.min(line.len())]))
+        .unwrap_or("unchanged");
+    if status == "untracked" {
+        return Err(Problem::NotTracked);
+    }
+
+    // `HEAD:<path>` is resolved from the repository root, while this route's
+    // paths are relative to the workspace, and the workspace may be a
+    // subdirectory. `--show-prefix` is how git itself spells that difference.
+    let prefix = git(workspace, &["rev-parse", "--show-prefix"]).unwrap_or_default();
+    let at_head = format!("HEAD:{}{look}", prefix.trim());
+    if git(workspace, &["cat-file", "-e", &at_head]).is_none() {
+        // Tracked, but no committed version: a file added to the index and never
+        // committed. There is still nothing to go back to.
+        return Err(Problem::NotTracked);
+    }
+
+    // `checkout HEAD -- <path>` restores both the index and the working tree, so
+    // a staged edit is discarded too. Doing it by half would leave a state where
+    // the diff list and the disk disagree.
+    if let Err(detail) = git_checked(workspace, &["checkout", "HEAD", "--", &look]) {
+        return Err(Problem::Revert(detail));
+    }
+
+    let bytes = fs::metadata(&path).map_err(|_| Problem::Read)?.len();
+    let sha256 = digest_file(&path)?;
+    Ok(Written {
+        path: clean,
+        bytes,
+        sha256,
+    })
+}
+
 /// Does the first block of this file look like something an editor cannot show?
 ///
 /// Only the first block is inspected: a NUL byte anywhere in it settles the
@@ -720,6 +794,34 @@ fn git(workspace: &str, args: &[&str]) -> Option<String> {
         return None;
     }
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Run a git command that changes the tree, keeping its own explanation on
+/// failure.
+///
+/// The read helper above answers `None` because a read that cannot run and a read
+/// that found nothing are the same fact. A write is different: git's stderr is
+/// the only thing that says *why* it refused, and a route that threw that away
+/// would leave the operator with "it did not work".
+fn git_checked(workspace: &str, args: &[&str]) -> Result<String, String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(workspace)
+        .arg("--no-pager")
+        .args(args)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if detail.is_empty() {
+            format!("git exited with {}", output.status)
+        } else {
+            detail
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 impl Listing {
@@ -1153,5 +1255,132 @@ mod tests {
         // Empty, not the digest of the prefix: a token describing the first
         // megabyte would authorise replacing the rest unseen.
         assert_eq!(read.sha256, "");
+    }
+
+    /// Write a file and commit it, so later steps have a committed version.
+    fn commit(root: &Path, name: &str, text: &str) {
+        fs::write(root.join(name), text).expect("file");
+        for args in [vec!["add", name], vec!["commit", "--quiet", "-m", "c"]] {
+            let done = Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+                .args(&args)
+                .output()
+                .expect("git");
+            assert!(done.status.success(), "git {args:?} failed");
+        }
+    }
+
+    #[test]
+    fn a_revert_puts_the_committed_bytes_back_and_reports_them() {
+        let Some(root) = repo("revert-basic") else {
+            return;
+        };
+        commit(&root, "a.txt", "committed\n");
+        fs::write(root.join("a.txt"), "scribbled over\n").expect("file");
+        let workspace = root.to_str().expect("utf8");
+
+        let written = revert_file(workspace, "a.txt").expect("revert");
+        assert_eq!(written.path, "a.txt");
+        // Compare against what landed, not against the literal: `git checkout`
+        // rewrites line endings when the repository asks for it (autocrlf on
+        // Windows), so the committed blob "committed\n" arrives as
+        // "committed\r\n" and the digest describes those bytes. Asserting the
+        // literal would make this test a statement about the developer's git
+        // configuration.
+        let bytes = fs::read(root.join("a.txt")).expect("read");
+        assert_eq!(written.bytes, bytes.len() as u64);
+        assert_eq!(written.sha256, hearth_core::sha256_hex(&bytes));
+        assert_eq!(
+            String::from_utf8(bytes).expect("utf8").trim_end(),
+            "committed"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("a.txt"))
+                .expect("read")
+                .trim_end(),
+            "committed"
+        );
+    }
+
+    #[test]
+    fn a_revert_brings_back_a_file_that_was_deleted() {
+        let Some(root) = repo("revert-deleted") else {
+            return;
+        };
+        commit(&root, "a.txt", "committed\n");
+        fs::remove_file(root.join("a.txt")).expect("remove");
+        let workspace = root.to_str().expect("utf8");
+
+        revert_file(workspace, "a.txt").expect("revert");
+        assert_eq!(
+            fs::read_to_string(root.join("a.txt"))
+                .expect("read")
+                .trim_end(),
+            "committed"
+        );
+    }
+
+    #[test]
+    fn a_revert_refuses_an_untracked_file_instead_of_deleting_it() {
+        let Some(root) = repo("revert-untracked") else {
+            return;
+        };
+        fs::write(root.join("draft.txt"), "mine\n").expect("file");
+        let workspace = root.to_str().expect("utf8");
+        assert_eq!(
+            revert_file(workspace, "draft.txt"),
+            Err(Problem::NotTracked)
+        );
+        // Refused means untouched: a revert is not a delete.
+        assert_eq!(
+            fs::read_to_string(root.join("draft.txt")).expect("read"),
+            "mine\n"
+        );
+    }
+
+    #[test]
+    fn a_revert_refuses_a_file_that_was_never_committed() {
+        let Some(root) = repo("revert-staged") else {
+            return;
+        };
+        // Staged but never committed: tracked, and still nothing to go back to.
+        fs::write(root.join("staged.txt"), "new\n").expect("file");
+        assert!(Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("add")
+            .arg("staged.txt")
+            .output()
+            .expect("add")
+            .status
+            .success());
+        let workspace = root.to_str().expect("utf8");
+        assert_eq!(
+            revert_file(workspace, "staged.txt"),
+            Err(Problem::NotTracked)
+        );
+    }
+
+    #[test]
+    fn a_revert_in_a_directory_with_no_repository_says_so() {
+        let root = scratch("revert-norepo");
+        fs::write(root.join("a.txt"), "text\n").expect("file");
+        assert_eq!(
+            revert_file(root.to_str().expect("utf8"), "a.txt"),
+            Err(Problem::NoRepository)
+        );
+    }
+
+    #[test]
+    fn a_revert_may_not_climb_out_of_the_workspace() {
+        let Some(root) = repo("revert-climb") else {
+            return;
+        };
+        assert_eq!(
+            revert_file(root.to_str().expect("utf8"), "../outside.txt"),
+            Err(Problem::BadPath)
+        );
     }
 }

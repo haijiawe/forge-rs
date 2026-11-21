@@ -26,6 +26,18 @@ export interface DiffListProps {
   onToggleLines: (path: string) => void;
   onHideLines: () => void;
   onRetryLines: (path: string) => void;
+  /**
+   * Put this file back to its committed bytes.
+   *
+   * It lives inside the expanded rows rather than on the row itself: a button
+   * that writes to the disk must not sit next to the button that opens a file
+   * for editing, or the two get clicked by the same gesture at the same speed.
+   */
+  onRevert: (path: string) => void;
+  /** The row whose restore is in flight, if any. */
+  revertingPath: string | null;
+  /** Why the last restore was refused, shown under the row it was about. */
+  revertError: string | null;
 }
 
 /**
@@ -89,6 +101,9 @@ export function DiffList({
   onToggleLines,
   onHideLines,
   onRetryLines,
+  onRevert,
+  revertingPath,
+  revertError,
 }: DiffListProps) {
   return (
     <div className="wb-diff">
@@ -170,7 +185,30 @@ export function DiffList({
                       </div>
                     )}
                     {!fileDiff.loading && fileDiff.error === null && fileDiff.body !== null && (
-                      <DiffText body={fileDiff.body} />
+                      <>
+                        <DiffText body={fileDiff.body} />
+                        <div className="wb-diff-actions">
+                          <button
+                            type="button"
+                            className="button button-ghost"
+                            disabled={revertingPath === entry.path}
+                            title="把这一行改动的文件恢复到上次提交的版本"
+                            onClick={() => {
+                              onRevert(entry.path);
+                            }}
+                          >
+                            {revertingPath === entry.path ? '正在还原…' : '还原到上次提交'}
+                          </button>
+                          {entry.status === 'untracked' && (
+                            <span className="wb-muted">
+                              这个文件还没有被提交过，还原会删掉它，所以服务端会拒绝。
+                            </span>
+                          )}
+                        </div>
+                        {revertError !== null && revertingPath === null && (
+                          <p className="wb-error wb-diff-note">{revertError}</p>
+                        )}
+                      </>
                     )}
                   </div>
                 )}

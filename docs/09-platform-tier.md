@@ -422,7 +422,7 @@ Node 自己的记账对得上，也解释了钱花在哪：`rss 55.9 MB`、
 *状态：已交付（`2b90ab5`）。那四个 crate 全绿（plugin 30+12、market 110、
 experts 77、team 48），而 `hearth plugin|expert|team|market` 是 CLI 命令。
 验收证据，全部在本机跑过：* 参照 Node 插件应答
-`initialize`、四个工具、一个提示词和一个钩子；`tests/reference-node/smoke.py`
+`initialize`、四个工具、一个提示词和一个钩子；`crates/plugin/tests/reference-node/smoke.py`
 加入同一套协议——**18 行代码**（带注释块 31 行），不是验收句最初要求的十行，而这个差距是诚实的：那张封闭表加 id 回显加 `shutdown` 应答塞不进十行；市场的拒绝路径是对着真实的 `python -m http.server` 跑的，先用一个过大的、再用一个被篡改的 tarball（每次拒绝都点名两个数字，没有任何东西落进 `bundles/`）；
 `hearth team run release-squad --max-parallel 2` 把三个名册成员派到一块板子上，每个任务由同名 worker 认领，转录在
 `<board>/workers/` 下。

@@ -38,7 +38,7 @@ DSH 的 155 万行不是注水：393 个子包各自有 README、类型契约、
 
 ### DSH：没有特权核心
 
-`docs/architecture.md` 开篇：
+DSH 仓库的 `docs/architecture.md` 开篇：
 
 > Every part of the product is a plugin, including the model adapter, the tool registry, the session log, and the agent loop itself, so each is replaceable from configuration. There is no privileged core to patch.
 
@@ -180,7 +180,7 @@ context/compressed, …
 | LSP | `packages/lsp/*`（3 个）、`tool-lsp` | 语言服务，跟文件系统共享执行世界 |
 | SSH | `packages/ssh/*`（5 个） | 远程连接 |
 | Workflow | `packages/workflow/*`（3 个） | 模型编写编排脚本，通过共享 Node PTC 进程运行 |
-| Webhook | `docs/subsystems/webhook.md` | 外部事件启动 Session |
+| Webhook | DSH 仓库的 `docs/subsystems/webhook.md` | 外部事件启动 Session |
 | 文档办公 | `packages/document/*`、`office-kit` | Office 渲染与工具 |
 | 遥测 | `packages/telemetry`、`session-telemetry-otel` | OpenTelemetry |
 | 账户/凭证 | `packages/account/*`、`credentials/*`（5 个） | 登录、授权、凭证存储 |

@@ -112,6 +112,10 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
   const [treeOpen, setTreeOpen] = useState(true);
   const [rightWidth, setRightWidth] = useState(420);
   const [dragging, setDragging] = useState(false);
+  // Restoring is a click, not a state of the session: which row is waiting and
+  // what the server said about the last attempt belong to this render.
+  const [reverting, setReverting] = useState<string | null>(null);
+  const [revertError, setRevertError] = useState<string | null>(null);
   const drag = useRef<{ x: number; width: number } | null>(null);
 
   // Dragging is tracked on the window, not on the grip, so the pointer may leave
@@ -152,6 +156,10 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
   }
 
   const tab = state.open.find((entry) => entry.path === state.activePath) ?? null;
+  // How many tabs have a draft. The button only exists when the answer is not
+  // zero: a permanent "save all" next to one clean tab is a button that teaches
+  // the operator to ignore buttons.
+  const dirtyCount = state.open.filter((entry) => entry.draft !== null).length;
   // The track count has to follow the children: a collapsed tree is not a
   // zero-width column, it is a column that is not rendered, or the grid would
   // place the centre pane in the 0px track.
@@ -186,6 +194,18 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
           >
             改动
           </button>
+          {dirtyCount > 0 && (
+            <button
+              type="button"
+              className="button button-ghost"
+              title="保存所有有改动的标签，一个接一个"
+              onClick={() => {
+                void store.saveAll();
+              }}
+            >
+              保存全部（{dirtyCount}）
+            </button>
+          )}
           <span className="wb-link-state" title="会话事件流">
             {connecting ? '连接中' : '在线'}
           </span>
@@ -231,6 +251,20 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
               }}
               onRetryLines={(path) => {
                 store.retryFileDiff(path);
+              }}
+              revertingPath={reverting}
+              revertError={revertError}
+              onRevert={(path) => {
+                // The progress and the refusal live here rather than in the
+                // store: they are about one click, and the row that asked is
+                // often not an open tab, so a message parked on a tab would be
+                // a message nobody sees.
+                setReverting(path);
+                setRevertError(null);
+                void store.revertToCommitted(path).then((refusal) => {
+                  setReverting(null);
+                  setRevertError(refusal);
+                });
               }}
             />
           ) : (
