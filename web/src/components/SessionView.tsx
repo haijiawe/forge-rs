@@ -13,6 +13,7 @@ import { SessionStore } from '../state/sessionStore';
 import { ApprovalDialog } from './ApprovalDialog';
 import { CapabilityPanel } from './CapabilityPanel';
 import { Composer } from './Composer';
+import { ErrorBanner } from './ErrorBanner';
 import { GoalPill } from './GoalPill';
 import { StatusBar } from './StatusBar';
 import { SubagentPanel } from './SubagentPanel';
@@ -202,21 +203,15 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
   const agent = (
     <>
       {state.loadError !== null && (
-        <p className="banner banner-error" role="alert">
-          读取这个会话失败：{state.loadError}
-          <button type="button" className="link-button" onClick={() => store.reload()}>
-            重试
-          </button>
-        </p>
+        <ErrorBanner
+          title="读取这个会话失败："
+          detail={state.loadError}
+          action={{ label: '重试', onClick: () => store.reload() }}
+        />
       )}
 
       {state.actionError !== null && (
-        <p className="banner banner-error" role="alert">
-          {state.actionError}
-          <button type="button" className="link-button" onClick={dismiss}>
-            关闭
-          </button>
-        </p>
+        <ErrorBanner detail={state.actionError} action={{ label: '关闭', onClick: dismiss }} />
       )}
 
       {state.needsResync && (

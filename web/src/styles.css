@@ -128,6 +128,21 @@ body {
   color: var(--warn);
 }
 
+/* 一条错误的正文：保留换行，因为栈的第二行才是真正定位问题的那一帧；长单词
+   （URL、绝对路径）允许在任意处折断，否则它会把整段推到横向滚动里。 */
+.banner-detail {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 「展开其余 N 行」「重试」「关闭」排一行，跟在正文下面。 */
+.banner-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
 .pill {
   display: inline-block;
   padding: 1px 7px;
@@ -480,12 +495,69 @@ body {
 }
 
 .tool-card-head {
+  padding: 0;
+}
+
+/* 整条头就是一个按钮：读者对着「shell cargo test 成功」点一下展开，而不是去找
+   右边那个小箭头。所以这里要把按钮自己的底色、边框、内边距都清掉，让它看起来
+   仍然是一条标题。 */
+.tool-card-toggle {
   display: flex;
-  flex-wrap: wrap;
+  /* 必修保持一行：真机上 434px 宽的事件栏里，参数提示原本会把调用 id 和状态挤到
+     第二行，卡片又变成两行（量到 64px）。行内其余元素不收缩，只有提示让位并截断。 */
+  flex-wrap: nowrap;
   gap: 9px;
   align-items: baseline;
+  width: 100%;
   padding: 7px 11px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tool-card-open .tool-card-toggle {
   border-bottom: 1px solid var(--border);
+}
+
+.tool-card-toggle:hover {
+  background: var(--bg-sunken);
+}
+
+.tool-caret {
+  color: var(--text-muted);
+  font-size: 10px;
+  flex: none;
+}
+
+/* 工具名、调用 id、状态 pill 是定长信息，不参与收缩；提示是唯一的弹性项。 */
+.tool-name,
+.tool-call-id,
+.tool-card-toggle > .pill {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* 参数字符串（命令或路径）排在这一行里，多余部分截断——完整内容仍在 title 和
+   展开后的「参数」里。 */
+.tool-hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 45ch;
+  flex: 0 1 auto;
+  /* 允许缩到比内容窄，省略号才会出现；否则 flex 会按内容宽度撑开。 */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-card-body {
+  /* 展开后的内容不能再撑开整栏宽度，也不能把身体推到屏幕外。 */
+  min-width: 0;
 }
 
 .tool-name {
@@ -2281,12 +2353,18 @@ body {
   box-shadow: inset 2px 0 0 rgba(110, 168, 254, 0.55);
 }
 /* --- side by side diff --- */
+/* 一张表铺满整栏，而不是缩到「内容有多宽」。
+   这里原来写的是 min-width: max-content，真机上量到 1861px、右列整列在屏幕外——
+   而那段 diff 最长的一行只有 38 个字符。原因是表里还有 colSpan={4} 的整行
+   （没有对应行的增减行），Chrome 把跨列单元格的 max-content 摊到每一列上，算出来
+   是真实需要的约 2.35 倍。两列各自被撑到 912px，右边那列就出界了。
+   现在交给浏览器的自动布局按比例分宽度；某一侧真的有一行很长时，表还是会被撑宽，
+   这时外面 .wb-diff 的 overflow-x 接手横向滚动——这才是该出现滚动条的情形。 */
 .wb-side {
   border-collapse: collapse;
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.55;
-  min-width: max-content;
   width: 100%;
 }
 .wb-side td {

@@ -51,7 +51,11 @@ export interface DiffListProps {
  * the format would mean owning its awkward cases instead of reading them.
  */
 function lineClass(line: string): string {
-  if (line.startsWith('+++') || line.startsWith('---')) return 'wb-diff-line wb-diff-meta';
+  // 判据必须带那个空格：git 的文件头是 "+++ b/path" / "--- a/path"，而删除行
+  // 的前缀本身就是一个 '-'，内容再以 "++" 开头时整行是 "+++..."——不带空格会把
+  // 内容行当成文件头，画成灰色元信息。同样的判据见 deer-flow
+  // frontend/src/core/workspace-changes/summary.ts:30（它的注释也是这么写的）。
+  if (line.startsWith('+++ ') || line.startsWith('--- ')) return 'wb-diff-line wb-diff-meta';
   if (line.startsWith('@@')) return 'wb-diff-line wb-diff-hunk';
   if (line.startsWith('+')) return 'wb-diff-line wb-diff-add';
   if (line.startsWith('-')) return 'wb-diff-line wb-diff-del';
