@@ -55,6 +55,7 @@ if (-not $SkipLint) {
     Step 'lint' { cargo clippy --workspace --all-targets --offline -- -D warnings }
 }
 Step 'links' { node scripts/check-links.cjs }
+Step 'translations' { node scripts/check-translations.cjs }
 Step 'arch' { cargo run -q -p archcheck --offline -- }
 Step 'test' { cargo test --workspace --offline }
 

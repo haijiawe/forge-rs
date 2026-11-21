@@ -8,6 +8,8 @@ the Rust signatures live in the crates' README.md files.
 -->
 # hearth event format, version 1
 
+> 中文全文：[events-v1.zh.md](events-v1.zh.md)（事件格式契约的完整翻译）。英文原文是规范；两者冲突时以本文件为准，并回去修译文。
+
 > **中文导读。** 这份契约管一件事：`<dataDir>/sessions/<会话 id>.jsonl` 里每一行长什么样、
 > 什么算合法、什么必须拒绝。任何语言的实现只靠这份文本就该能读写本树的事件日志。
 >

@@ -152,7 +152,8 @@ function looksLikePath(token) {
   const clean = token.trim();
   if (clean.length === 0 || clean.length > 200) return false;
   // 通配、占位、命令、章节号、URL：都不是一个具体文件。
-  if (/[*?<>{}[\]$|"'`\s]/.test(clean)) return false;
+  // `…` 与 `...` 也是占位：写出来就是在说「这里随情况变」，不是给出一个文件。
+  if (/[*?<>{}[\]$|"'`\s]|…|\.\.\./.test(clean)) return false;
   if (/^(https?|mailto|file):/.test(clean)) return false;
   if (clean.startsWith('#') || clean.startsWith('-')) return false;
   if (/\b(cargo|node|npm|git|pwsh|make)\b/.test(clean)) return false;

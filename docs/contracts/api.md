@@ -8,6 +8,8 @@ the Rust signatures live in the crates' README.md files.
 -->
 # hearth HTTP + WebSocket API contract, protocol version 1
 
+> 中文全文：[api.zh.md](api.zh.md)（HTTP + WebSocket 协议契约的完整翻译）。英文原文是规范；两者冲突时以本文件为准，并回去修译文。
+
 > **中文导读。** 这份契约管一件事：`hearth web` 对外暴露的 HTTP + WebSocket 面（协议版本 1）。
 > 浏览器 UI、桌面壳、任何脚本客户端都只按这份文本工作；一旦有客户端按协议 1 发布，服务端就不能单方面改它。
 >

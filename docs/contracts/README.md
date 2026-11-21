@@ -24,6 +24,19 @@ Rust 移植逐条实现这些行为，`tests/conformance/cases/{events,http,ws}/
 | `m5-surface.md` | MCP 客户端、技能加载、子代理运行器的公开面 |
 | `m6-surface.md` | 沙箱三档、执行挂载点、危险命令名单、doctor 的沙箱检查 |
 
+其中三份 wire 契约还有完整中文翻译，**英文原文是规范**：
+
+| 原文 | 译文 |
+|---|---|
+| `events-v1.md` | [`events-v1.zh.md`](events-v1.zh.md) |
+| `cli.md` | [`cli.zh.md`](cli.zh.md) |
+| `api.md` | [`api.zh.md`](api.zh.md) |
+
+`m4`–`m6` 本来就写成中文，没有另开译文。译文与原文的结构由
+[`scripts/check-translations.cjs`](../../scripts/check-translations.cjs) 守着：围栏代码块必须逐字节相同、
+标题层级序列相同、表格行数相同、两份文件互相指名。**散文不比对**——那做不到，所以改正文的人
+要记得同时改译文，否则 `check.ps1` 会红在结构上（而那通常意味着你两边只改了一边）。
+
 ## 公开面
 
 没有代码，只有契约。读它的人（人、agent、测试）都只看行为。

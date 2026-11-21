@@ -8,6 +8,8 @@ the Rust signatures live in the crates' README.md files.
 -->
 # hearth CLI contract
 
+> 中文全文：[cli.zh.md](cli.zh.md)（命令行契约的完整翻译）。英文原文是规范；两者冲突时以本文件为准，并回去修译文。
+
 > **中文导读。** 这份契约管一件事：`hearth` 这个二进制的命令行面——哪些命令存在、每个命令输出什么、
 > 退出码是什么。它**逐字**约束输出，因为脚本和 agent 会按字节比对。
 >
@@ -1287,6 +1289,12 @@ packed hello 1.0.0 (3 file(s))
 ```
 
 ### Exit codes
+
+| Code | Name | When |
+| --- | --- | --- |
+| `0` | success | `list`, `verify`, `search`, `install` and `remove` all completed. `verify` on an empty root exits `0`: nothing installed is nothing wrong. |
+| `1` | failure | The work failed and the tool refused to go on: `verify` found a recorded file whose digest changed, `remove` refused to delete such a file, `install`'s download did not match the index digest, or the named bundle is not installed. |
+| `2` | usage error | Unknown command; a command that needs an index run without `--index` (there is no default index — one this tool invented would be an index nobody published); a bad flag. |
 
 ### Platform-specific bundles
 

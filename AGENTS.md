@@ -86,6 +86,7 @@ cargo test --offline          # 单测 + 一致性测试
 cargo run -q -p archcheck --  # 依赖门禁
 cargo clippy -- -D warnings
 node scripts/check-links.cjs  # 文档链接与反引号里的仓库路径
+node scripts/check-translations.cjs  # 译文与原文的结构没有走散
 make check                    # 以上全部，顺序与 CI 一致
 ```
 
@@ -94,6 +95,9 @@ make check                    # 以上全部，顺序与 CI 一致
 它只把「顶层目录名 + 已知后缀或以 `/` 结尾」的 token 当路径，所以 `tools/call` 这种
 JSON-RPC 方法名不会被误判；指向已退役的 Go 树或 DSH 仓库的路径必须在同一行写明来历，
 否则照样报错——一个不带限定的 `docs/…` 旧文档名会让读者去本树的 docs 里找，然后什么都不信。
+`check-translations.cjs` 查 `docs/contracts/` 里「原文 + `.zh.md` 译文」这一对有没有走散：
+围栏代码块逐字节相同、标题层级序列相同、表格行数相同、两份文件互相指名。**散文不比对**，
+那做不到；它守的是结构，散文只能靠人。改契约正文时记得同时改译文，否则这道门禁会红。
 
 两条环境事实，都实测过，都不可商量：
 
