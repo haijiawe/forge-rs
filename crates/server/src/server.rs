@@ -1524,13 +1524,35 @@ impl Server {
         Ok(out)
     }
 
+    /// The snapshot `GET /api/capabilities` answers with.
+    ///
+    /// Two of its three vocabulary sections are filled here rather than by the
+    /// caller, because this crate is where they live: the event types are
+    /// `hearth_core::EventType::ALL` and the routes are [`crate::ROUTES`]. A
+    /// caller that had to remember them would eventually not, and the panel
+    /// would say "0 event types" on a build that writes thirty-three — which
+    /// reads as "this build is broken", not "someone forgot a line".
+    ///
+    /// `tools` is *not* filled here: listing them means building the tool
+    /// objects, and `hearth-tool` is a layer above this one. Whoever wired the
+    /// tools is the only party that knows what it registered.
+    fn capability_report(&self) -> crate::capabilities::Report {
+        let mut report = self.shared.options.capabilities.clone();
+        report.events = hearth_core::EventType::ALL
+            .iter()
+            .map(|typ| typ.as_str().to_string())
+            .collect();
+        report.routes = crate::routes::entries();
+        report
+    }
+
     fn handle_api(&self, request: &Request, segments: &[&str]) -> ApiResult<Response> {
         // Not under `/sessions`: this describes the process, not one log. It is
         // a GET only, and it answers from an in-memory snapshot -- no plugin
         // process, no filesystem walk, nothing on the request path.
         if segments.len() == 1 && segments[0] == "capabilities" {
             return match request.method.as_str() {
-                "GET" => Ok(Response::json(200, &self.shared.options.capabilities)),
+                "GET" => Ok(Response::json(200, &self.capability_report())),
                 _ => Err(method_not_allowed("GET")),
             };
         }

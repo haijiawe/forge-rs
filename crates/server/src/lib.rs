@@ -21,6 +21,10 @@ mod goal_route;
 /// tool appends to. Private for the same reason as `teams` and `goal_route`.
 mod present_route;
 pub mod ratelimit;
+/// The HTTP surface as a table, so `capabilities` can print it and a test can
+/// walk it. Public: a client that wants to know what this build serves should
+/// not have to read `server.rs`.
+pub mod routes;
 pub mod server;
 /// The subagent tree of one session joined with each child's timing. Private:
 /// a wire shape for one route, not part of this crate's boundary.
@@ -38,4 +42,5 @@ pub use api::{
 };
 pub use capabilities::{Entry, Report};
 pub use ratelimit::{RateLimit, RateLimiter};
+pub use routes::{Route, ROUTES};
 pub use server::{Server, WS_SUBPROTOCOL};

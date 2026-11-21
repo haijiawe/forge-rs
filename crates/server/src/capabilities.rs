@@ -16,6 +16,15 @@
 //! 2. **An empty group means "none configured", never "not supported".** Every
 //!    group is always present in the JSON, even when empty, because a missing
 //!    key and an empty list read differently to a UI and the second one is true.
+//!
+//! A third rule governs *who fills* each section. Configuration — plugins,
+//! experts, teams, bundles, skills, MCP servers, and the tool list — can only be
+//! discovered by the CLI, because discovering it means reading roots that belong
+//! to crates above this one. Build vocabulary cannot: `events` comes from
+//! `hearth_core::EventType::ALL` and `routes` from [`crate::ROUTES`], both of
+//! which this crate already has. [`crate::Server::capability_report`] therefore
+//! fills those two on every request, so no caller can forget them and no
+//! snapshot can claim a build knows zero event types.
 
 use serde::{Deserialize, Serialize};
 
@@ -68,6 +77,19 @@ pub struct Report {
     pub skills: Vec<Entry>,
     /// MCP servers named in the configuration.
     pub mcp: Vec<Entry>,
+    /// The tools this build registers when nothing extra is configured. These
+    /// are vocabulary, not configuration: they exist whether or not an operator
+    /// turned anything on. Tools that only appear after a plugin or an MCP
+    /// server loads are *not* listed here -- see the module note on why a
+    /// snapshot cannot answer that, and read the session's `llm/call` events for
+    /// what actually reached the model.
+    pub tools: Vec<Entry>,
+    /// Every event type this build writes, in the order `EventType::ALL` states.
+    /// A reader that meets one it does not know may skip it; this list is how a
+    /// reader finds out it is not looking at something newer than itself.
+    pub events: Vec<String>,
+    /// The HTTP surface, from [`crate::routes::ROUTES`].
+    pub routes: Vec<Entry>,
 }
 
 #[cfg(test)]
@@ -87,6 +109,9 @@ mod tests {
             "bundles",
             "skills",
             "mcp",
+            "tools",
+            "events",
+            "routes",
         ] {
             assert!(
                 json.contains(&format!("\"{key}\"")),

@@ -516,7 +516,10 @@ change while the process runs.
   "teams": [],
   "bundles": [],
   "skills": [],
-  "mcp": []
+  "mcp": [],
+  "tools": [{ "name": "fs_read", "detail": "reads a file in the workspace", "active": true }],
+  "events": ["session/start", "session/end", "turn/start"],
+  "routes": [{ "name": "GET /api/capabilities", "detail": "…", "active": true }]
 }
 ```
 
@@ -525,6 +528,27 @@ Every group is always present, and an empty array means "none configured" — ne
 right now: an installed but disabled plugin, or a roster entry marked
 `enabled: false`, appears with `active: false`. That row is the reason the route
 exists; describing it is the point, so it is never omitted.
+
+The last three groups are **vocabulary, not configuration**. They answer "what
+does this build know", and they are true on a machine with nothing installed:
+
+- `tools` names the tools registered unconditionally. Tools that only appear after
+  a plugin or an MCP server loads are *not* listed — a snapshot taken at startup
+  cannot know them. What actually reached the model is in the session's `llm/call`
+  events, which is the only authority on that question.
+- `events` lists every event type in the writing build's catalogue, in the order
+  the code states them. A reader that meets an event type it does not recognise may
+  skip it; this list is how a reader finds out it is not looking at something newer
+  than itself.
+- `routes` lists the HTTP surface: one `"<METHOD> <path>"` string per endpoint, with
+  paths written using `{placeholders}`. Adding a route without adding a row costs
+  nothing; a row whose route no longer exists is a red test, because a declaration
+  that outlives its endpoint makes an agent call a URL and read the resulting `404`
+  as its own mistake.
+
+`events` and `routes` are filled by the server from the build itself, so they are
+correct even if the process was wired with nothing. `tools` is filled by whoever
+wired the tools, because enumerating them means building them.
 
 Nothing here starts a process or walks the disk on the request path: the server
 carries data the CLI discovered at startup, because the crates that can discover

@@ -25,6 +25,51 @@ pub struct Facts<'a> {
     pub data_dir: &'a Path,
 }
 
+/// The tools this build registers when nothing optional is configured.
+///
+/// `present` and `worktree` are in here because they are unconditional; the
+/// network tools and the platform bridges are not, because they only exist when
+/// an operator configured them. Calling this twice a second would be wasteful —
+/// it builds the tool objects — so it is called once, at startup, while the
+/// report is being assembled.
+fn builtin_tools() -> Vec<Entry> {
+    let default = hearth_tool::Options::new(hearth_tool::DefaultLimits);
+    hearth_tool::names(&default)
+        .into_iter()
+        .map(|name| Entry::new(name.clone(), describe_tool(&name).to_string(), true))
+        .collect()
+}
+
+/// One line about a builtin, in the vocabulary of the person reading the panel.
+///
+/// Returns a `&'static str` so every arm stays a literal: a `String` return type
+/// would force `.to_string()` onto seventeen arms to serve a caller that already
+/// owns the row it is building.
+fn describe_tool(name: &str) -> &'static str {
+    match name {
+        "fs_read" => "读工作区里的文件",
+        "fs_write" => "写工作区里的文件",
+        "fs_edit" => "按精确匹配替换文件里的一段文字",
+        "fs_glob" => "按通配符找文件",
+        "fs_grep" => "按正则搜索文件内容",
+        "read_image" => "把一张图片读进对话（只在沙箱允许读它的路径范围内）",
+        "shell" => "在工作区里跑一条命令，输出受截断限制",
+        "worktree" => "在 git 里建、列、删工作树",
+        "present" => "把一个文件交给操作者（登记路径，不改内容）",
+        "todo_write" => "维护本轮的任务清单",
+        "web_fetch" => "抓一个 URL 并抽成文本",
+        "web_search" => "向已配置的搜索端点查询",
+        "skill" => "按需读取一个技能",
+        "subagent" => "派出一个子代理",
+        "expert" => "召唤名册里的一个专家",
+        "team" => "在一块工作板上并行跑一个团队",
+        "goal_end" => "声明目标的裁决（完成或受阻）",
+        // A tool added later would otherwise show an empty line, and an empty
+        // line reads like "nothing to say" rather than "not described yet".
+        _ => "这个构建注册的工具；没有为它写说明",
+    }
+}
+
 /// Build the snapshot. Every section is best-effort: a broken roster yields the
 /// rows it could read plus a diagnostic row, never an error, because the browser
 /// panel must not be the reason a server refuses to start.
@@ -35,6 +80,13 @@ pub fn report(cfg: &Config, facts: &Facts<'_>) -> Report {
         model: facts.model.to_string(),
         ..Default::default()
     };
+
+    // The tool list first, because it is the part no one else can fill: building
+    // the tool objects is this crate's job, and `hearth-server` sits a layer
+    // below `hearth-tool`. The event types and the route table are *not* set
+    // here -- `Server::capability_report` fills those two from the build itself,
+    // so there is one place that can be wrong instead of two.
+    report.tools = builtin_tools();
 
     // Plugins: the interesting row is the installed-but-disabled one, so scan
     // both roots and mark rows active by comparing against `plugins.enabled`.
@@ -54,11 +106,11 @@ pub fn report(cfg: &Config, facts: &Facts<'_>) -> Report {
     for manifest in found {
         let active = enabled.iter().any(|name| name == &manifest.name);
         let detail = format!(
-            "{} {} ({} runtime){}",
+            "{} {}（{} 运行时）{}",
             manifest.name,
             manifest.version,
             manifest.runtime.as_str(),
-            if active { "" } else { ", not enabled" }
+            if active { "" } else { "，未启用" }
         );
         report
             .plugins
@@ -67,7 +119,7 @@ pub fn report(cfg: &Config, facts: &Facts<'_>) -> Report {
     for (path, error) in broken {
         report.plugins.push(Entry::inactive(
             path.display().to_string(),
-            format!("unreadable manifest: {}", error.message()),
+            format!("清单读不出来：{}", error.message()),
         ));
     }
 
@@ -89,7 +141,7 @@ pub fn report(cfg: &Config, facts: &Facts<'_>) -> Report {
             Ok(_) => {}
             Err(error) => report.experts.push(Entry::inactive(
                 root.display().to_string(),
-                format!("unreadable roster: {}", error.message()),
+                format!("名册读不出来：{}", error.message()),
             )),
         }
     }
@@ -109,7 +161,7 @@ pub fn report(cfg: &Config, facts: &Facts<'_>) -> Report {
         report.teams.push(Entry::new(
             team.slug.clone(),
             format!(
-                "{} member(s), coordinator {}",
+                "{} 名成员，协调者是 {}",
                 team.members.len(),
                 team.coordinator
             ),
@@ -127,14 +179,14 @@ pub fn report(cfg: &Config, facts: &Facts<'_>) -> Report {
                 let name = record.name.clone();
                 report.bundles.push(Entry::new(
                     name.clone(),
-                    format!("{} installed {}", record.version, record.installed_at),
+                    format!("{}，安装于 {}", record.version, record.installed_at),
                     enabled.iter().any(|item| item == &name),
                 ));
             }
         }
         Err(error) => report.bundles.push(Entry::inactive(
             "market",
-            format!("unreadable installed set: {}", error.message()),
+            format!("已安装清单读不出来：{}", error.message()),
         )),
     }
 
@@ -162,7 +214,7 @@ pub fn report(cfg: &Config, facts: &Facts<'_>) -> Report {
         }
         Err(error) => report.skills.push(Entry::inactive(
             "skills",
-            format!("unreadable skill roots: {}", error.message()),
+            format!("技能根目录读不出来：{}", error.message()),
         )),
     }
 
@@ -249,7 +301,7 @@ mod tests {
             .find(|entry| entry.name == "counter")
             .expect("the installed plugin is named even though it is off");
         assert!(!row.active, "an unenabled plugin must not read as active");
-        assert!(row.detail.contains("not enabled"), "{}", row.detail);
+        assert!(row.detail.contains("未启用"), "{}", row.detail);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -277,7 +329,44 @@ mod tests {
             .find(|entry| entry.name == "counter")
             .expect("row");
         assert!(row.active);
-        assert!(!row.detail.contains("not enabled"), "{}", row.detail);
+        assert!(!row.detail.contains("未启用"), "{}", row.detail);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_report_names_every_builtin_tool_with_a_line() {
+        let dir = scratch("tools");
+        let mut cfg = Config::defaults();
+        cfg.data_dir = dir.display().to_string();
+        let report = report(&cfg, &facts(&dir, "C:/work"));
+
+        let names: Vec<&str> = report.tools.iter().map(|row| row.name.as_str()).collect();
+        for expected in [
+            "fs_read",
+            "fs_write",
+            "fs_edit",
+            "fs_glob",
+            "fs_grep",
+            "read_image",
+            "shell",
+            "worktree",
+            "present",
+            "todo_write",
+        ] {
+            assert!(
+                names.contains(&expected),
+                "the report does not name {expected}; it names {names:?}"
+            );
+        }
+        for row in &report.tools {
+            assert!(
+                !row.detail.trim().is_empty(),
+                "{} has no detail, and a row without one is a row an agent cannot act on",
+                row.name
+            );
+            assert!(row.active, "a builtin is registered, so it is active");
+        }
 
         let _ = std::fs::remove_dir_all(&dir);
     }
