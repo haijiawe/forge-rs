@@ -201,6 +201,15 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
 
   const agent = (
     <>
+      {state.loadError !== null && (
+        <p className="banner banner-error" role="alert">
+          读取这个会话失败：{state.loadError}
+          <button type="button" className="link-button" onClick={() => store.reload()}>
+            重试
+          </button>
+        </p>
+      )}
+
       {state.actionError !== null && (
         <p className="banner banner-error" role="alert">
           {state.actionError}

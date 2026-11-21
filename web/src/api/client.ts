@@ -50,6 +50,22 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Can this failure heal on its own?
+ *
+ * A fetch that never reached the server — offline, a connection reset, the
+ * desktop shell navigating into a session while the page is still settling —
+ * rejects with a TypeError, not an ApiError. A 5xx, a 429 or a 408 is the
+ * server saying the same thing: try again. Everything else (a 401 with a stale
+ * token, a 404 for a session that was deleted, a protocol mismatch) will fail
+ * identically forever, so retrying it only delays the sentence the reader
+ * needs.
+ */
+export function isTransientFailure(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return true;
+  return error.status >= 500 || error.status === 429 || error.status === 408;
+}
+
 export interface ClientOptions {
   /** Origin the API lives on; '' means same origin (the shipped UI). */
   baseUrl?: string;

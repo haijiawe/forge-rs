@@ -9,6 +9,7 @@ import {
   HearthClient,
   TOKEN_STORAGE_KEY,
   captureToken,
+  isTransientFailure,
   streamUrl,
 } from './client';
 import { HeaderVersion, IdempotencyKeyHeader, Version } from './protocol';
@@ -150,3 +151,27 @@ describe('HearthClient', () => {
     expect(streamUrl('https://hearth.local', 'a', 0)).toBe('wss://hearth.local/api/sessions/a/stream?after=0');
   });
 });
+describe('isTransientFailure', () => {
+  it('treats a request that never reached the server as worth retrying', () => {
+    // What the browser throws for a reset connection, an offline page, or a
+    // document that was navigated away from mid-read.
+    expect(isTransientFailure(new TypeError('Failed to fetch'))).toBe(true);
+    expect(isTransientFailure(new Error('socket hang up'))).toBe(true);
+  });
+
+  it('retries the statuses a server uses to say "later"', () => {
+    expect(isTransientFailure(new ApiError('internal', 'boom', 500))).toBe(true);
+    expect(isTransientFailure(new ApiError('unavailable', 'restarting', 503))).toBe(true);
+    expect(isTransientFailure(new ApiError('rate_limited', 'slow down', 429))).toBe(true);
+    expect(isTransientFailure(new ApiError('timeout', 'took too long', 408))).toBe(true);
+  });
+
+  it('does not retry an answer that would come back the same', () => {
+    // A bad token, a deleted session, a version the server will keep speaking:
+    // retrying these only delays the sentence the reader needs.
+    expect(isTransientFailure(new ApiError('unauthorized', 'bad token', 401))).toBe(false);
+    expect(isTransientFailure(new ApiError('not_found', 'gone', 404))).toBe(false);
+    expect(isTransientFailure(new ApiError('protocol_mismatch', 'v', 400))).toBe(false);
+  });
+});
+

@@ -304,3 +304,35 @@ describe('SessionView compressed blocks', () => {
     await flush();
   });
 });
+describe('SessionView 首屏读取失败', () => {
+  it('读不到会话时是「读取失败 + 重试」，点一下真的重读', async () => {
+    let calls = 0;
+    const api = fakeApi({
+      getSession: vi.fn(async () => {
+        calls += 1;
+        if (calls === 1) throw new ApiError('unauthorized', 'bad token', 401);
+        return sessionDetail;
+      }),
+    });
+    const view = mountView(api);
+
+    await waitFor(() => view.container.querySelector('.banner-error') !== null);
+    // 401 不值得重试，所以它是一次就交出去的；文案说清楚这不是「上一次操作失败」。
+    expect(view.container.textContent).toContain('读取这个会话失败：unauthorized: bad token');
+    expect(api.getSession).toHaveBeenCalledTimes(1);
+
+    const retry = Array.from(view.container.querySelectorAll('button')).find(
+      (button) => button.textContent === '重试',
+    );
+    if (retry === undefined) throw new Error('no retry button');
+    interact(() => {
+      retry.click();
+    });
+
+    await waitFor(() => view.container.querySelector('.banner-error') === null);
+    await waitFor(() => textareaOf(view.container).placeholder.includes('给代理发消息'));
+    expect(api.getSession).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
+});
+

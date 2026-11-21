@@ -7,7 +7,7 @@
 // therefore produces one render, which is the requirement in
 // docs/05-roadmap.md M3 ("no jank while streaming").
 
-import { ApiError } from '../api/client';
+import { ApiError, isTransientFailure } from '../api/client';
 import type { HearthApi, OutgoingAttachment } from '../api/client';
 import type { Event } from '../api/events';
 import { latestToolNames } from './capabilities';
@@ -63,6 +63,15 @@ export interface SessionViewState {
   needsResync: boolean;
   /** User-facing error from a failed mutation (send/decide). */
   actionError: string | null;
+  /**
+   * The screen could not read the session at all — the first GET, the first
+   * page of events, or a resync after the stream came back with a gap.
+   *
+   * Separate from `actionError` because it is a different sentence: nothing
+   * arrived, so the transcript below is not the truth, and the reader needs a
+   * way to ask again rather than a knob that only closes the notice.
+   */
+  loadError: string | null;
 }
 
 export interface SessionStoreOptions {
@@ -76,6 +85,14 @@ export interface SessionStoreOptions {
   cancelFrame?: (handle: number) => void;
   /** Initial page size for the REST transcript load and resyncs. */
   pageSize?: number;
+  /**
+   * Retry schedule for the reads that build the screen. Transient failures
+   * (nothing reached the server, 5xx, 429) are tried again this many times,
+   * waiting the given milliseconds before each attempt; a terminal one (401,
+   * 404) is shown at once, because it would fail the same way again. Injected
+   * in tests so the schedule is a list of zero waits.
+   */
+  retry?: { delaysMs?: readonly number[]; wait?: (ms: number) => Promise<void> };
 }
 
 function defaultScheduleFrame(callback: () => void): number {
@@ -129,6 +146,7 @@ export class SessionStore {
       connecting: false,
       needsResync: false,
       actionError: null,
+      loadError: null,
     };
   }
 
@@ -159,22 +177,68 @@ export class SessionStore {
     }
   }
 
+  /**
+   * Run one read, and try it again while it fails in a way that can heal.
+   *
+   * The retry lives here rather than in each caller because every read the
+   * screen needs on the way up (the session, a page of events) is safe to
+   * repeat: they are GETs of an immutable prefix. The cursor moves with the
+   * caller's state, so a retried page is the page the caller still needs.
+   */
+  private async attempt<T>(read: () => Promise<T>): Promise<T> {
+    const delays = this.options.retry?.delaysMs ?? [400, 1200, 3000];
+    const wait =
+      this.options.retry?.wait ??
+      ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    for (let i = 0; ; i += 1) {
+      try {
+        return await read();
+      } catch (error) {
+        if (this.disposing || i >= delays.length || !isTransientFailure(error)) throw error;
+        await wait(delays[i] ?? 0);
+        if (this.disposing) throw error;
+      }
+    }
+  }
+
   private async loadInitial(): Promise<void> {
     const { api, sessionId } = this.options;
     try {
-      const session = await api.getSession(sessionId);
+      const session = await this.attempt(() => api.getSession(sessionId));
       if (this.disposing) return;
       this.machine.state.session = session;
       // The first page is a resync page: the machine requires it to start at
       // seq 1 and to be dense, which GET /events guarantees.
       await this.pullPages();
+      if (this.state.loadError !== null) {
+        this.state = { ...this.state, loadError: null };
+        this.schedule();
+      }
     } catch (error) {
       if (this.disposing) return;
-      this.setActionError(errorMessage(error));
+      this.setLoadError(errorMessage(error));
     }
     if (this.disposing) return;
-    this.openStream();
+    // A reload after a failure must not leave a second socket behind: the one
+    // opened by the first attempt is still live and still carrying the cursor.
+    if (this.stream === null) this.openStream();
     this.schedule();
+  }
+
+  /**
+   * Ask again after the screen failed to read the session.
+   *
+   * The retry schedule already tried the transient cases on its own; this is
+   * the path for the reader who watched a terminal one (or an exhausted
+   * schedule) and wants one more attempt before giving up on the page.
+   */
+  reload(): void {
+    if (this.disposing || this.resyncing) return;
+    // `connecting` only when there is no socket yet: with a live one the page is
+    // not connecting, it is re-reading over REST, and a stuck 「连接中」 would be
+    // a lie the status bar keeps telling.
+    this.state = { ...this.state, loadError: null, connecting: this.stream === null };
+    void this.loadInitial();
   }
 
   private openStream(): void {
@@ -240,7 +304,13 @@ export class SessionStore {
   private handleEffects(effects: ReturnType<StreamMachine['apply']>): void {
     for (const effect of effects) {
       if (effect.kind === 'resync') {
-        void this.pullPages();
+        // A resync that cannot read is the same situation as a first read that
+        // cannot read: the transcript on screen is not the log, so it is said
+        // as a load failure with a way to ask again -- not as a mutation error
+        // that the reader would read as "my last action failed".
+        void this.pullPages().catch((error: unknown) => {
+          if (!this.disposing) this.setLoadError(errorMessage(error));
+        });
       } else {
         this.state = { ...this.state, streamError: effect.message, connecting: false };
       }
@@ -260,14 +330,12 @@ export class SessionStore {
       for (;;) {
         const state: StreamState = this.machine.state;
         if (!state.needsResync && state.lastSeq >= state.headSeq && state.lastSeq > 0) break;
-        const page = await api.events(sessionId, state.lastSeq, pageSize);
+        const page = await this.attempt(() => api.events(sessionId, state.lastSeq, pageSize));
         if (this.disposing) return;
         const before = this.machine.state.lastSeq;
         this.enqueue({ kind: 'page', page });
         if (this.machine.state.lastSeq <= before) break; // no progress: stop
       }
-    } catch (error) {
-      if (!this.disposing) this.setActionError(errorMessage(error));
     } finally {
       this.resyncing = false;
       this.schedule();
@@ -324,12 +392,18 @@ export class SessionStore {
       connecting: this.state.connecting,
       needsResync: machineState.needsResync,
       actionError: this.state.actionError,
+      loadError: this.state.loadError,
     };
     for (const listener of this.listeners) listener();
   }
 
   private setActionError(message: string): void {
     this.state = { ...this.state, actionError: message };
+    this.schedule();
+  }
+
+  private setLoadError(message: string): void {
+    this.state = { ...this.state, loadError: message, connecting: false };
     this.schedule();
   }
 

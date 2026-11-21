@@ -71,7 +71,15 @@ function storeFor(api: HearthApi): SessionStore {
     token: 'tok',
     // Publish inline instead of waiting for a frame: no fake timers needed.
     scheduleFrame: () => 0,
+    // The retry schedule is a list of waits, so a test that walks it does not
+    // spend the real four seconds the browser would.
+    retry: { delaysMs: [1, 1, 1], wait: async () => undefined },
   });
+}
+
+/** A fetch that never reached the server, the way the browser reports it. */
+function networkFailure(): Promise<never> {
+  return Promise.reject(new TypeError('Failed to fetch'));
 }
 
 describe('SessionStore.steerTurn', () => {
@@ -274,3 +282,106 @@ describe('SessionStore flush with compressed blocks', () => {
     }
   });
 });
+describe('SessionStore — 首屏读取失败', () => {
+  /** A store that publishes for real, with the retry schedule flattened. */
+  function storing(api: HearthApi): SessionStore {
+    return new SessionStore({
+      api,
+      sessionId: 'sess-1',
+      token: 'tok',
+      scheduleFrame: (callback) => {
+        setTimeout(callback, 0);
+        return 0;
+      },
+      retry: { delaysMs: [1, 1, 1], wait: async () => undefined },
+    });
+  }
+
+  it('一次没到服务器的读取会自己再试，成功后不留下错误', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    try {
+      let calls = 0;
+      const api = fakeApi({
+        getSession: vi.fn(async () => {
+          calls += 1;
+          if (calls === 1) return await networkFailure();
+          return sessionDetail;
+        }),
+      });
+      const store = storing(api);
+      store.start();
+      await until(() => store.getSnapshot().session !== null);
+
+      expect(api.getSession).toHaveBeenCalledTimes(2);
+      expect(store.getSnapshot().loadError).toBeNull();
+      store.stop();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('重试用尽之后把错误交给页面，并且不是「上一次操作失败」', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    try {
+      const api = fakeApi({ getSession: vi.fn(async () => await networkFailure()) });
+      const store = storing(api);
+      store.start();
+      await until(() => store.getSnapshot().loadError !== null);
+
+      // 初次 + 三次重试：delaysMs 有三个等待，所以一共四次尝试。
+      expect(api.getSession).toHaveBeenCalledTimes(4);
+      const snapshot = store.getSnapshot();
+      expect(snapshot.loadError).toBe('Failed to fetch');
+      expect(snapshot.actionError).toBeNull();
+      store.stop();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('401 这种重试也不会有别的结果的失败只读一次', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    try {
+      const api = fakeApi({
+        getSession: vi.fn(async () => {
+          throw new ApiError('unauthorized', 'bad token', 401);
+        }),
+      });
+      const store = storing(api);
+      store.start();
+      await until(() => store.getSnapshot().loadError !== null);
+
+      expect(api.getSession).toHaveBeenCalledTimes(1);
+      expect(store.getSnapshot().loadError).toBe('unauthorized: bad token');
+      store.stop();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('页面上的「重试」会再读一次，成功之后错误消失', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    try {
+      let calls = 0;
+      const api = fakeApi({
+        getSession: vi.fn(async () => {
+          calls += 1;
+          if (calls <= 4) throw new ApiError('internal', 'database is locked', 503);
+          return sessionDetail;
+        }),
+      });
+      const store = storing(api);
+      store.start();
+      await until(() => store.getSnapshot().loadError !== null);
+      expect(store.getSnapshot().loadError).toBe('internal: database is locked');
+
+      store.reload();
+      await until(() => store.getSnapshot().session !== null);
+      expect(store.getSnapshot().loadError).toBeNull();
+      store.stop();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
