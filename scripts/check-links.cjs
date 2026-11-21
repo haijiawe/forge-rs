@@ -125,6 +125,26 @@ const EXTENSIONS = [
   '.yml',
 ];
 
+// 构建产物：在本地存在，在干净检出里不存在。把 `bin/hearth.exe` 报成断链是错的
+// ——它确实在那里，只是需要一个 `cargo build`。CI 在干净检出上跑这个脚本，所以这
+// 条名单是被 CI 教出来的：第一次带上反引号检查时，它报了 12 条，全是这一种。
+// 只跳过产物本身，不跳过整个目录：`bin/README.md` 是被跟踪的，写错它要能报出来。
+const GENERATED = [
+  'bin/hearth.exe',
+  'bin/hearth',
+  'target/',
+  'web/dist',
+  'web/node_modules/',
+];
+
+// 生成物的前缀（目录形态）：`web/dist/assets/` 这种要按前缀看。
+const GENERATED_PREFIXES = ['target/', 'web/dist/', 'web/node_modules/'];
+
+function isGenerated(bare) {
+  if (GENERATED.includes(bare) || GENERATED.includes(`${bare}/`)) return true;
+  return GENERATED_PREFIXES.some((prefix) => bare.startsWith(prefix));
+}
+
 function looksLikePath(token) {
   const clean = token.trim();
   if (clean.length === 0 || clean.length > 200) return false;
@@ -147,6 +167,8 @@ function looksLikePath(token) {
 // 限定词）、或 null（不在名单里，照常查）。
 function conditioning(token, line) {
   const bare = token.trim().replace(/[,.;]$/, '');
+  // 构建产物在干净检出里不存在是正常的，不是断链。
+  if (isGenerated(bare)) return 'skip';
   for (const entry of RETIRED) {
     const matches = bare === entry.token || bare.startsWith(entry.token);
     if (!matches) continue;
