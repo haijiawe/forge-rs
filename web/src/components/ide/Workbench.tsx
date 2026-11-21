@@ -19,6 +19,7 @@ import type { FileTab, WorkbenchApi } from '../../state/workbench';
 import { DiffList } from './DiffList';
 import { EditorPane } from './EditorPane';
 import { FileTree } from './FileTree';
+import { SearchPanel } from './SearchPanel';
 import { Tabs } from './Tabs';
 
 /** Below this the three columns stop being usable; SessionView falls back. */
@@ -216,17 +217,31 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
       <div className="wb-body" style={{ gridTemplateColumns: columns }}>
         {treeOpen && (
           <aside className="wb-pane wb-pane-tree">
-            <FileTree
-              dirs={state.dirs}
-              expanded={state.expanded}
-              activePath={state.activePath}
-              onToggleDir={(path) => {
-                store.toggleDir(path);
+            <SearchPanel
+              search={state.search}
+              onSearch={(query) => {
+                store.search(query);
               }}
-              onOpenFile={(path) => {
-                store.openFile(path);
+              onClear={() => {
+                store.clearSearch();
+              }}
+              onOpenHit={(path, line) => {
+                store.openHit(path, line);
               }}
             />
+            {state.search === null && (
+              <FileTree
+                dirs={state.dirs}
+                expanded={state.expanded}
+                activePath={state.activePath}
+                onToggleDir={(path) => {
+                  store.toggleDir(path);
+                }}
+                onOpenFile={(path) => {
+                  store.openFile(path);
+                }}
+              />
+            )}
           </aside>
         )}
 
@@ -336,6 +351,13 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
                     path={tab.file.path}
                     text={tab.draft ?? tab.file.text}
                     readOnly={tab.file.binary || tab.file.truncated}
+                    // A reveal belongs to the path it was recorded for: a line
+                    // number left over from a search hit would otherwise jump the
+                    // reader to line 40 of whatever file they opened next.
+                    revealLine={state.reveal?.path === tab.path ? state.reveal.line : null}
+                    onRevealed={() => {
+                      store.clearReveal();
+                    }}
                     onChange={(text) => {
                       store.editFile(tab.path, text);
                     }}

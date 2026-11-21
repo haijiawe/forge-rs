@@ -163,6 +163,45 @@ export async function readDiff(sessionId: string, path: string): Promise<FileDif
   return parseFileDiff(value, path);
 }
 
+/** One line the search matched. */
+export interface SearchHit {
+  /** Workspace-relative, the same spelling the file tree uses. */
+  path: string;
+  line: number;
+  column: number;
+  /** The line as written, trimmed and possibly cut by the server. */
+  text: string;
+}
+
+/**
+ * The answer to one search.
+ *
+ * `files` and `truncated` exist so that "没找到" can be read correctly: a search
+ * that stopped at its cap and a search that walked the whole tree are different
+ * facts, and a pane that says the same sentence for both teaches the operator
+ * to distrust it.
+ */
+export interface SearchAnswer {
+  query: string;
+  files: number;
+  truncated: boolean;
+  hits: SearchHit[];
+}
+
+/**
+ * Search every text file under the workspace for a substring.
+ *
+ * Case-insensitive on the server, which returns the line as written: what was
+ * typed into a search box is "I think it says something like this", not "I know
+ * the exact spelling".
+ */
+export async function searchFiles(sessionId: string, query: string): Promise<SearchAnswer> {
+  const value = await http().getJson<unknown>(
+    sessionPath(sessionId, `/search?q=${encodeURIComponent(query)}`),
+  );
+  return parseSearch(value, query);
+}
+
 /**
  * Save a buffer. `expectedSha256` empty means "I have no token, overwrite".
  *
@@ -282,6 +321,42 @@ export function parseFileDiff(value: unknown, requested = ''): FileDiff {
 export async function revertFile(sessionId: string, path: string): Promise<SaveResult> {
   const value = await http().revertFile(sessionId, path);
   return parseSave(value, path);
+}
+
+/**
+ * Decode `{query, files, truncated, hits[]}`.
+ *
+ * A `hits` that is not a list is an empty answer here rather than a thrown
+ * error: a search that found nothing and a search whose body this build cannot
+ * read both leave the tree alone, and the box above the results already says
+ * how many files were read. What is *not* tolerated is a hit without a path —
+ * it could not be opened, so it would be a row that cannot be used.
+ */
+export function parseSearch(value: unknown, requested = ''): SearchAnswer {
+  const body = asRecord(value);
+  const hits: SearchHit[] = [];
+  const raw = body?.hits;
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const hit = asRecord(item);
+      if (hit === null) continue;
+      const path = text(hit.path);
+      if (path === '') continue;
+      hits.push({
+        path,
+        line: count(hit.line),
+        column: count(hit.column),
+        text: text(hit.text),
+      });
+    }
+  }
+  const echo = text(body?.query);
+  return {
+    query: echo === '' ? requested : echo,
+    files: count(body?.files),
+    truncated: body?.truncated === true,
+    hits,
+  };
 }
 
 /** Decode `{files[]}`; an answer without the key is the empty list, not an error. */

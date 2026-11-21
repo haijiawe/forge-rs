@@ -167,6 +167,8 @@ All paths are under `{base}`. `{id}` is a session id; an unknown id is
 | 18 | `GET` | `/api/sessions/{id}/file` | One file of that workspace, as text | `200` |
 | 19 | `GET` | `/api/sessions/{id}/diff` | The changes git knows about in that workspace; `?path=` narrows it to one file's lines | `200` |
 | 20 | `PUT` | `/api/sessions/{id}/file` | Save an edited buffer into that workspace | `200` |
+| 21 | `POST` | `/api/sessions/{id}/revert` | Put one file back to its committed bytes | `200` |
+| 22 | `GET` | `/api/sessions/{id}/search` | The lines in that workspace containing ?q= | `200` |
 
 ### 4.1 `GET /healthz`
 
@@ -1051,6 +1053,47 @@ POST /api/sessions/abc/revert
   their edit away" are different facts, and a reader asking which happened must
   not have to guess.
 
+### 4.22 `GET /api/sessions/{id}/search`
+
+Ask the workspace for the lines that contain a substring.
+
+```
+GET /api/sessions/{id}/search?q=needle
+GET /api/sessions/{id}/search?q=needle&limit=50
+```
+
+```json
+{
+  "query": "needle",
+  "files": 214,
+  "truncated": false,
+  "hits": [
+    { "path": "crates/core/src/event.rs", "line": 124, "column": 9, "text": "pub const FILE_REVERT: EventType = ..." }
+  ]
+}
+```
+
+- `q` is the substring, matched case-insensitively; the answer keeps each line
+  **as it is written on disk**, so a reader can paste it back into the file.
+- `column` is 1-based and counted in characters, not bytes: a byte offset in a
+  file full of CJK would point at the middle of a character.
+- `files` is how many files were actually read. It is not decoration: it is what
+  lets a reader tell "there is no such line" from "I did not look everywhere".
+- `truncated` is `true` when either the match limit or the file limit was
+  reached. `hits: []` with `truncated: true` means *not found yet*, not *absent*.
+- Binary files (any NUL byte in the first block read) and files larger than
+  §4.18's 1 MiB cap are skipped rather than half-searched.
+- `.git`, `target` and `node_modules` are not descended into — the same three
+  names §4.17 omits, for the same reason: they are not the workspace's source.
+- Symlinks are not followed, so a link cannot walk the search out of the
+  workspace.
+- 400 `bad_request` for a missing or blank `q`. An empty query matches every line
+  in every file, which is never what someone typed into a search box; answering
+  it would be a slow way of saying "you asked for everything".
+- `limit` defaults to 200 and is clamped to 1..=200.
+- The workspace comes from `session/start`, exactly as in §4.17.
+
+---
 ---
 
 ## 5. Error envelope

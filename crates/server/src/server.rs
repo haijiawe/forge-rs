@@ -415,6 +415,14 @@ fn workspace_failure(problem: crate::workspace_route::Problem) -> ApiFailure {
             code::INTERNAL,
             format!("git refused to restore the file: {detail}"),
         ),
+        // An empty query matches every line in the tree. Answering it would be a
+        // fast way to send the whole workspace over one request, which is not
+        // what somebody who cleared the search box asked for.
+        Problem::EmptyQuery => ApiFailure::new(
+            400,
+            code::BAD_REQUEST,
+            "the q parameter is required: an empty query matches every line in the workspace",
+        ),
     }
 }
 
@@ -1626,6 +1634,9 @@ impl Server {
                 "diff" if request.method == "GET" => {
                     self.handle_workspace_diff(request, segments[1])
                 }
+                "search" if request.method == "GET" => {
+                    self.handle_workspace_search(request, segments[1])
+                }
                 "stream" => Err(method_not_allowed("GET")),
                 "events" => Err(method_not_allowed("GET")),
                 "messages" => Err(method_not_allowed("POST")),
@@ -1637,6 +1648,7 @@ impl Server {
                 "file" => Err(method_not_allowed("GET, PUT")),
                 "revert" => Err(method_not_allowed("POST")),
                 "diff" => Err(method_not_allowed("GET")),
+                "search" => Err(method_not_allowed("GET")),
                 _ => Err(ApiFailure::new(404, code::NOT_FOUND, "no such endpoint")),
             },
             4 if segments[2] == "approvals" => {
@@ -1890,6 +1902,29 @@ impl Server {
                 Ok(Response::json(200, &serde_json::json!({ "files": files })))
             }
         }
+    }
+
+    /// Text search across every file in that workspace.
+    ///
+    /// Bounded on purpose: the query may be one character, and a workspace may
+    /// contain a directory with fifty thousand files in it. The answer says how
+    /// many files were read and whether the caps were reached, so "no matches"
+    /// and "not looked at" do not wear the same sentence.
+    fn handle_workspace_search(&self, request: &Request, id: &str) -> ApiResult<Response> {
+        let workspace = self.session_workspace(id)?;
+        let query = request.query("q").unwrap_or_default();
+        if query.trim().is_empty() {
+            return Err(workspace_failure(
+                crate::workspace_route::Problem::EmptyQuery,
+            ));
+        }
+        let limit = request
+            .query("limit")
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(crate::workspace_route::MAX_MATCHES);
+        let found =
+            crate::workspace_route::search(&workspace, query, limit).map_err(workspace_failure)?;
+        Ok(Response::json(200, &found.to_json()))
     }
 
     /// The subagent tree of one session, joined with each child's timing.

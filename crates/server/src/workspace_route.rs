@@ -92,6 +92,9 @@ pub enum Problem {
     NoRepository,
     /// git refused to restore the file, carrying its own explanation.
     Revert(String),
+    /// A search with no needle in it. An empty query matches every line, which is
+    /// never what someone typing into a search box meant.
+    EmptyQuery,
 }
 
 /// One entry in a directory listing.
@@ -280,11 +283,7 @@ pub fn list_dir(workspace: &str, relative: &str) -> Result<Listing, Problem> {
     let mut out = Vec::new();
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        // 编辑器与工具链的垃圾：列出 `.git` 的树，会把读面板的人真正要找的文件挤下去。
-        // `target` 与 `node_modules` 同理，而且它们是**大**垃圾——这棵树自己的
-        // `target` 有 4 GB，列一个目录要读几万个条目，为的是让 `node_modules`
-        // 出现在一份源码清单里。
-        if name == ".git" || name == "target" || name == "node_modules" {
+        if is_noise(&name) {
             continue;
         }
         let meta = match entry.metadata() {
@@ -744,6 +743,221 @@ pub fn diff_for(workspace: &str, relative: &str) -> Result<DiffBody, Problem> {
         text,
         truncated,
     })
+}
+
+/// 一次搜索最多返回多少条命中。
+pub const MAX_MATCHES: usize = 200;
+
+/// 一次搜索最多读多少个文件。
+///
+/// 没有上限的搜索在 4 GB 的 `target` 旁边就是一次挂起。到了上限就明说结果不
+/// 完整，而不是让面板一直转圈——一个转圈的搜索和一个没找到的搜索，看起来一样。
+pub const MAX_SEARCH_FILES: usize = 20_000;
+
+/// 一行预览最多保留多少字节。
+const MAX_LINE_BYTES: usize = 400;
+
+/// 一条命中。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hit {
+    /// 相对工作区的路径，与文件树用的是同一种写法。
+    pub path: String,
+    /// 行号，从 1 起——编辑器与编译器的约定。
+    pub line: u32,
+    /// 列号，从 1 起，按**字符**计数（读者数的是字符，不是字节）。
+    pub column: u32,
+    /// 那一行的内容，尾部空白去掉，长行截断。
+    pub text: String,
+}
+
+/// 一次搜索的结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Found {
+    pub query: String,
+    /// 读过多少个文件：让「没找到」能区分成「扫过了但没有」与「根本没扫到」。
+    pub files: usize,
+    /// 命中或文件数触到了上限，结果不完整。
+    pub truncated: bool,
+    pub hits: Vec<Hit>,
+}
+
+impl Hit {
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "path": self.path,
+            "line": self.line,
+            "column": self.column,
+            "text": self.text,
+        })
+    }
+}
+
+impl Found {
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "query": self.query,
+            "files": self.files,
+            "truncated": self.truncated,
+            "hits": self.hits.iter().map(Hit::to_json).collect::<Vec<_>>(),
+        })
+    }
+}
+
+/// 在整棵工作区里按子串搜文本。
+///
+/// 三条刻意的选择：
+///
+/// - **不跟符号链接**。一次搜索顺手走到工作区外面，是最容易发生、最难发现的
+///   越界；要找外面的东西，那是另一个请求。
+/// - **只读看起来是文本的文件**。含 NUL 字节或不是 UTF-8 的文件跳过而不是报错：
+///   它们的命中会在面板里渲染成乱码，等于用噪声换掉了下一行真正有用的话。
+/// - **大小写不敏感，但按原文返回那一行**。搜索框里的输入是「我记得大概是这样」，
+///   不是「我知道它一定这么写」。
+pub fn search(workspace: &str, query: &str, limit: usize) -> Result<Found, Problem> {
+    let needle = query.trim();
+    if needle.is_empty() {
+        return Err(Problem::EmptyQuery);
+    }
+    let root = match fs::canonicalize(workspace) {
+        Ok(root) => root,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(Problem::NotFound)
+        }
+        Err(_) => return Err(Problem::Read),
+    };
+    let limit = limit.clamp(1, MAX_MATCHES);
+    let lowered = needle.to_lowercase();
+
+    let mut hits = Vec::new();
+    let mut files = 0usize;
+    let mut truncated = false;
+    let mut stack: Vec<(PathBuf, String)> = vec![(root, String::new())];
+
+    while let Some((dir, prefix)) = stack.pop() {
+        if truncated {
+            break;
+        }
+        let entries = match fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            // 一个读不了子目录不该让整次搜索失败：报告里已经有 `files` 与
+            // `truncated` 两个字段说明这次扫得有多全。
+            Err(_) => continue,
+        };
+        let mut children: Vec<(String, PathBuf, bool)> = Vec::new();
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if is_noise(&name) {
+                continue;
+            }
+            let kind = match entry.file_type() {
+                Ok(kind) => kind,
+                Err(_) => continue,
+            };
+            if kind.is_symlink() {
+                continue;
+            }
+            if !kind.is_dir() && !kind.is_file() {
+                continue;
+            }
+            let size = if kind.is_file() {
+                match entry.metadata() {
+                    Ok(meta) => meta.len(),
+                    Err(_) => continue,
+                }
+            } else {
+                0
+            };
+            // 超过读上限的文件不是「找不到」，是读不了：如实跳过。
+            if kind.is_file() && size > MAX_TEXT_BYTES {
+                continue;
+            }
+            children.push((name, entry.path(), kind.is_dir()));
+        }
+        // 目录先压栈、后遍历，但结果最后统一排序，所以这里只需要一个稳定顺序。
+        children.sort_by(|left, right| left.0.cmp(&right.0));
+        for (name, path, is_dir) in children {
+            let relative = if prefix.is_empty() {
+                name
+            } else {
+                format!("{prefix}/{name}")
+            };
+            if is_dir {
+                stack.push((path, relative));
+                continue;
+            }
+            if files >= MAX_SEARCH_FILES {
+                truncated = true;
+                break;
+            }
+            files += 1;
+            let bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            };
+            if bytes.contains(&0) {
+                continue;
+            }
+            let text = match String::from_utf8(bytes) {
+                Ok(text) => text,
+                Err(_) => continue,
+            };
+            for (index, line) in text.lines().enumerate() {
+                let lowered_line = line.to_lowercase();
+                if let Some(offset) = lowered_line.find(&lowered) {
+                    let column = lowered_line[..offset].chars().count() as u32 + 1;
+                    hits.push(Hit {
+                        path: relative.clone(),
+                        line: index as u32 + 1,
+                        column,
+                        text: preview(line),
+                    });
+                    if hits.len() >= limit {
+                        truncated = true;
+                        break;
+                    }
+                }
+            }
+            if truncated {
+                break;
+            }
+        }
+    }
+
+    // 结果按路径、行号排序：遍历顺序是实现细节，读者按下一次搜索时该看到同样的
+    // 顺序，否则「刚才那一条在第几行」只能靠记。
+    hits.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then_with(|| left.line.cmp(&right.line))
+    });
+
+    Ok(Found {
+        query: needle.to_string(),
+        files,
+        truncated,
+        hits,
+    })
+}
+
+/// 目录遍历里一律跳过的名字。
+///
+/// `.git` 是版本库的元数据，不是源码；`target` 与 `node_modules` 是构建与依赖
+/// 产物——这棵树自己的 `target` 有 4 GB，列一次、搜一次都要读几万个条目。
+fn is_noise(name: &str) -> bool {
+    name == ".git" || name == "target" || name == "node_modules"
+}
+
+/// 一行预览：去掉行尾空白，过长时按字符边界截断并留一个省略号。
+fn preview(line: &str) -> String {
+    let trimmed = line.trim_end();
+    if trimmed.len() <= MAX_LINE_BYTES {
+        return trimmed.to_string();
+    }
+    let mut end = MAX_LINE_BYTES;
+    while end > 0 && !trimmed.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &trimmed[..end])
 }
 
 /// Cut a body at the read cap, reporting whether anything was dropped.
@@ -1387,5 +1601,93 @@ mod tests {
             revert_file(root.to_str().expect("utf8"), "../outside.txt"),
             Err(Problem::BadPath)
         );
+    }
+
+    #[test]
+    fn a_search_finds_a_line_in_a_nested_file_and_skips_the_noise() {
+        let root = scratch("search-basic");
+        fs::create_dir_all(root.join("src/deep")).expect("dirs");
+        fs::create_dir_all(root.join("node_modules/left-pad")).expect("dirs");
+        fs::create_dir_all(root.join("target/debug")).expect("dirs");
+        fs::write(
+            root.join("src/deep/thing.rs"),
+            "fn main() {\n    let 名字 = 1;\n}\n",
+        )
+        .expect("file");
+        fs::write(root.join("README.md"), "nothing to see\n").expect("file");
+        // 噪声目录里放一个一定命中的词：它出现在结果里，就说明跳过名单坏了。
+        fs::write(root.join("node_modules/left-pad/index.js"), "NEEDLE\n").expect("file");
+        fs::write(root.join("target/debug/out.txt"), "NEEDLE\n").expect("file");
+
+        let found = search(root.to_str().expect("utf8"), "名字", MAX_MATCHES).expect("search");
+        assert_eq!(found.hits.len(), 1, "{:?}", found.hits);
+        assert_eq!(found.hits[0].path, "src/deep/thing.rs");
+        assert_eq!(found.hits[0].line, 2);
+        assert_eq!(found.hits[0].column, 9);
+        assert_eq!(found.hits[0].text, "    let 名字 = 1;");
+        assert_eq!(found.files, 2, "只有源码与 README 该被读");
+        assert!(!found.truncated);
+
+        let noise = search(root.to_str().expect("utf8"), "NEEDLE", MAX_MATCHES).expect("search");
+        assert!(noise.hits.is_empty(), "{:?}", noise.hits);
+    }
+
+    #[test]
+    fn a_search_is_case_insensitive_and_reports_the_line_as_written() {
+        let root = scratch("search-case");
+        fs::write(root.join("a.txt"), "Alpha\nbeta\nALPHA again\n").expect("file");
+        let found = search(root.to_str().expect("utf8"), "alpha", MAX_MATCHES).expect("search");
+        assert_eq!(found.hits.len(), 2, "{:?}", found.hits);
+        assert_eq!(found.hits[0].text, "Alpha");
+        assert_eq!(found.hits[1].text, "ALPHA again");
+        assert_eq!(found.hits[1].line, 3);
+    }
+
+    #[test]
+    fn a_search_with_no_needle_is_refused_rather_than_matching_everything() {
+        let root = scratch("search-empty");
+        fs::write(root.join("a.txt"), "x\n").expect("file");
+        assert_eq!(
+            search(root.to_str().expect("utf8"), "   ", MAX_MATCHES),
+            Err(Problem::EmptyQuery)
+        );
+    }
+
+    #[test]
+    fn a_search_skips_bytes_it_could_not_render_as_text() {
+        let root = scratch("search-binary");
+        fs::write(root.join("blob.bin"), [0u8, 1, 2, b'N', b'E', b'E', b'D']).expect("file");
+        fs::write(root.join("text.txt"), "NEEDLE\n").expect("file");
+        let found = search(root.to_str().expect("utf8"), "NEEDLE", MAX_MATCHES).expect("search");
+        assert_eq!(found.hits.len(), 1, "{:?}", found.hits);
+        assert_eq!(found.hits[0].path, "text.txt");
+    }
+
+    #[test]
+    fn a_search_stops_at_the_limit_and_says_the_answer_is_incomplete() {
+        let root = scratch("search-limit");
+        let body: String = (0..20).map(|_| "hit\n").collect();
+        fs::write(root.join("many.txt"), body).expect("file");
+        let found = search(root.to_str().expect("utf8"), "hit", 3).expect("search");
+        assert_eq!(found.hits.len(), 3);
+        assert!(found.truncated, "截断必须说出来，否则读者以为只有三条");
+    }
+
+    #[test]
+    fn a_search_does_not_follow_a_symlink_out_of_the_workspace() {
+        let root = scratch("search-link");
+        let outside = scratch("search-link-outside");
+        fs::write(outside.join("secret.txt"), "NEEDLE\n").expect("file");
+        fs::write(root.join("inside.txt"), "nothing\n").expect("file");
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_dir(&outside, root.join("link")).is_ok();
+        #[cfg(not(windows))]
+        let linked = std::os::unix::fs::symlink(&outside, root.join("link")).is_ok();
+        if !linked {
+            // 没有建符号链接的权限（Windows 上非管理员常见）：跳过，而不是假装通过。
+            return;
+        }
+        let found = search(root.to_str().expect("utf8"), "NEEDLE", MAX_MATCHES).expect("search");
+        assert!(found.hits.is_empty(), "{:?}", found.hits);
     }
 }

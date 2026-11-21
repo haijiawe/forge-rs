@@ -11,9 +11,11 @@
 // reader can judge a change without losing the list. Both gestures are on the
 // row because a reviewer who has to leave the list to see a hunk stops reviewing
 // the list.
+import { useState } from 'react';
 import type { ReactElement } from 'react';
 import type { DiffEntry, FileDiff } from '../../api/workbench';
 import type { FileDiffState } from '../../state/workbench';
+import { sideBySide } from '../../state/diff';
 
 export interface DiffListProps {
   files: readonly DiffEntry[] | null;
@@ -91,6 +93,60 @@ function DiffText({ body }: { body: FileDiff }): ReactElement {
   );
 }
 
+/**
+ * 同一段改动摆成左右两列。
+ *
+ * 对齐由 `state/diff.ts` 决定，这里只负责画：左列是磁盘上现在的样子，右列是
+ * 提交里的样子。留白的格子是真的没有对应行——一行被拆成两行时，并排视图本来
+ * 就没有正确答案，假装有比承认没有更糟。
+ */
+function SideText({ body }: { body: FileDiff }): ReactElement {
+  const rows = sideBySide(body.text);
+  if (rows.length === 0) {
+    return (
+      <p className="wb-empty">
+        {body.status === 'unchanged'
+          ? '这个文件与提交的版本逐字节相同，没有可看的行。'
+          : '服务端对这个文件返回了空的改动。'}
+      </p>
+    );
+  }
+  return (
+    <div className="wb-diff-body">
+      <table className="wb-side">
+        <tbody>
+          {rows.map((row, index) => {
+            if (row.right === null) {
+              return (
+                <tr key={index} className="wb-side-wide">
+                  <td colSpan={4} className={`wb-side-${row.left.kind}`}>
+                    {row.left.text === '' ? '\u00a0' : row.left.text}
+                  </td>
+                </tr>
+              );
+            }
+            return (
+              <tr key={index}>
+                <td className="wb-side-no">{row.left.no ?? ''}</td>
+                <td className={`wb-side-${row.left.kind}`}>
+                  {row.left.kind === 'blank' ? '\u00a0' : row.left.text === '' ? '\u00a0' : row.left.text}
+                </td>
+                <td className="wb-side-no">{row.right.no ?? ''}</td>
+                <td className={`wb-side-${row.right.kind}`}>
+                  {row.right.kind === 'blank' ? '\u00a0' : row.right.text === '' ? '\u00a0' : row.right.text}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {body.truncated && (
+        <p className="wb-muted wb-diff-note">服务端截断了这份改动；这里只显示前 1 MiB。</p>
+      )}
+    </div>
+  );
+}
+
 export function DiffList({
   files,
   loading,
@@ -105,6 +161,9 @@ export function DiffList({
   revertingPath,
   revertError,
 }: DiffListProps) {
+  // 视图形态是**读者**的偏好，不是会话的状态：它不该进事件日志，也不该在刷新后
+  // 假装自己记得。放在组件里，切换一次文件树重建就回到统一格式，这是刻意的。
+  const [side, setSide] = useState(false);
   return (
     <div className="wb-diff">
       <div className="wb-diff-head">
@@ -186,8 +245,19 @@ export function DiffList({
                     )}
                     {!fileDiff.loading && fileDiff.error === null && fileDiff.body !== null && (
                       <>
-                        <DiffText body={fileDiff.body} />
+                        {side ? <SideText body={fileDiff.body} /> : <DiffText body={fileDiff.body} />}
                         <div className="wb-diff-actions">
+                          <button
+                            type="button"
+                            className="button button-ghost"
+                            aria-pressed={side}
+                            title="把这段改动摆成左右两列（左是磁盘，右是提交）"
+                            onClick={() => {
+                              setSide((on) => !on);
+                            }}
+                          >
+                            {side ? '统一格式' : '并排显示'}
+                          </button>
                           <button
                             type="button"
                             className="button button-ghost"

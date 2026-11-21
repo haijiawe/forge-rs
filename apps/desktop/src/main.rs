@@ -90,13 +90,13 @@ fn main() {
                             // is a defect worth showing, not swallowing.
                             let problem = format!("the server said it was serving {url}, which is not a URL: {error}");
                             eprintln!("hearth-desktop: {problem}");
-                            show(&handle, error_url(&problem));
+                            show_error(&handle, &problem);
                             return;
                         }
                     },
                     Err(problem) => {
                         eprintln!("hearth-desktop: {problem}");
-                        show(&handle, error_url(&problem));
+                        show_error(&handle, &problem);
                         return;
                     }
                 };
@@ -265,7 +265,11 @@ fn server_program() -> String {
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let name = if cfg!(windows) { "hearth.exe" } else { "hearth" };
+            let name = if cfg!(windows) {
+                "hearth.exe"
+            } else {
+                "hearth"
+            };
             let sibling = dir.join(name);
             if sibling.is_file() {
                 return sibling.to_string_lossy().into_owned();
@@ -275,36 +279,90 @@ fn server_program() -> String {
     "hearth".to_string()
 }
 
-/// A `data:` URL for the page shown when the server could not be started.
+/// Show why the server could not be started, in a window that explains it.
 ///
-/// The window is a fresh document rather than a placeholder that gets patched
-/// afterwards, so there is no moment where the reader sees the wrong page.
-fn error_url(problem: &str) -> tauri::Url {
+/// This used to build a `data:text/html` URL. That fails twice over: Tauri
+/// refuses `data:` URLs unless the `webview-data-url` feature is compiled in,
+/// and the failure happens while building the window — so the one page whose job
+/// is to report a problem reported nothing, and the process exited with a blank
+/// screen. An initialization script has no such precondition: it runs in the
+/// bundled fallback page before that page's own scripts, on every load, so the
+/// message cannot arrive before or after the document it describes.
+fn show_error(handle: &tauri::AppHandle, problem: &str) {
+    let inside = handle.clone();
+    let failed = handle.clone();
+    let caller = handle.clone();
+    let message = problem.to_string();
+    let result = caller.run_on_main_thread(move || {
+        if let Err(error) = open_error_window(&inside, &message) {
+            eprintln!("hearth-desktop: could not show the failure: {error}");
+            failed.exit(1);
+        }
+    });
+    if let Err(error) = result {
+        eprintln!("hearth-desktop: could not reach the main thread: {error}");
+    }
+}
+
+/// Build the failure window. Main thread only.
+fn open_error_window(handle: &tauri::AppHandle, problem: &str) -> tauri::Result<()> {
+    WebviewWindowBuilder::new(handle, "main", WebviewUrl::App("index.html".into()))
+        .title("hearth 没能启动")
+        .inner_size(900.0, 420.0)
+        .min_inner_size(600.0, 300.0)
+        .initialization_script(error_script(problem))
+        .build()?;
+    Ok(())
+}
+
+/// The script that replaces the fallback page with the failure message.
+///
+/// The text is escaped for HTML and then embedded as a JavaScript string
+/// literal; both matter, because the argument is whatever the child process
+/// printed.
+fn error_script(problem: &str) -> String {
     let escaped = problem
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;");
-    let page = format!(
-        "<!doctype html><meta charset=\"utf-8\"><title>hearth</title>\
-         <body style=\"margin:0;height:100vh;background:#1a1c21;color:#e8eaee;font:14px/1.6 ui-monospace,monospace;padding:28px;box-sizing:border-box\">\
-         <h1 style=\"font-size:16px;margin:0 0 12px\">hearth could not start</h1>\
+    let html = format!(
+        "<div style=\"margin:0;min-height:100vh;background:#1a1c21;color:#e8eaee;\
+         font:14px/1.6 ui-monospace,monospace;padding:28px;box-sizing:border-box\">\
+         <h1 style=\"font-size:16px;margin:0 0 12px\">hearth 没能启动</h1>\
          <p style=\"color:#ff8a3d\">{escaped}</p>\
-         <p style=\"color:#8b8f98\">Pass the flags this window should use, for example<br>\
+         <p style=\"color:#8b8f98\">把窗口该用的参数传给它，例如<br>\
          <code>hearth-desktop --model deepseek-chat</code><br>\
-         or set HEARTH_BIN to the hearth binary.</p></body>"
+         或者把 HEARTH_BIN 指向 hearth 可执行文件。</p></div>"
     );
-    let mut encoded = String::from("data:text/html;charset=utf-8,");
-    for byte in page.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                encoded.push(byte as char);
-            }
-            _ => encoded.push_str(&format!("%{byte:02X}")),
+    let literal = js_string(&html);
+    format!(
+        "document.addEventListener('DOMContentLoaded', function () {{\
+         document.documentElement.innerHTML = {literal};}});"
+    )
+}
+
+/// Encode one string as a JavaScript string literal.
+///
+/// Written by hand rather than pulling in a serializer: the only caller is the
+/// script above, and JSON's string escaping is a subset of JavaScript's — with
+/// the two line-separator characters added, which JSON may emit raw and
+/// JavaScript may not.
+fn js_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for ch in text.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
         }
     }
-    // The encoding above is by construction a valid URL; falling back to the app
-    // page would show a blank window, so a failure here is reported as one.
-    encoded
-        .parse()
-        .unwrap_or_else(|_| "about:blank".parse().expect("about:blank parses"))
+    out.push('"');
+    out
 }

@@ -31,6 +31,16 @@ export interface EditorPaneProps {
   readOnly?: boolean;
   /** One sentence above the text, e.g. that the file is truncated or binary. */
   notice?: string | null;
+  /**
+   * A line to scroll to and highlight, from a search hit.
+   *
+   * The parent only passes this when the reveal belongs to the path on screen —
+   * a line number carried across a file switch would jump the reader somewhere
+   * they never asked to be.
+   */
+  revealLine?: number | null;
+  /** Called once the reveal has been applied, so the parent can forget it. */
+  onRevealed?: () => void;
 }
 
 /** Numbers are capped: a 1 MiB file can be 30k lines, and 30k spans cost more than the text. */
@@ -51,9 +61,32 @@ function lineNumbers(text: string): { numbers: number[]; more: number } {
  * without canvas would otherwise get a blank pane. It is honest about being
  * plain — no fake highlighting, no pretending to be Monaco.
  */
-function PlainEditor({ path, text, onChange, onSave, readOnly, notice }: EditorPaneProps) {
+function PlainEditor({
+  path,
+  text,
+  onChange,
+  onSave,
+  readOnly,
+  notice,
+  revealLine,
+  onRevealed,
+}: EditorPaneProps) {
   const gutter = useRef<HTMLDivElement | null>(null);
+  const area = useRef<HTMLTextAreaElement | null>(null);
   const { numbers, more } = lineNumbers(text);
+
+  useEffect(() => {
+    if (revealLine === null || revealLine === undefined) return;
+    const target = area.current;
+    if (target === null) return;
+    // The fallback cannot highlight a line (it would mean splitting the value into
+    // spans, and a `<textarea>` has no spans). Scrolling to it is the part that
+    // matters — the reader lands where the match is.
+    const lineHeight = 20;
+    target.scrollTop = Math.max(0, (revealLine - 1) * lineHeight - lineHeight * 2);
+    if (gutter.current !== null) gutter.current.scrollTop = target.scrollTop;
+    onRevealed?.();
+  }, [revealLine, onRevealed]);
 
   function follow(event: UIEvent<HTMLTextAreaElement>): void {
     // The gutter has no scrollbar of its own, so it is dragged along by the
@@ -92,6 +125,7 @@ function PlainEditor({ path, text, onChange, onSave, readOnly, notice }: EditorP
         </div>
         <textarea
           className="wb-textarea"
+          ref={area}
           value={text}
           readOnly={readOnly === true}
           spellCheck={false}
@@ -114,7 +148,16 @@ function PlainEditor({ path, text, onChange, onSave, readOnly, notice }: EditorP
  * editor per file would throw away undo history a reader expects to still be
  * there, and would pay Monaco's construction cost on every click in the tree.
  */
-function MonacoEditor({ path, text, onChange, onSave, readOnly, notice }: EditorPaneProps) {
+function MonacoEditor({
+  path,
+  text,
+  onChange,
+  onSave,
+  readOnly,
+  notice,
+  revealLine,
+  onRevealed,
+}: EditorPaneProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const editor = useRef<MonacoEditorApi.IStandaloneCodeEditor | null>(null);
   // The callbacks live in refs so the editor is built once: re-creating it when
@@ -209,6 +252,27 @@ function MonacoEditor({ path, text, onChange, onSave, readOnly, notice }: Editor
   useEffect(() => {
     editor.current?.updateOptions({ readOnly: readOnly === true });
   }, [readOnly]);
+
+  // A search hit: scroll the line into view and mark it, so the reader can see
+  // which of the forty lines on screen is the one that matched.
+  useEffect(() => {
+    const instance = editor.current;
+    if (instance === null) return;
+    if (revealLine === null || revealLine === undefined) return;
+    const line = Math.max(1, revealLine);
+    instance.revealLineInCenter(line);
+    instance.setPosition({ lineNumber: line, column: 1 });
+    const decorations = instance.createDecorationsCollection([
+      {
+        range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+        options: { isWholeLine: true, className: 'wb-line-revealed' },
+      },
+    ]);
+    onRevealed?.();
+    return () => {
+      decorations.clear();
+    };
+  }, [revealLine, onRevealed]);
 
   return (
     <div className="wb-editor">

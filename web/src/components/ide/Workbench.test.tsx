@@ -63,6 +63,8 @@ function workspace(overrides: Partial<WorkbenchApi> = {}): WorkbenchApi {
       Promise.resolve({ path, bytes: text.length, sha256: digestOf(text) }),
     revertFile: (_sessionId, path) =>
       Promise.resolve({ path, bytes: 0, sha256: digestOf('') }),
+    searchFiles: (_sessionId, query) =>
+      Promise.resolve({ query, files: 2, truncated: false, hits: [] }),
     ...overrides,
   };
 }
@@ -444,6 +446,54 @@ describe('Workbench', () => {
     view.unmount();
   });
 
+  it('flips one row between the unified text and two columns', async () => {
+    const view = mount(
+      <Workbench
+        sessionId={SESSION}
+        head={<span>head</span>}
+        agent={<span>agent</span>}
+        connecting={false}
+        needsResync={false}
+        api={workspace({
+          listDiff: () =>
+            Promise.resolve([{ path: 'src/main.ts', status: 'modified', additions: 1, deletions: 1 }]),
+          readDiff: () =>
+            Promise.resolve({
+              path: 'src/main.ts',
+              status: 'modified',
+              text: '@@ -1 +1 @@\n-export const x = 1;\n+export const x = 2;\n',
+              truncated: false,
+            }),
+        })}
+      />,
+    );
+    await waitFor(() => view.container.querySelector('.wb-row-file') !== null);
+    click(buttonByText(view.container, '改动'));
+    await waitFor(() => view.container.querySelector('.wb-diff-toggle') !== null);
+    const caret = view.container.querySelector<HTMLButtonElement>('.wb-diff-toggle');
+    if (caret === null) throw new Error('no caret');
+    click(caret);
+    await waitFor(() => view.container.querySelector('.wb-diff-text') !== null);
+
+    const mode = buttonByTextOrNull(view.container, '并排显示');
+    if (mode === null) throw new Error('no side-by-side switch');
+    click(mode);
+
+    // 两列取代统一文本，而且真的是表格：hunk 头横跨两列，内容行各有左右。
+    expect(view.container.querySelector('.wb-side')).not.toBeNull();
+    expect(view.container.querySelector('.wb-diff-text')).toBeNull();
+    expect(view.container.querySelectorAll('.wb-side tbody tr').length).toBeGreaterThan(1);
+    expect(view.container.textContent).toContain('export const x = 2;');
+
+    // 再按一次就回去，且按钮说出自己是「已按下」。
+    const back = buttonByTextOrNull(view.container, '统一格式');
+    expect(back?.getAttribute('aria-pressed')).toBe('true');
+    if (back === null) throw new Error('no switch back');
+    click(back);
+    expect(view.container.querySelector('.wb-side')).toBeNull();
+    expect(view.container.querySelector('.wb-diff-text')).not.toBeNull();
+    view.unmount();
+  });
   it('asks before a tab with unsaved changes is closed', async () => {
     const view = mount(
       <Workbench

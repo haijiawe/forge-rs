@@ -736,3 +736,67 @@ fn a_revert_needs_a_path_and_refuses_other_methods() {
     let (status, _, _) = fixture.api("GET", &format!("/api/sessions/{session}/revert"), None);
     assert_eq!(status, 405, "a revert is not a read");
 }
+
+#[test]
+fn a_search_answers_with_lines_across_the_workspace() {
+    let fixture = Fixture::start_with("search-live", true);
+    seed_workspace(&fixture);
+    let session = fixture.create_session();
+
+    let (status, _, bytes) = fixture.api(
+        "GET",
+        &format!("/api/sessions/{session}/search?q=fn%20main"),
+        None,
+    );
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    assert_eq!(body["query"], "fn main");
+    let hits = body["hits"].as_array().expect("hits");
+    assert_eq!(hits.len(), 1, "{body}");
+    assert_eq!(hits[0]["path"], "src/main.rs");
+    assert_eq!(hits[0]["line"], 1);
+    assert_eq!(hits[0]["column"], 1);
+    assert_eq!(hits[0]["text"], "fn main() {}");
+    assert_eq!(body["truncated"], false);
+
+    // 二进制文件不该被当成文本搜索的对象：`blob.bin` 里那两个 NUL 之后
+    // 的内容不会出现在结果里，命中的只有真正是文本的文件。
+    let (status, _, bytes) = fixture.api(
+        "GET",
+        &format!("/api/sessions/{session}/search?q=demo"),
+        None,
+    );
+    assert_eq!(status, 200);
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    let hits = body["hits"].as_array().expect("hits");
+    assert_eq!(hits.len(), 1, "{body}");
+    assert_eq!(hits[0]["path"], "README.md");
+}
+
+#[test]
+fn a_search_needs_a_query_and_refuses_other_methods() {
+    let fixture = Fixture::start_with("search-shape", true);
+    seed_workspace(&fixture);
+    let session = fixture.create_session();
+
+    let (status, _, bytes) = fixture.api("GET", &format!("/api/sessions/{session}/search"), None);
+    assert_eq!(status, 400, "{}", String::from_utf8_lossy(&bytes));
+
+    let (status, _, _) = fixture.api(
+        "GET",
+        &format!("/api/sessions/{session}/search?q=%20%20"),
+        None,
+    );
+    assert_eq!(status, 400, "只填空格不是查询");
+
+    let (status, _, _) = fixture.api(
+        "POST",
+        &format!("/api/sessions/{session}/search?q=x"),
+        Some(&json!({})),
+    );
+    assert_eq!(status, 405, "搜索是读操作");
+
+    // 一个不存在的会话仍然是 404，而不是空结果。
+    let (status, _, _) = fixture.api("GET", "/api/sessions/s_nope/search?q=x", None);
+    assert_eq!(status, 404);
+}

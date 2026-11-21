@@ -131,6 +131,11 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         method: "GET",
+        path: "/api/sessions/{id}/search",
+        purpose: "在整个工作区里按子串搜文本（`?q=`，可选 `limit`）",
+    },
+    Route {
+        method: "GET",
         path: "/api/sessions/{id}/attachments/{attachmentId}",
         purpose: "取回一个附件正文（事件里只有引用）",
     },

@@ -12,8 +12,23 @@
 // "empty" text a statement about the workspace rather than about the network.
 
 import { ApiError } from '../api/client';
-import { listDir, listDiff, readDiff, readFile, revertFile, writeFile } from '../api/workbench';
-import type { DiffEntry, DirListing, FileDiff, FileText, SaveResult } from '../api/workbench';
+import {
+  listDir,
+  listDiff,
+  readDiff,
+  readFile,
+  revertFile,
+  searchFiles,
+  writeFile,
+} from '../api/workbench';
+import type {
+  DiffEntry,
+  DirListing,
+  FileDiff,
+  FileText,
+  SaveResult,
+  SearchAnswer,
+} from '../api/workbench';
 
 /** The reads and the one write the workbench performs, faked whole in tests. */
 export interface WorkbenchApi {
@@ -23,6 +38,7 @@ export interface WorkbenchApi {
   readDiff(sessionId: string, path: string): Promise<FileDiff>;
   saveFile(sessionId: string, path: string, text: string, expectedSha256: string): Promise<SaveResult>;
   revertFile(sessionId: string, path: string): Promise<SaveResult>;
+  searchFiles(sessionId: string, query: string): Promise<SearchAnswer>;
 }
 
 /** The real HTTP module; a module constant so a prop default keeps its identity. */
@@ -33,6 +49,7 @@ export const defaultWorkbenchApi: WorkbenchApi = {
   readDiff,
   saveFile: writeFile,
   revertFile,
+  searchFiles,
 };
 
 /** One directory in the tree, keyed by its relative path ('' is the root). */
@@ -100,6 +117,30 @@ export interface WorkbenchState {
    * is work the operator cannot get back, and the log has no record of it.
    */
   pendingClose: string | null;
+  /**
+   * The last workspace search, or null when the search box is empty again.
+   *
+   * Kept here rather than in the component so that opening a result — which
+   * switches the centre pane to the editor — does not throw the result list
+   * away: the operator is usually reading the fourth of twelve hits.
+   */
+  search: SearchState | null;
+  /**
+   * A line the editor should scroll to, set by opening a search hit.
+   *
+   * It is paired with a path because a reveal that outlives the file it was
+   * about would jump the reader to line 40 of a different file. The editor
+   * ignores it unless the path matches the tab it is drawing.
+   */
+  reveal: { path: string; line: number } | null;
+}
+
+/** One search: the query, whether it is still running, and what came back. */
+export interface SearchState {
+  query: string;
+  loading: boolean;
+  error: string | null;
+  answer: SearchAnswer | null;
 }
 
 export interface WorkbenchOptions {
@@ -137,6 +178,8 @@ export class WorkbenchStore {
       diffError: null,
       fileDiff: null,
       pendingClose: null,
+      search: null,
+      reveal: null,
     };
   }
 
@@ -377,6 +420,52 @@ export class WorkbenchStore {
   }
 
   /**
+   * Search the whole workspace, or clear the box when the query is blank.
+   *
+   * An empty query clears rather than searching: the server refuses it (it would
+   * match every line in the tree), and a cleared box should not leave a list of
+   * results behind that no longer belongs to anything on screen.
+   */
+  search(query: string): void {
+    const needle = query.trim();
+    if (needle === '') {
+      this.clearSearch();
+      return;
+    }
+    this.publish({ search: { query: needle, loading: true, error: null, answer: null } });
+    void this.runSearch(needle);
+  }
+
+  /** Put the search box back to empty, dropping the results with it. */
+  clearSearch(): void {
+    if (this.state.search === null) return;
+    this.publish({ search: null, reveal: null });
+  }
+
+  /**
+   * Open a search hit: the file in a tab, the diff list out of the way, and the
+   * editor scrolled to the line that matched.
+   *
+   * The results stay on screen — the operator is usually walking down a list,
+   * and re-running the search after each click would be work invented for them.
+   */
+  openHit(path: string, line: number): void {
+    if (path === '') return;
+    this.publish({ showDiff: false });
+    this.openFile(path);
+    // `openFile` publishes the tab before the read answers; the reveal is
+    // recorded now and the editor applies it whenever the text arrives, which is
+    // what makes "open hit" work for a file that is not loaded yet.
+    this.publish({ reveal: { path, line } });
+  }
+
+  /** Forget the pending reveal, once the editor has scrolled to it. */
+  clearReveal(): void {
+    if (this.state.reveal === null) return;
+    this.publish({ reveal: null });
+  }
+
+  /**
    * Write the draft back. A clean tab is a no-op, not an error.
    *
    * The digest of the bytes the buffer was built from rides along as
@@ -515,6 +604,24 @@ export class WorkbenchStore {
 
   private setDir(path: string, next: DirState): void {
     this.publish({ dirs: { ...this.state.dirs, [path]: next } });
+  }
+
+  /**
+   * Run one search and keep its answer, unless the box moved on meanwhile.
+   *
+   * The late answer is dropped when the query is no longer the one on screen:
+   * results for a query the operator has already replaced are the most
+   * convincing kind of wrong, because they look like an answer.
+   */
+  private async runSearch(query: string): Promise<void> {
+    try {
+      const answer = await this.api.searchFiles(this.state.sessionId, query);
+      if (this.state.search?.query !== query) return;
+      this.publish({ search: { query, loading: false, error: null, answer } });
+    } catch (error) {
+      if (this.state.search?.query !== query) return;
+      this.publish({ search: { query, loading: false, error: errorMessage(error), answer: null } });
+    }
   }
 
   private patchTab(path: string, patch: Partial<FileTab>): void {

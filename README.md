@@ -190,10 +190,14 @@ cargo build --offline --release
 `HEARTH_BIN` 指定要起哪个二进制。关窗会杀掉子服务器，所以不会留下监听端口。
 细节——包括为此付出的两个开窗缺陷——在 [apps/desktop/README.md](apps/desktop/README.md)。
 
-界面本身是一个三栏工作台：文件树、Monaco 编辑器、agent 面板。编辑器通过
+界面本身是一个三栏工作台：文件树、Monaco 编辑器、agent 面板。文件树顶上有一个
+搜索框：`GET /api/sessions/{id}/search?q=` 在整个工作区里按子串找行，点一条命中就
+打开那个文件并跳到那一行。答案会说出它读过多少个文件、有没有触到上限，所以「没有
+匹配」与「没看遍」不会穿同一句话。编辑器通过
 `GET /api/sessions/{id}/files|file|diff` 读，通过 `PUT /api/sessions/{id}/file` 存，
 通过 `POST /api/sessions/{id}/revert` 把改动扔掉、回到 git 已提交的版本；差异列表里
-每一行都能展开成正行（统一 diff 文本，不在这边重新解析成 hunk）。屏幕上的缓冲区不是
+每一行都能展开成正行（统一 diff 文本，不在这边重新解析成 hunk），也可以切换成左右
+两列（左是磁盘、右是提交，行号取自 hunk 头）。屏幕上的缓冲区不是
 标签页里那个摘要取自的内容时，保存会被当作冲突拒绝，草稿留在屏幕上。一次保存追加一条
 `file/write` 事件，一次还原追加一条 `file/revert`，都写明路径、字节数与内容的 SHA-256
 ——**不是** `tool/call`，因为这里没有模型参与，转录不许声称有。会话的沙箱模式是

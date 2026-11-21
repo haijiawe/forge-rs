@@ -147,6 +147,8 @@ the Rust signatures live in the crates' README.md files.
 | 18 | `GET` | `/api/sessions/{id}/file` | 那个工作区里的一个文件，以文本形式 | `200` |
 | 19 | `GET` | `/api/sessions/{id}/diff` | 那个工作区里 git 知道的改动；`?path=` 把它收窄到一个文件的各行 | `200` |
 | 20 | `PUT` | `/api/sessions/{id}/file` | 把编辑过的缓冲区保存进那个工作区 | `200` |
+| 21 | `POST` | `/api/sessions/{id}/revert` | 把一个文件恢复到提交时的字节 | `200` |
+| 22 | `GET` | `/api/sessions/{id}/search` | 那个工作区里包含 ?q= 的行 | `200` |
 
 ### 4.1 `GET /healthz`
 
@@ -900,6 +902,45 @@ POST /api/sessions/abc/revert
   （`events-v1.md` §4.0.11）。它不是 `file/write`：两者都移动字节，但“一个人打了这段字”
   和“一个人把他的编辑扔掉了”是不同的两件事，问“到底发生了哪个”的读者不应被迫去猜。
 
+### 4.22 `GET /api/sessions/{id}/search`
+
+向工作区要那些包含某个子串的行。
+
+```
+GET /api/sessions/{id}/search?q=needle
+GET /api/sessions/{id}/search?q=needle&limit=50
+```
+
+```json
+{
+  "query": "needle",
+  "files": 214,
+  "truncated": false,
+  "hits": [
+    { "path": "crates/core/src/event.rs", "line": 124, "column": 9, "text": "pub const FILE_REVERT: EventType = ..." }
+  ]
+}
+```
+
+- `q` 是子串，大小写不敏感；答案里的每一行都保持**它在磁盘上的写法**，读者可以
+  直接粘回文件。
+- `column` 从 1 开始，按字符计数而不是字节：满是中文的文件里用字节偏移会指到一个
+  字的中间。
+- `files` 是实际读过的文件数。它不是装饰：读者靠它区分「没有这一行」和「我没有
+  找遍所有地方」。
+- 命中数上限或文件数上限触到时 `truncated` 为 `true`。`hits: []` 配
+  `truncated: true` 的意思是*还没找到*，不是*不存在*。
+- 二进制文件（读到的第一块里有 NUL 字节）和超过 §4.18 那 1 MiB 上限的文件会被
+  跳过，而不是只搜一半。
+- 不会进 `.git`、`target`、`node_modules`——与 §4.17 省略的是同样三个名字，理由
+  也一样：它们不是工作区的源码。
+- 不跟随符号链接，所以链接无法把搜索带出工作区。
+- `q` 缺失或只有空白时 400 `bad_request`。空查询会匹配每个文件里的每一行，这从来
+  不是有人在搜索框里想打的东西；回答它就等于用很慢的方式说「你问的是全部」。
+- `limit` 默认 200，会被夹到 1..=200。
+- 工作区取自 `session/start`，与 §4.17 完全一致。
+
+---
 ---
 
 ## 5. 错误信封

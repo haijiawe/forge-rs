@@ -41,6 +41,8 @@ function fakeApi(overrides: Partial<WorkbenchApi> = {}): WorkbenchApi {
       Promise.resolve({ path, bytes: text.length, sha256: digestOf(text) }),
     revertFile: (_sessionId, path) =>
       Promise.resolve({ path, bytes: 0, sha256: digestOf('') }),
+    searchFiles: (_sessionId, query) =>
+      Promise.resolve({ query, files: 0, truncated: false, hits: [] }),
     ...overrides,
   };
 }
@@ -524,4 +526,90 @@ describe('WorkbenchStore', () => {
     const refusal = await store.revertToCommitted('notes.txt');
 
     expect(refusal).toContain('no committed version');
-  });});
+  });
+
+  it('searches once per submit and keeps the answer while a hit is opened', async () => {
+    const searchFiles = vi.fn((_sessionId: string, query: string) =>
+      Promise.resolve({
+        query,
+        files: 12,
+        truncated: false,
+        hits: [{ path: 'src/main.ts', line: 7, column: 3, text: 'const needle = 1;' }],
+      }),
+    );
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ searchFiles }) });
+    store.start();
+    await settle();
+
+    store.search('needle');
+    expect(store.getSnapshot().search?.loading).toBe(true);
+    await settle();
+    expect(searchFiles).toHaveBeenCalledTimes(1);
+    expect(store.getSnapshot().search?.answer?.hits).toHaveLength(1);
+
+    // 打开命中结果不该把结果列表扔掉：读者通常是在往下数第十二条。
+    store.openHit('src/main.ts', 7);
+    await settle();
+    expect(store.getSnapshot().search?.answer?.hits).toHaveLength(1);
+    expect(store.getSnapshot().activePath).toBe('src/main.ts');
+    expect(store.getSnapshot().reveal).toEqual({ path: 'src/main.ts', line: 7 });
+  });
+
+  it('clears the results when the box is emptied rather than searching for nothing', async () => {
+    const searchFiles = vi.fn((_sessionId: string, query: string) =>
+      Promise.resolve({ query, files: 1, truncated: false, hits: [] }),
+    );
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ searchFiles }) });
+    store.start();
+    await settle();
+
+    store.search('a');
+    await settle();
+    expect(store.getSnapshot().search).not.toBeNull();
+
+    store.search('   ');
+    await settle();
+    // 空查询服务端会拒（它会匹配每一行）；这里连请求都不该发出去。
+    expect(searchFiles).toHaveBeenCalledTimes(1);
+    expect(store.getSnapshot().search).toBeNull();
+  });
+
+  it('drops a search answer that arrived after the box moved on', async () => {
+    const pending: ((answer: { query: string; files: number; truncated: boolean; hits: never[] }) => void)[] = [];
+    const searchFiles = vi.fn(
+      (_sessionId: string, query: string) =>
+        new Promise<{ query: string; files: number; truncated: boolean; hits: never[] }>((resolve) => {
+          pending.push((answer) => {
+            resolve({ ...answer, query });
+          });
+        }),
+    );
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ searchFiles }) });
+    store.start();
+    await settle();
+
+    store.search('first');
+    store.search('second');
+    // 第一个查询的答案晚到：它已经不对应输入框里的内容了，留着就是「看起来像答案」的错误。
+    pending[0]?.({ query: 'first', files: 3, truncated: false, hits: [] });
+    await settle();
+    expect(store.getSnapshot().search?.answer).toBeNull();
+    expect(store.getSnapshot().search?.query).toBe('second');
+
+    pending[1]?.({ query: 'second', files: 4, truncated: false, hits: [] });
+    await settle();
+    expect(store.getSnapshot().search?.answer?.files).toBe(4);
+  });
+
+  it('keeps a reveal only for the file it was recorded for', async () => {
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi() });
+    store.openFile('a.ts');
+    await settle();
+
+    store.openHit('a.ts', 3);
+    expect(store.getSnapshot().reveal).toEqual({ path: 'a.ts', line: 3 });
+
+    store.clearReveal();
+    expect(store.getSnapshot().reveal).toBeNull();
+  });
+});

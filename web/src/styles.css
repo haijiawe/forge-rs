@@ -1954,3 +1954,153 @@ body {
   gap: 8px;
   padding: 6px 10px 10px;
 }
+
+/* --- workspace search --- */
+/* The box sits above whatever the column is showing, and it is the only part of
+   这一栏 that stays put when results replace the tree. */
+.wb-search {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.wb-search-form {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.wb-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+}
+
+.wb-search-input:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.wb-search-go,
+.wb-search-clear {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wb-search-count {
+  margin: 0;
+  padding: 0 10px 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.wb-search-list {
+  margin: 0;
+  padding: 0 0 8px;
+  list-style: none;
+}
+
+.wb-search-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.wb-search-hit:hover {
+  background: var(--bg-raised);
+}
+
+.wb-search-where {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-search-line {
+  color: var(--muted);
+}
+
+.wb-search-text {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg);
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The line a search hit jumped to. Monaco decorations must be plain classes:
+   it puts them on generated spans, so no descendant selectors. */
+.wb-line-revealed {
+  background: rgba(255, 138, 61, 0.12);
+}
+/* --- side by side diff --- */
+.wb-side {
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  min-width: max-content;
+  width: 100%;
+}
+.wb-side td {
+  padding: 0 6px;
+  vertical-align: top;
+  white-space: pre;
+}
+.wb-side-no {
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+  width: 1%;
+  border-right: 1px solid var(--line);
+}
+.wb-side-add {
+  background: rgba(63, 185, 80, 0.12);
+  color: var(--good);
+}
+.wb-side-del {
+  background: rgba(248, 81, 73, 0.12);
+  color: var(--bad);
+}
+.wb-side-blank {
+  background: var(--bg-raised);
+}
+.wb-side-meta {
+  color: var(--muted);
+}
+.wb-side-hunk {
+  background: rgba(210, 153, 34, 0.12);
+  color: var(--warn);
+}
+.wb-side-wide td {
+  padding: 0 6px;
+}
