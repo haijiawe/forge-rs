@@ -516,12 +516,24 @@ fn cancelled_while_queued_returns_cancelled_and_leaves_the_first_call_alone() {
     thread::sleep(Duration::from_millis(30));
     assert!(!second_done.load(Ordering::SeqCst), "second must be queued");
 
-    runner.options().canceller.cancel_call("call-2");
-    thread::sleep(Duration::from_millis(20));
+    // 排队中的调用在拿槽位之前就注册了自己的取消令牌（tool.rs:245 → 251），
+    // 所以这里能精确地取消一个排队的 call。注册与排队之间有一个几毫秒的窗口：
+    // 太早取消什么也没取消到（cancel_call 返回 false 就是在说这件事），于是重试
+    // 到令牌出现为止。断言的是「一旦排上队就能被取消」，不是「20 毫秒内必须返回」
+    // —— 后者断言的是这台机器有多快，门禁满载时它会假失败。
+    let mut cancelled = false;
+    for _ in 0..200 {
+        if runner.options().canceller.cancel_call("call-2") {
+            cancelled = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
     assert!(
-        second_done.load(Ordering::SeqCst),
-        "second must wake on cancel"
+        cancelled,
+        "the queued call never registered its cancel token"
     );
+    wait_until(|| second_done.load(Ordering::SeqCst));
     gate.open();
 
     let a = first.join().expect("first thread");
