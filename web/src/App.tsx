@@ -62,8 +62,8 @@ export function App({ baseUrl }: AppProps) {
     <div className="app">
       {token === '' && (
         <p className="banner banner-warn" role="status">
-          no token: open this page with <code>?token=&lt;token&gt;</code> once, or rely on the
-          server&apos;s HttpOnly cookie.
+          没有令牌：请先用 <code>?token=&lt;token&gt;</code> 打开本页面一次，或依赖服务端的
+          HttpOnly Cookie。
         </p>
       )}
       {route.name === 'list' ? (

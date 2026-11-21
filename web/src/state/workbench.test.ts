@@ -35,6 +35,8 @@ function fakeApi(overrides: Partial<WorkbenchApi> = {}): WorkbenchApi {
     listDir: () => Promise.resolve(listing('', [])),
     readFile: (_sessionId, path) => Promise.resolve(textFile(path, '')),
     listDiff: () => Promise.resolve([]),
+    readDiff: (_sessionId, path) =>
+      Promise.resolve({ path, status: 'modified', text: '', truncated: false }),
     saveFile: (_sessionId, path, text) =>
       Promise.resolve({ path, bytes: text.length, sha256: digestOf(text) }),
     ...overrides,
@@ -209,6 +211,14 @@ describe('WorkbenchStore', () => {
     expect(store.getSnapshot().diff).toEqual([]);
   });
 
+  /** Start the store on an empty root and leave it settled; no file is opened. */
+  async function opened(api: WorkbenchApi): Promise<WorkbenchStore> {
+    const store = new WorkbenchStore({ sessionId: SESSION, api });
+    store.start();
+    await settle();
+    return store;
+  }
+
   /** Open one file and leave the store settled with that tab active. */
   async function openOne(api: WorkbenchApi): Promise<WorkbenchStore> {
     const store = new WorkbenchStore({ sessionId: SESSION, api });
@@ -296,5 +306,128 @@ describe('WorkbenchStore', () => {
     await store.saveFile('a.ts');
     await settle();
     expect(saveFile).not.toHaveBeenCalled();
+  });
+
+  it('expands one diff row and collapses it again', async () => {
+    const readDiff = vi.fn((_sessionId: string, path: string) =>
+      Promise.resolve({
+        path,
+        status: 'modified',
+        text: '@@ -1 +1 @@\n-old\n+new\n',
+        truncated: false,
+      }),
+    );
+    const store = await opened(fakeApi({ readDiff }));
+
+    store.toggleFileDiff('a.ts');
+    await settle();
+
+    // Loading is published before the answer, so the row draws a spinner rather
+    // than an empty frame while the request is in flight.
+    expect(store.getSnapshot().fileDiff?.path).toBe('a.ts');
+    expect(store.getSnapshot().fileDiff?.body?.text).toContain('+new');
+    expect(readDiff).toHaveBeenCalledWith(SESSION, 'a.ts');
+
+    store.toggleFileDiff('a.ts');
+    expect(store.getSnapshot().fileDiff).toBeNull();
+
+    // Collapsing did not forget the answer: re-expanding reads again, because a
+    // cached diff would be a claim about the disk nobody re-checked.
+    store.toggleFileDiff('a.ts');
+    await settle();
+    expect(readDiff).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops a diff answer for a row that is no longer open', async () => {
+    // The resolver is parked in an array rather than a `let`: TypeScript narrows
+    // a `let` assigned only inside a callback to its initial `null`, and an
+    // index read is not narrowed, so this stays callable at the call site.
+    const pending: ((text: string) => void)[] = [];
+    const store = await opened(
+      fakeApi({
+        readDiff: (_sessionId, path) =>
+          new Promise((resolve) => {
+            pending.push((text) => {
+              resolve({ path, status: 'modified', text, truncated: false });
+            });
+          }),
+      }),
+    );
+
+    store.toggleFileDiff('a.ts');
+    await settle();
+    store.hideFileDiff();
+
+    // The read was still in flight when the row was collapsed. Its answer must
+    // not resurrect the row, and must not appear under whatever is open now.
+    pending[0]?.('+late\n');
+    await settle();
+    expect(store.getSnapshot().fileDiff).toBeNull();
+  });
+
+  it('keeps a diff failure on the row instead of blanking the pane', async () => {
+    const store = await opened(
+      fakeApi({
+        readDiff: () => Promise.reject(new ApiError('bad_request', 'git unavailable', 400)),
+      }),
+    );
+
+    store.toggleFileDiff('a.ts');
+    await settle();
+
+    const state = store.getSnapshot().fileDiff;
+    expect(state?.error).toBe('bad_request: git unavailable');
+    expect(state?.body).toBeNull();
+    // The row is still expanded: collapsing it would hide the error behind a
+    // caret the operator has no reason to click twice.
+    expect(state?.path).toBe('a.ts');
+  });
+
+  it('asks before closing a tab with unsaved changes, and closes on confirm', async () => {
+    const store = await openOne(fakeApi());
+    store.editFile('a.ts', 'edited\n');
+
+    store.closeFile('a.ts');
+    // Parked, not closed: the tab and its buffer are exactly as they were.
+    expect(store.getSnapshot().pendingClose).toBe('a.ts');
+    expect(store.getSnapshot().open.map((tab) => tab.path)).toEqual(['a.ts']);
+    expect(store.getSnapshot().open[0]?.draft).toBe('edited\n');
+
+    store.confirmClose();
+    expect(store.getSnapshot().pendingClose).toBeNull();
+    expect(store.getSnapshot().open).toEqual([]);
+  });
+
+  it('cancel keeps the draft and the question goes away', async () => {
+    const store = await openOne(fakeApi());
+    store.editFile('a.ts', 'edited\n');
+    store.closeFile('a.ts');
+    store.cancelClose();
+
+    expect(store.getSnapshot().pendingClose).toBeNull();
+    expect(store.getSnapshot().open.map((tab) => tab.path)).toEqual(['a.ts']);
+    expect(store.getSnapshot().open[0]?.draft).toBe('edited\n');
+  });
+
+  it('closes a clean tab without asking', async () => {
+    const store = await openOne(fakeApi());
+    store.closeFile('a.ts');
+
+    // No question: a confirmation on work that cannot be lost trains the
+    // operator to click through the one that matters.
+    expect(store.getSnapshot().pendingClose).toBeNull();
+    expect(store.getSnapshot().open).toEqual([]);
+  });
+
+  it('a pending close does not outlive the tab it was about', async () => {
+    const store = await openOne(fakeApi());
+    store.editFile('a.ts', 'edited\n');
+    store.closeFile('a.ts');
+    store.confirmClose();
+
+    // Closing through the confirmation clears both the tab and the question;
+    // a stale `pendingClose` would leave the pane asking about nothing.
+    expect(store.getSnapshot().pendingClose).toBeNull();
+    expect(store.getSnapshot().open).toEqual([]);
   });
 });

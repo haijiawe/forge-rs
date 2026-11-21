@@ -54,6 +54,7 @@ Step 'fmt'  { cargo fmt --all -- --check }
 if (-not $SkipLint) {
     Step 'lint' { cargo clippy --workspace --all-targets --offline -- -D warnings }
 }
+Step 'links' { node scripts/check-links.cjs }
 Step 'arch' { cargo run -q -p archcheck --offline -- }
 Step 'test' { cargo test --workspace --offline }
 

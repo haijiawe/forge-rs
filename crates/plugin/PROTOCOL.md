@@ -1,117 +1,108 @@
-# hearth plugin protocol, version 1
+# hearth 插件协议，版本 1
 
-A plugin is a child process that speaks newline-delimited JSON-RPC 2.0 over stdin and
-stdout. One JSON object per line, UTF-8, terminated by `\n`. No pretty-printing, no length
-prefixes, no batching, no `Content-Length` headers. A trailing `\r` is tolerated and
-stripped, so a Windows editor will not break a plugin.
+插件是一个子进程，在 stdin 与 stdout 上以换行分隔的 JSON-RPC 2.0 说话。每行一个 JSON
+对象，UTF-8，以 `\n` 结尾。不美化打印、不带长度前缀、不批量、不用 `Content-Length`
+头。行尾的 `\r` 会被容忍并剥掉，所以一个 Windows 编辑器写出的文件不会弄坏插件。
 
-stdout carries protocol frames **and nothing else**. A `print`/`console.log`/`println!` that
-reaches stdout is a malformed frame; diagnostics go to stderr, which the host captures and
-logs but never parses. This is the single most common way a working plugin fails, so it is
-the first rule in this document.
+stdout **只**承载协议帧，别的什么都没有。一个走到 stdout 的 `print`/`console.log`/
+`println!` 就是一个畸形帧；诊断信息走 stderr，宿主会捕获并记录它，但从不解析它。这是
+一个本来能用的插件最常见的失败方式，所以它是本文档的第一条规矩。
 
-This document is the contract. A plugin written from this file alone must work, and the
-host must not require anything this file does not state. The reference plugin under
-`tests/reference-node/` was written from it; if the two disagree, one of them is a bug.
+本文档就是契约。只照着这个文件写出来的插件必须能用，宿主也不得要求这个文件没有写出的
+任何东西。`tests/reference-node/` 下的参考插件就是照它写的；如果两者不一致，其中一定有
+一个是 bug。
 
-## Why a process, and why JSON-RPC
+## 为什么是进程，为什么是 JSON-RPC
 
-The plugin language is the plugin author's choice: Node, Python, a shell script, Rust. That
-is the entire point of paying for a process boundary, and it is why the transport is
-newline-delimited JSON rather than something more efficient. The measured cost of a stdio
-JSON-RPC round trip on this machine is 80.6 µs for an empty result, 118.3 µs for 4 KB and
-343.7 µs for 64 KB (2,000 round trips, Node parent to Node child,
-`docs/09-platform-tier.md` §2.3). Against one model round trip of about 1,200 ms, a plugin
-call is 0.007% of a turn: a thousand of them cost 80 ms. Speed is therefore not a reason to
-make plugins harder to write — but it is a reason not to put a plugin in a hot loop of
-thousands of tiny calls (§2.3 says the same thing: batch, or write that one in Rust).
+插件用什么语言写是插件作者的选择：Node、Python、shell 脚本、Rust。为进程边界付代价的
+全部理由就在这里，也正因为如此，传输层是换行分隔的 JSON 而不是更高效的东西。本机实测
+一次 stdio JSON-RPC 往返：空结果 80.6 µs、4 KB 118.3 µs、64 KB 343.7 µs（2,000 次往返，
+Node 父进程到 Node 子进程，见 `docs/09-platform-tier.md` §2.3）。对照一次模型往返约
+1,200 ms，一次插件调用占一轮的 0.007%：一千次才 80 ms。所以速度**不是**把插件写得更难的
+理由——但它是不把插件放进「几千次极小的调用」这种热循环里的理由（§2.3 说的是同一件事：
+要么批量，要么就把那一个用 Rust 写）。
 
-## 1. Manifest
+## 1. 清单文件
 
-A plugin is a directory containing `plugin.json`:
+一个插件是一个包含 `plugin.json` 的目录：
 
 ```json
 {
   "name": "example",
   "version": "1.0.0",
-  "description": "what it does, one line",
+  "description": "它做什么，一行",
   "runtime": "node",
   "entry": "index.js"
 }
 ```
 
-| Field | Required | Rule |
+| 字段 | 必需 | 规则 |
 | --- | --- | --- |
-| `name` | yes | `^[a-z0-9][a-z0-9._-]{0,63}$` — a slug, because it becomes a tool prefix |
-| `version` | yes | free text; recorded and reported, not compared |
-| `description` | yes | one line; it is what the operator reads when choosing |
-| `runtime` | yes | exactly `node`, `python`, or `exec` |
-| `entry` | yes | a path relative to the plugin directory that must not leave it |
+| `name` | 是 | `^[a-z0-9][a-z0-9._-]{0,63}$` —— 一个 slug，因为它会成为工具名前缀 |
+| `version` | 是 | 自由文本；被记录与上报，不参与比较 |
+| `description` | 是 | 一行；操作者挑插件时读的就是它 |
+| `runtime` | 是 | 只能是 `node`、`python`、`exec` |
+| `entry` | 是 | 相对插件目录的路径，且不得离开该目录 |
 
-The command line is derived, never read from the manifest:
+命令行是**推导**出来的，从不从清单里读：
 
 | `runtime` | argv |
 | --- | --- |
 | `node` | `node <plugin-dir>/<entry>` |
 | `python` | `python <plugin-dir>/<entry>` |
-| `exec` | `<plugin-dir>/<entry>`, run directly (must be executable) |
+| `exec` | `<plugin-dir>/<entry>`，直接执行（必需可执行） |
 
-A manifest that could name an arbitrary command line is a manifest that can be edited to
-run one. So `runtime` is a closed set and the command is the host's business.
+一个能指定任意命令行的清单，就是一个能被改成运行任意命令的清单。所以 `runtime` 是一个
+封闭集合，拼命令行是宿主的事。
 
-A manifest is refused at parse time with one of three codes, deliberately distinct because
-each sends a different person somewhere different:
+清单在解析期会被拒，用三种码之一；它们刻意分开，因为每种是把不同的人送到不同的地方：
 
-| Refusal | Code | What happened |
+| 拒绝原因 | 码 | 发生了什么 |
 | --- | --- | --- |
-| `name` violates the pattern, or `version`/`description` is empty | `bad_manifest` | the author mistyped the plugin's identity |
-| `entry` is absolute or climbs out (`../`) | `bad_manifest` | the plugin would escape its own directory |
-| `runtime` is not `node`/`python`/`exec` | `unsupported_runtime` | the operator installed something this host cannot start; the message lists the accepted values |
-| `entry` is absent or empty | `spawn_failed` | the document is legible but names nothing to run |
+| `name` 不合模式，或 `version`/`description` 为空 | `bad_manifest` | 作者把插件的身份写错了 |
+| `entry` 是绝对路径，或向上爬（`../`） | `bad_manifest` | 这个插件会逃出自己的目录 |
+| `runtime` 不是 `node`/`python`/`exec` | `unsupported_runtime` | 操作者装了这个宿主启动不了的东西；消息里会列出可接受的值 |
+| `entry` 缺失或为空 | `spawn_failed` | 文档能读，但没有指名任何要跑的东西 |
 
-`plugin.json` that is missing or is not valid JSON is `bad_manifest`, with the file named.
+`plugin.json` 不存在或不是合法 JSON 都是 `bad_manifest`，并点名那个文件。
 
-The child runs with the plugin directory as its working directory and inherits the host's
-environment, so it can find `node`, `python`, and its own files.
+子进程以插件目录为工作目录运行，并继承宿主的环境，所以它能找到 `node`、`python` 和它
+自己的文件。
 
-## 2. Lifecycle
+## 2. 生命周期
 
-1. `Host::start(root)` and discovery read manifests only. **Nothing is spawned** until a
-   plugin is explicitly loaded — listing a directory is not consent to execute what is in it.
-2. `Host::load(name)` spawns the child and sends `initialize`.
-3. On a successful handshake the host sends an `initialized` **notification** (no reply).
-4. The host calls any method the plugin claimed in `capabilities`, one call at a time.
-5. `Host::unload(name)` sends a `shutdown` **request**, waits up to 500 ms for its reply,
-   closes stdin, waits up to 2 s for the process to exit, then kills it. It reports whether
-   the exit was clean.
+1. `Host::start(root)` 与发现过程只读清单。**在某个插件被显式加载之前什么都不启动**
+   ——列出一个目录并不等于同意执行里面的东西。
+2. `Host::load(name)` 启动子进程并发送 `initialize`。
+3. 握手成功后宿主发一条 `initialized` **通知**（没有回复）。
+4. 宿主调用插件在 `capabilities` 里声明的任何方法，一次一个。
+5. `Host::unload(name)` 发一个 `shutdown` **请求**，最多等 500 ms 它的回复，关掉 stdin，
+   最多等 2 s 进程退出，然后杀掉它。它会报告退出是否干净。
 
-A plugin that exits at any point after a successful `initialize` is discovered on the next
-call and reported as `child_exited`, with the last stderr line quoted. There is no health
-monitor and no watcher thread: a plugin nobody is calling needs no watching, and a thread
-whose job is noticing failures is a thread that can fail.
+在 `initialize` 成功之后任何时刻退出的插件，会在下一次调用时被发现，并报成
+`child_exited`，同时引用最后一行 stderr。这里没有健康检查，也没有监视线程：没人调用的
+插件不需要被盯着，而一个专门用来发现失败的线程本身就是一个会失败的线程。
 
-`unload` on a plugin that is not loaded returns "nothing to do" rather than an error, and a
-second `unload` is a no-op: a caller that unloads in a destructor and again explicitly is
-behaving reasonably.
+对未加载的插件调 `unload` 返回「无事可做」而不是错误，第二次 `unload` 是空操作：一个
+在析构函数里卸载一次、又显式卸载一次的调用方，行为是合理的。
 
-## 3. Methods
+## 3. 方法
 
-Every request has `jsonrpc`, `id`, `method` and optionally `params`. Every reply has
-`jsonrpc`, the **same** `id`, and exactly one of `result` or `error`.
+每个请求有 `jsonrpc`、`id`、`method`，可选 `params`。每个回复有 `jsonrpc`、**同一个**
+`id`，以及 `result` 或 `error` 二者之一，不能都有。
 
-The id rule is exact: a reply whose id differs from the call in flight is `protocol_error`,
-not "close enough". A plugin that multiplexes replies and got them mixed up would otherwise
-have one call's result silently delivered to another.
+id 的规矩是精确的：回复的 id 与在途调用不一致就是 `protocol_error`，不是「差不多」。
+否则一个把回复多路复用又搞混了的插件，会让一次调用的结果被静默地交给另一次调用。
 
 ### `initialize`
 
-Params:
+参数：
 
 ```json
 { "protocolVersion": 1, "client": { "name": "hearth", "version": "0.1.0" } }
 ```
 
-Result:
+结果：
 
 ```json
 {
@@ -122,184 +113,168 @@ Result:
 }
 ```
 
-`protocolVersion` must be `1`. Answering another version — or a JSON-RPC error such as
-`-32000` — makes the host refuse the plugin with `protocol_error` and kill the child. Do not
-"mostly" agree: a v1 host and a v2 plugin that nearly match will disagree about something
-that matters, and the disagreement will be discovered by a user.
+`protocolVersion` 必须是 `1`。答别的版本——或者回一个像 `-32000` 这样的 JSON-RPC 错误
+——会让宿主以 `protocol_error` 拒绝这个插件并杀掉子进程。不要「大体上」同意：一个 v1 的
+宿主和一个差一点点就对上的 v2 插件，会在某个要紧的地方不一致，而不一致会被用户发现。
 
-`capabilities` is how the host knows **what not to ask**:
+`capabilities` 是宿主知道**什么不该问**的方式：
 
-| Field | Default | Meaning |
+| 字段 | 默认 | 含义 |
 | --- | --- | --- |
-| `tools` | `false` | the plugin answers `tools/list` and `tools/call` |
-| `prompts` | `false` | the plugin answers `prompts/list` and `prompts/get` |
-| `hooks` | `[]` | the phases this plugin runs; only `before_turn` and `after_tool` exist |
+| `tools` | `false` | 插件会答 `tools/list` 与 `tools/call` |
+| `prompts` | `false` | 插件会答 `prompts/list` 与 `prompts/get` |
+| `hooks` | `[]` | 这个插件运行的阶段；只有 `before_turn` 与 `after_tool` 存在 |
 
-A plugin that omits `prompts` is never asked for prompts. Calling a method the plugin did
-not claim is a host bug, not a plugin bug.
+省略了 `prompts` 的插件永远不会被要提示词。调用一个插件没有声明的方法，是宿主的 bug，
+不是插件的 bug。
 
 ### `initialized`
 
-A notification from host to plugin: no `id`, no reply, params absent. It confirms the
-handshake. A plugin may ignore it.
+宿主发给插件的一条通知：没有 `id`、没有回复、没有参数。它确认握手。插件可以忽略它。
 
 ### `tools/list`
 
-Params: none. Result:
+参数：无。结果：
 
 ```json
 { "tools": [ { "name": "echo", "description": "says it back", "schema": { "type": "object" } } ] }
 ```
 
-`schema` is a JSON Schema object describing the call's `arguments`; an absent schema is read
-as `{}`, never `null`. Tool names are namespaced by the host as `<plugin>.<tool>`, so a
-plugin cannot shadow a builtin tool.
+`schema` 是一个 JSON Schema 对象，描述调用时的 `arguments`；schema 缺席被读成 `{}`，
+永远不是 `null`。工具名由宿主加上命名空间成 `<插件>.<工具>`，所以插件不可能遮蔽一个
+内置工具。
 
 ### `tools/call`
 
-Params: `{ "name": "echo", "arguments": { "text": "hi" } }` (`arguments` defaults to `{}`).
+参数：`{ "name": "echo", "arguments": { "text": "hi" } }`（`arguments` 默认 `{}`）。
 
-Result: `{ "output": "text the model reads", "isError": false }`
+结果：`{ "output": "模型会读到的文本", "isError": false }`
 
-`output` is a string, and it is passed through verbatim — including leading and trailing
-whitespace, because the host does not edit what the model reads.
+`output` 是字符串，逐字透传——包括首尾空白，因为宿主不编辑模型读到的东西。
 
-`isError: true` means the call **ran and failed**: `output` is the message the model should
-see. This is not a protocol error. The distinction matters because a tool-level failure
-usually teaches the model something ("that path does not exist"), while a broken transport
-teaches the operator. A tool that fails must therefore answer with `isError`, not with a
-JSON-RPC error.
+`isError: true` 表示调用**跑了而且失败了**：`output` 是模型应当看到的消息。这不是协议
+错误。这个区分要紧，因为工具级的失败通常在教模型一件事（「那个路径不存在」），而传输坏
+了是在教操作者。所以一个失败的工具必须用 `isError` 回答，而不是用 JSON-RPC 错误。
 
-A JSON-RPC error from `tools/call` means "I could not attempt this at all" — unknown tool
-name (`-32602`), bad arguments (`-32602`), or a bug inside the plugin (`-32603`).
+`tools/call` 返回 JSON-RPC 错误的意思是「我根本没法尝试」——工具名不认识（`-32602`）、
+参数不对（`-32602`），或插件内部有 bug（`-32603`）。
 
-### `prompts/list` and `prompts/get`
+### `prompts/list` 与 `prompts/get`
 
-`prompts/list` params: none. Result:
+`prompts/list` 参数：无。结果：
 
 ```json
-{ "prompts": [ { "name": "greeting", "description": "one line for the model" } ] }
+{ "prompts": [ { "name": "greeting", "description": "给模型看的一行" } ] }
 ```
 
-`prompts/get` params: `{ "name": "greeting" }`. Result: `{ "text": "a system-prompt fragment" }`
+`prompts/get` 参数：`{ "name": "greeting" }`。结果：`{ "text": "一段系统提示片段" }`
 
-Prompts are content, not code. The host concatenates them in the order the operator
-configured and never interprets them.
+提示词是内容，不是代码。宿主按操作者配置的顺序把它们拼起来，从不解释它们。
 
 ### `hooks/run`
 
-Params: `{ "phase": "before_turn" | "after_tool", "payload": { ... } }`
+参数：`{ "phase": "before_turn" | "after_tool", "payload": { ... } }`
 
-Result: `{ "payload": { ... } }` — the possibly-modified payload, which replaces the host's
-copy. The payload is always a JSON object and the answer must be one too; a hook that
-returns a string or an array is `bad_response`, because a turn's context cannot become a
-string.
+结果：`{ "payload": { ... } }` —— 可能被改过的 payload，它会替换宿主那一份。payload
+永远是一个 JSON 对象，答案也必须是一个；一个返回字符串或数组的钩子会被判成
+`bad_response`，因为一轮的上下文不能变成一个字符串。
 
-A hook that wants to leave the payload alone returns it unchanged. A hook that wants to add
-a field returns the whole object with the field added — the host does **not** merge; the
-returned object is the new payload. A hook that fails is reported and the payload is left
-untouched: a broken hook must not be able to change a turn.
+想让 payload 保持原样的钩子就原样返回它。想加一个字段的钩子返回加了该字段的整个对象
+——宿主**不**合并；返回的对象就是新的 payload。失败的钩子会被上报，payload 保持不动：
+一个坏掉的钩子必须没有能力改变一轮。
 
-The phases are a closed set (`before_turn`, `after_tool`). A plugin that answers a phase it
-did not claim is a plugin the host never asks.
+阶段是一个封闭集合（`before_turn`、`after_tool`）。一个回答了它没有声明的阶段的插件，
+是宿主永远不会去问的插件。
 
-`after_tool` is also how a **tool decorator** is expressed: the payload carries the tool
-name, its arguments and its result, and the hook returns a payload whose result it may
-rewrite — redact a field, append a hint, replace an error with a shorter one. There is no
-separate `decorate` method because a decorator is exactly "a hook that runs after a tool and
-returns a changed payload"; a second method would be the same call with a second set of
-rules to keep in sync.
+`after_tool` 同时也是**工具装饰器**的表达方式：payload 里带着工具名、它的参数和它的
+结果，钩子返回一个可以改写其结果的新 payload——脱敏一个字段、追加一条提示、把一个错误
+换成更短的。这里没有单独的 `decorate` 方法，因为装饰器恰好就是「在工具之后运行、返回
+改动过的 payload 的钩子」；第二个方法就是同一个调用配第二套要保持同步的规则。
 
 ### `shutdown`
 
-A request from host to plugin: params absent, result `{}`. **Answer it, then exit with
-status 0.** The host waits 500 ms for the reply, then closes stdin; a plugin that reads
-until EOF also exits on its own. Exiting on `shutdown` is what makes `unload` report a clean
-exit; a plugin that ignores it is killed after two seconds.
+宿主发给插件的请求：没有参数，结果 `{}`。**答它，然后以状态 0 退出。** 宿主等 500 ms
+拿回复，然后关 stdin；一个一直读到 EOF 的插件也会自己退出。在 `shutdown` 时退出，是让
+`unload` 报告干净退出的原因；无视它的插件会在两秒后被杀掉。
 
-Node note, learned the hard way: `process.exit(0)` immediately after `process.stdout.write`
-can truncate the reply on a pipe. Exit from the write callback instead:
+Node 的一条注意事项，是被坑出来的：在 `process.stdout.write` 之后立刻
+`process.exit(0)`，在管道上可能把回复截断。改成在写回调里退出：
 
 ```js
 process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} }) + '\n',
   function () { process.exit(0); });
 ```
 
-## 4. Errors
+## 4. 错误
 
-A JSON-RPC error object is `{ "code": <int>, "message": "<text>", "data": <any> }`.
+一个 JSON-RPC 错误对象是 `{ "code": <整数>, "message": "<文本>", "data": <任意> }`。
 
-| Code | Meaning |
+| 码 | 含义 |
 | --- | --- |
-| `-32700` | parse error: the line was not JSON (the id is `null`) |
-| `-32600` | invalid request: not a JSON-RPC request |
-| `-32601` | method not found |
-| `-32602` | invalid params |
-| `-32603` | internal error inside the plugin |
-| `-32000` | the plugin cannot honour this request (e.g. an unsupported protocol version) |
+| `-32700` | 解析错误：那一行不是 JSON（`id` 为 `null`） |
+| `-32600` | 非法请求：不是 JSON-RPC 请求 |
+| `-32601` | 方法不存在 |
+| `-32602` | 参数非法 |
+| `-32603` | 插件内部错误 |
+| `-32000` | 插件无法满足这个请求（例如不支持的协议版本） |
 
-A plugin may use any number in a reply; the host reports the number and the message, it does
-not interpret them. The host never maps a plugin error onto a panic and never retries: a
-retry of a call the plugin already executed is how one tool call becomes two side effects.
+插件在回复里可以用任何数字；宿主上报这个数字和这条消息，但不解释它们。宿主从不把插件
+错误映射成 panic，也从不重试：重试一次插件已经执行过的调用，就是让一次工具调用变成两个
+副作用。
 
-### The host's own failure codes
+### 宿主自己的失败码
 
-These are what `Error::code()` returns and what the CLI prints, one per fix:
+这些是 `Error::code()` 返回的、也是 CLI 打印的东西，一个码对应一个修法：
 
-| Code | Who has to act |
+| 码 | 该动的人 |
 | --- | --- |
-| `unknown_plugin` | operator: no directory of that name under the plugin root |
-| `bad_manifest` | author: `plugin.json` is missing, unparseable, or breaks a stated rule |
-| `unsupported_runtime` | author/operator: `runtime` is not one of the three |
-| `spawn_failed` | operator: the manifest named nothing to run, or the interpreter is missing |
-| `not_initialized` | caller: `load` was never called for this plugin |
-| `protocol_error` | plugin: wrong id, wrong version, neither result nor error, unknown hook phase |
-| `timeout` | plugin: no answer within the deadline; the child was killed |
-| `child_exited` | plugin: it died, or closed its pipes |
-| `too_large` | plugin: a reply exceeded the byte cap; the line was dropped, not buffered |
-| `bad_response` | plugin: it answered, and the answer was not what the method returns |
+| `unknown_plugin` | 操作者：插件根目录下没有这个名字的目录 |
+| `bad_manifest` | 作者：`plugin.json` 不存在、无法解析，或违反了某条写明的规则 |
+| `unsupported_runtime` | 作者/操作者：`runtime` 不是那三个之一 |
+| `spawn_failed` | 操作者：清单没有指名要跑什么，或解释器不存在 |
+| `not_initialized` | 调用方：这个插件从来没有被 `load` 过 |
+| `protocol_error` | 插件：id 不对、版本不对、既没有 result 也没有 error、钩子阶段不认识 |
+| `timeout` | 插件：在期限之内没有回答；子进程已被杀掉 |
+| `child_exited` | 插件：它死了，或者关掉了自己的管道 |
+| `too_large` | 插件：某条回复超过了字节上限；那一行被丢掉，没有缓冲 |
+| `bad_response` | 插件：它答了，但答的不是这个方法该返回的东西 |
 
-`bad_response` quotes the first 200 bytes of a malformed reply — enough to recognise a stray
-`console.log` or a stack trace, short enough not to become a five-megabyte error message.
+`bad_response` 会引用畸形回复的前 200 字节——够认出一个乱跑的 `console.log` 或一段栈，
+又短到不会变成一个五兆字节的错误消息。
 
-### Plugin-initiated messages
+### 插件主动发出的消息
 
-A plugin may send notifications (`{"jsonrpc":"2.0","method":"..."}` with no id) at any time;
-the host logs and skips them. A plugin-initiated **request** is answered with `-32601` and a
-message saying this host takes no callbacks, rather than being dropped: a plugin waiting for
-a reply it will never get would hang until its own deadline. There is no callback surface by
-design — see §6.
+插件可以在任何时候发通知（`{"jsonrpc":"2.0","method":"..."}`，没有 id）；宿主记录并跳过
+它们。插件主动发的**请求**会用 `-32601` 加一句「本宿主不接受回调」来回答，而不是被丢弃：
+一个在等永远不来的回复的插件会一直挂到它自己的期限。按设计这里没有回调面——见 §6。
 
-## 5. Limits
+## 5. 上限
 
-| Limit | Default | Behaviour when exceeded |
+| 上限 | 默认 | 超出时 |
 | --- | --- | --- |
-| reply bytes | 4 MiB | `too_large`; the over-long line is counted and discarded, never buffered |
-| request bytes | 4 MiB (same cap) | `too_large`; the host refuses to write the frame |
-| call deadline | 10 s | `timeout`; the child is killed and its handle closed |
-| stderr line | 4 KiB | truncated with `[truncated]` before logging |
-| stderr tail | 200 lines | oldest dropped; only the tail is kept for diagnostics |
-| `close` patience | 500 ms + 2 s | `shutdown` reply wait, then stdin close and exit wait, then kill |
+| 回复字节 | 4 MiB | `too_large`；过长的那一行被计数并丢弃，从不缓冲 |
+| 请求字节 | 4 MiB（同一个上限） | `too_large`；宿主拒绝写出该帧 |
+| 调用期限 | 10 s | `timeout`；子进程被杀掉、句柄关闭 |
+| stderr 单行 | 4 KiB | 记录前用 `[truncated]` 截断 |
+| stderr 尾部 | 200 行 | 最老的被丢掉；只为诊断保留尾部 |
+| `close` 的耐心 | 500 ms + 2 s | 等 `shutdown` 回复，然后关 stdin 等退出，然后杀掉 |
 
-The reply cap is enforced **while reading**, not after: a plugin that writes a 5 MiB line has
-already cost the host 5 MiB of allocation if the line is buffered first, which is the exact
-failure the cap exists to prevent. Bytes past the cap are counted and dropped, and the line
-is drained to the newline so the stream stays on a frame boundary and the plugin remains
-usable afterwards.
+回复上限是**边读边**执行的，不是读完再判：一个写了 5 MiB 一行的插件，如果先缓冲整行，
+那 5 MiB 的分配已经花掉了，而那正是这个上限要防的失败。超过上限的字节被计数并丢弃，
+并且那一行会被排空到换行符，这样流仍停在帧边界上，插件之后仍然可用。
 
-Both `timeout` and `too_large` name the plugin and the method: "a plugin timed out" without
-a name sends the operator to read every plugin they have.
+`timeout` 与 `too_large` 都会指名插件和方法：一句没有名字的「某个插件超时了」，会让
+操作者去翻他装的每一个插件。
 
-## 6. What this protocol deliberately does not have
+## 6. 这个协议刻意没有的东西
 
-- **No streaming.** A tool call returns one result. Streaming needs a cancellation design
-  that no plugin needs yet; a plugin with a long job should write a file and return the path.
-- **No host callbacks.** A plugin cannot ask the host to run a tool, read a file, or start a
-  turn. That direction would make the plugin a second agent, and the point of a plugin is to
-  be smaller than the host.
-- **No capability negotiation beyond `capabilities`.** No version ranges, no optional method
-  sets. A plugin speaks v1 or is refused.
-- **No transport other than stdio.** No sockets, no HTTP, no shared memory. A plugin that
-  wants to be a server can start one; the host does not need to know.
-- **No automatic restart.** A plugin that dies stays dead until `load` is called again.
-  Restarting behind the caller's back would replay side effects it cannot see.
+- **没有流式。** 一次工具调用返回一个结果。流式需要一套取消设计，而现在没有插件需要它；
+  一个活儿很久的插件应该写个文件然后返回路径。
+- **没有宿主回调。** 插件不能让宿主跑工具、读文件或开始一轮。那个方向会把插件变成第二个
+  agent，而插件的意义是比宿主小。
+- **除 `capabilities` 之外没有能力协商。** 没有版本区间，没有可选方法集。插件要么说 v1，
+  要么被拒。
+- **除了 stdio 没有别的传输。** 没有 socket、没有 HTTP、没有共享内存。想当服务器的插件
+  可以自己起一个；宿主不需要知道。
+- **没有自动重启。** 死了的插件会一直死着，直到再次调用 `load`。背着调用方重启，会重放
+  它看不见的副作用。

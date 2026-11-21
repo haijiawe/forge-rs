@@ -120,10 +120,10 @@ export function currentRound(goal: Goal): number {
 
 /** One line for a tooltip or aria-label. */
 export function describeGoal(goal: Goal): string {
-  const round = `round ${String(currentRound(goal))} of ${String(goal.maxRounds)}`;
-  const head = goal.text === '' ? `${round}, ${goal.status}` : `${goal.text} — ${round}, ${goal.status}`;
+  const round = `第 ${String(currentRound(goal))} 轮，共 ${String(goal.maxRounds)} 轮`;
+  const head = goal.text === '' ? `${round}，${goal.status}` : `${goal.text} — ${round}，${goal.status}`;
   // Silence about the next round when the server sent none: that is the case
   // where the budget is spent and the loop will stop, whatever `status` says.
   if (goal.nextRound === undefined) return head;
-  return `${head}, next round ${String(goal.nextRound)}`;
+  return `${head}，下一轮 ${String(goal.nextRound)}`;
 }

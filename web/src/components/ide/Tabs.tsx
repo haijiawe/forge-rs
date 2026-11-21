@@ -17,12 +17,12 @@ export function Tabs({ open, activePath, onSelect, onClose }: TabsProps) {
   if (open.length === 0) {
     return (
       <div className="wb-tabs wb-tabs-empty">
-        <span className="wb-muted">no files open</span>
+        <span className="wb-muted">没有打开的文件</span>
       </div>
     );
   }
   return (
-    <div className="wb-tabs" role="tablist" aria-label="open files">
+    <div className="wb-tabs" role="tablist" aria-label="已打开的文件">
       {open.map((tab) => {
         const active = tab.path === activePath;
         const name = tab.path.slice(tab.path.lastIndexOf('/') + 1);
@@ -41,7 +41,7 @@ export function Tabs({ open, activePath, onSelect, onClose }: TabsProps) {
               {name}
               {tab.loading && <span className="wb-tab-flag"> …</span>}
               {tab.error != null && (
-                <span className="wb-tab-flag wb-error" aria-label="read failed">
+                <span className="wb-tab-flag wb-error" aria-label="读取失败">
                   {' '}
                   !
                 </span>
@@ -50,7 +50,7 @@ export function Tabs({ open, activePath, onSelect, onClose }: TabsProps) {
             <button
               type="button"
               className="wb-tab-close"
-              aria-label={`close ${tab.path}`}
+              aria-label={`关闭 ${tab.path}`}
               onClick={() => {
                 onClose(tab.path);
               }}

@@ -30,7 +30,7 @@ function baseBoard(overrides: Record<string, unknown> = {}): Record<string, unkn
 
 async function renderLoad(load: () => Promise<unknown>) {
   const view = mount(<TeamBoards load={load} />);
-  await waitFor(() => !(view.container.textContent ?? '').includes('reading the team boards'));
+  await waitFor(() => !(view.container.textContent ?? '').includes('正在读取团队任务板…'));
   return view;
 }
 
@@ -58,7 +58,7 @@ describe('TeamBoards', () => {
       'pending 1 · in_progress 1 · completed 1',
     );
     expect(view.container.querySelector('.team-board-workers')?.textContent).toContain(
-      'finished 1 · failed 1 · unknown 1',
+      '已完成 1 · 失败 1 · 未知 1',
     );
     // Nothing is expanded until it is asked for.
     expect(view.container.querySelector('.team-board-detail')).toBeNull();
@@ -74,13 +74,13 @@ describe('TeamBoards', () => {
     interact(() => toggle(view).click());
     const pill = view.container.querySelector('.team-worker-state');
     expect(pill?.className).toContain('team-worker-state-finished');
-    expect(pill?.textContent).toBe('finished');
+    expect(pill?.textContent).toBe('已完成');
     // The other two states are rendered as zero counts, not as absent.
     expect(view.container.querySelector('.team-worker-count-failed')?.textContent).toBe(
-      'failed 0',
+      '失败 0',
     );
     expect(view.container.querySelector('.team-worker-count-unknown')?.textContent).toBe(
-      'unknown 0',
+      '未知 0',
     );
     view.unmount();
   });
@@ -94,10 +94,10 @@ describe('TeamBoards', () => {
     interact(() => toggle(view).click());
     const pill = view.container.querySelector('.team-worker-state');
     expect(pill?.className).toContain('team-worker-state-failed');
-    expect(pill?.textContent).toBe('failed');
+    expect(pill?.textContent).toBe('失败');
     expect(view.container.querySelector('.team-worker-state-finished')).toBeNull();
     expect(view.container.querySelector('.team-worker-count-finished')?.textContent).toBe(
-      'finished 0',
+      '已完成 0',
     );
     view.unmount();
   });
@@ -110,29 +110,29 @@ describe('TeamBoards', () => {
     );
     // Before expanding: the count row already refuses to call it either verdict.
     expect(view.container.querySelector('.team-worker-count-unknown')?.textContent).toBe(
-      'unknown 1',
+      '未知 1',
     );
     expect(view.container.querySelector('.team-worker-count-finished')?.textContent).toBe(
-      'finished 0',
+      '已完成 0',
     );
-    expect(view.container.querySelector('.team-worker-count-failed')?.textContent).toBe('failed 0');
+    expect(view.container.querySelector('.team-worker-count-failed')?.textContent).toBe('失败 0');
 
     interact(() => toggle(view).click());
     const pill = view.container.querySelector('.team-worker-state');
     expect(pill?.className).toContain('team-worker-state-unknown');
     expect(pill?.className).not.toContain('team-worker-state-finished');
     expect(pill?.className).not.toContain('team-worker-state-failed');
-    expect(pill?.textContent).toBe('unknown');
+    expect(pill?.textContent).toBe('未知');
     // And it says what evidence is missing instead of leaving the reader to guess.
-    expect(text(view.container)).toContain('no worker/end line was written');
+    expect(text(view.container)).toContain('未写入 worker/end 行');
     view.unmount();
   });
 
   it('says no team has run here when the board list is empty, and calls it not an error', async () => {
     const view = await renderLoad(() => Promise.resolve({ boards: [] }));
     const rendered = text(view.container);
-    expect(rendered).toContain('no team has run');
-    expect(rendered).toContain('not a failure');
+    expect(rendered).toContain('还没有团队运行过');
+    expect(rendered).toContain('这不是故障');
     expect(view.container.querySelector('.teams-empty')).not.toBeNull();
     expect(view.container.querySelector('.team-board')).toBeNull();
     // An empty list is not the failed-read state.
@@ -147,7 +147,7 @@ describe('TeamBoards', () => {
       }),
     );
     const rendered = text(view.container);
-    expect(rendered).toContain('no tasks on this board');
+    expect(rendered).toContain('这块任务板上没有任务');
     expect(view.container.querySelector('.team-board-tasks-empty')).not.toBeNull();
     // No percentage, no bar, no denominator this build could not know.
     expect(rendered).not.toContain('%');
@@ -173,7 +173,7 @@ describe('TeamBoards', () => {
     for (const body of [null, 'not json', 42, { boards: [{ team: 'nameless' }] }, {}]) {
       const view = await renderLoad(() => Promise.resolve(body));
       expect(view.container.querySelector('.team-board')).toBeNull();
-      expect(text(view.container)).toContain('no team has run');
+      expect(text(view.container)).toContain('还没有团队运行过');
       expect(view.container.querySelector('.banner-error')).toBeNull();
       view.unmount();
     }
@@ -187,10 +187,10 @@ describe('TeamBoards', () => {
     );
     expect(view.container.querySelector('.team-board')).not.toBeNull();
     expect(view.container.querySelector('.team-board-workers')?.textContent).toContain(
-      'finished 0 · failed 0 · unknown 0',
+      '已完成 0 · 失败 0 · 未知 0',
     );
     interact(() => toggle(view).click());
-    expect(text(view.container)).toContain('no worker transcripts to show');
+    expect(text(view.container)).toContain('没有可显示的工作者记录');
     view.unmount();
   });
 
@@ -203,14 +203,14 @@ describe('TeamBoards', () => {
     const button = toggle(view);
     expect(button.tagName).toBe('BUTTON');
     expect(button.getAttribute('aria-expanded')).toBe('false');
-    expect(button.getAttribute('aria-label')).toBe(`show details for ${BOARD}`);
+    expect(button.getAttribute('aria-label')).toBe(`显示 ${BOARD} 的详情`);
     const controls = button.getAttribute('aria-controls');
     expect(controls).not.toBeNull();
     expect(document.getElementById(controls ?? '')).toBeNull();
 
     interact(() => button.click());
     expect(button.getAttribute('aria-expanded')).toBe('true');
-    expect(button.getAttribute('aria-label')).toBe(`hide details for ${BOARD}`);
+    expect(button.getAttribute('aria-label')).toBe(`隐藏 ${BOARD} 的详情`);
     const detail = document.getElementById(controls ?? '');
     expect(detail).not.toBeNull();
     // The detail is the data already in hand: three tasks and three workers.
@@ -243,7 +243,7 @@ describe('TeamBoards', () => {
   it('renders parallelism as unknown rather than a number nothing recorded', async () => {
     const view = await renderLoad(() => Promise.resolve({ boards: [baseBoard()] }));
     const parallel = view.container.querySelector('.team-board-parallel');
-    expect(parallel?.textContent).toBe('unknown');
+    expect(parallel?.textContent).toBe('未知');
     expect(parallel?.className).toContain('team-board-parallel-unknown');
     expect(text(view.container)).not.toContain('parallelism 0');
     view.unmount();
@@ -261,7 +261,7 @@ describe('TeamBoards', () => {
     );
     const badge = view.container.querySelector('.team-board-diagnostic-badge');
     expect(badge).not.toBeNull();
-    expect(badge?.textContent).toContain('1 diagnostic');
+    expect(badge?.textContent).toContain('1 条诊断');
     // Collapsed, the human strings are not spammed into the list.
     expect(text(view.container)).not.toContain('had not finished');
     interact(() => toggle(view).click());

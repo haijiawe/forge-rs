@@ -72,6 +72,7 @@ jobs:
       rust: ${{ steps.diff.outputs.rust }}
       web: ${{ steps.diff.outputs.web }}
       sandbox: ${{ steps.diff.outputs.sandbox }}
+      markdown: ${{ steps.diff.outputs.markdown }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -105,11 +106,14 @@ jobs:
           rust=false
           web=false
           sandbox=false
+          markdown=false
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              docs/*) continue ;;
-              *.md) continue ;;
+              # A markdown-only change cannot break the build, but it can break a
+              # link, and a dead link is the only defect a reader hits before the
+              # first test. The `markdown` job below is what pays attention.
+              docs/*|*.md) markdown=true; continue ;;
               LICENSE) continue ;;
               web/*) web=true ;;
               crates/sandbox/*|crates/exec/*) rust=true; sandbox=true ;;
@@ -123,7 +127,23 @@ jobs:
             echo "rust=$rust"
             echo "web=$web"
             echo "sandbox=$sandbox"
+            echo "markdown=$markdown"
           } >> "$GITHUB_OUTPUT"
+
+  # Markdown-only changes now cost a job, so it has to be a cheap one: no
+  # toolchain, no npm, no cache to restore. `check-links.cjs` reads the index
+  # with `git ls-files`, so nothing but a checkout is needed.
+  markdown:
+    name: markdown links
+    needs: changes
+    if: needs.changes.outputs.markdown == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: relative links resolve
+        run: node scripts/check-links.cjs
 
   test:
     name: test ${{ matrix.os }}

@@ -46,28 +46,28 @@ const GROUP_ORDER: readonly ConfiguredGroup['group'][] = [
 
 const GROUP_TEXT: Record<ConfiguredGroup['group'], { title: string; detail: string }> = {
   plugins: {
-    title: 'plugins',
-    detail: 'child processes speaking the plugin protocol; only enabled ones are offered',
+    title: '插件',
+    detail: '用插件协议通信的子进程；只有已启用的才会被提供',
   },
   experts: {
-    title: 'experts',
-    detail: 'roster entries the `expert` tool can summon, unless disabled',
+    title: '专家',
+    detail: '除非被禁用，`expert` 工具可以召唤的名册条目',
   },
   teams: {
-    title: 'teams',
-    detail: 'roster teams the `team` tool can run, when the parallelism is above zero',
+    title: '团队',
+    detail: '并行度大于零时，`team` 工具可以运行的名册团队',
   },
   bundles: {
-    title: 'market bundles',
-    detail: 'installed from a market; a bundle is a plugin, so it appears twice on purpose',
+    title: '市场插件包',
+    detail: '从市场安装的；插件包本身就是插件，所以它会故意出现两次',
   },
   mcp: {
-    title: 'mcp servers',
-    detail: 'named in the configuration; whether each one answered is in the CLI notes',
+    title: 'MCP 服务器',
+    detail: '在配置里登记的名字；每一个是否应答过，写在命令行说明里',
   },
   skills: {
-    title: 'skills',
-    detail: 'found on the configured roots; the `skill` tool reads them on demand',
+    title: '技能',
+    detail: '在已配置的根目录下找到的；`skill` 工具会按需读取它们',
   },
 };
 

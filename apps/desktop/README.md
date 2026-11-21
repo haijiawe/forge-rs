@@ -1,108 +1,92 @@
-# hearth desktop — the shell around the local server
+# hearth desktop —— 本地服务器外面那层窗口
 
-A Tauri 2 window. It starts `hearth web` as a child process, waits for the server
-to print the URL it is serving, and opens a window at that URL. Everything in the
-window is the same web UI a browser gets; this crate adds a window, a taskbar
-entry and an icon, and nothing else.
+一个 Tauri 2 窗口。它把 `hearth web` 当子进程起起来，等服务器打印出它正在服务的
+那个 URL，然后在那个 URL 上开一个窗口。窗口里的一切与浏览器看到的是同一份 web
+界面；这个 crate 只多给了一个窗口、一个任务栏条目和一个图标，别的什么都没加。
 
-## Why it is a launcher and not an application
+## 为什么它是「启动器」而不是「应用」
 
-* The UI talks to the server over HTTP with a bearer token. Running that over the
-  loopback socket is the same path a browser uses, so a defect in the shell
-  cannot quietly diverge from a defect in the browser.
-* The server owns the sandbox, the approval prompt and the event log. A shell
-  that linked the server would have to be trusted with all three, and a window
-  frame has no business being trusted with anything.
-* `hearth` stays one binary that runs anywhere. The shell is an extra: a machine
-  without a desktop is not made worse by it, and `cargo test --workspace` never
-  needs a GUI toolkit.
+* 界面用 HTTP 加 bearer token 跟服务器说话。把这条路走在本机回环 socket 上，就是
+  浏览器走的那条路——所以壳里的缺陷不可能悄悄地与浏览器里的缺陷分岔。
+* 服务器拥有沙箱、审批弹窗和事件日志。一个把服务器链接进来的壳，就得被信任这三样，
+  而一个窗口边框没有资格被信任任何东西。
+* `hearth` 保持为「一个二进制、哪里都能跑」。壳是额外的东西：没有桌面的机器不会
+  因为它变差，`cargo test --workspace` 也永远不需要 GUI 工具包。
 
-## Building
+## 构建
 
 ```powershell
 cd D:\hearth\apps\desktop
 cargo build --offline            # debug
-cargo build --offline --release  # what you would ship
+cargo build --offline --release  # 要发布的就是这个
 ```
 
-This is a **separate cargo workspace** (`[workspace]` in its own `Cargo.toml`).
-It is not a member of the root workspace on purpose: `tauri` on Linux needs
-`webkit2gtk`, and a member would make every Linux CI job install a GUI toolkit
-to compile a window border. The boundary between the shell and the server is "run
-this process", which has nothing for a type checker to check.
+这是一个**独立的 cargo workspace**（自己的 `Cargo.toml` 里有 `[workspace]`）。
+它刻意不是根 workspace 的成员：Linux 上的 `tauri` 需要 `webkit2gtk`，一旦成为成员，
+每个 Linux CI job 都得装一套 GUI 工具包，只为了编一个窗口边框。壳与服务器之间的
+边界是「把这个进程跑起来」，没有任何东西留给类型检查器去检查。
 
-The icon set is generated, not drawn by hand:
+图标是生成出来的，不是手画的：
 
 ```powershell
 & "…\python.exe" apps\desktop\icons\make-icons.py
 ```
 
-It needs Pillow and writes `icon.ico` (16–256 px) plus the three PNGs
-`tauri.conf.json` lists. Run it only when the mark changes; the outputs are
-committed because a build must not need Python.
+它需要 Pillow，会写出 `icon.ico`（16–256 px）以及 `tauri.conf.json` 列出的三张 PNG。
+只在标记改动时跑一次；产物是提交进仓库的，因为构建不该需要 Python。
 
-## Running
+## 运行
 
 ```powershell
 .\apps\desktop\target\debug\hearth-desktop.exe --model deepseek-chat
 ```
 
-Every argument is forwarded to `hearth web`. The shell adds `--no-browser`, so
-the window is the browser and Edge does not open behind it.
+所有参数都会转给 `hearth web`。壳自己加上 `--no-browser`，所以窗口就是浏览器，
+Edge 不会在后面再开一个。
 
-`HEARTH_BIN` overrides which binary is started. Without it the shell uses a
-`hearth.exe`/`hearth` sitting next to itself, then `PATH`. A shell that guessed
-silently would start a *different* build than the one beside it, which is the
-kind of defect that makes a fixed bug look unfixed.
+`HEARTH_BIN` 用来改写启动哪个二进制。不设它时，壳先用与自己同目录的
+`hearth.exe`/`hearth`，再退到 `PATH`。一个靠猜的壳会启动**另一个**构建，而不是
+它旁边那个——这正是「修好的缺陷看起来没修」那类故障。
 
-On a model the server refuses to start without one; `hearth web` exits with
-`no model configured: pass --model <name> or set "model" in config.json`, and the
-shell shows that sentence in the window instead of a blank page.
+在这个版本里，没有模型服务器会拒绝启动；`hearth web` 会以
+`no model configured: pass --model <name> or set "model" in config.json` 退出，
+壳把这句话显示在窗口里，而不是留一张白页。
 
-## What the window does, and when
+## 窗口做了什么，以及顺序
 
-1. `setup` spawns a worker thread. The main thread is never blocked, because the
-   main thread is the one that pumps the window's messages.
-2. The worker starts the server with stdin null and stderr piped, then reads
-   stderr until a line starts with `hearth web: open `. The server picks its own
-   port, so the shell cannot choose one; the URL is the server's own statement
-   that it is listening.
-3. Back on the **main thread** (through `run_on_main_thread`) the window is
-   created directly at that URL, 1440×900, minimum 900×600.
-4. If the server could not be started, the window opens on a `data:text/html`
-   page that says why. The error page is a document of its own rather than a
-   patch applied to a page that is still loading.
+1. `setup` 起一个工作线程。主线程从不被阻塞，因为它才是泵窗口消息的那个。
+2. 工作线程起服务器（stdin 置空、stderr 接管），然后读 stderr 直到出现以
+   `hearth web: open ` 开头的一行。端口是服务器自己挑的，所以壳没法替它选；
+   那个 URL 就是服务器自己声明的「我在监听了」。
+3. 回到**主线程**（经 `run_on_main_thread`），窗口直接在那个 URL 上创建，
+   1440×900，最小 900×600。
+4. 如果服务器没起来，窗口打开在一张 `data:text/html` 页上，写明原因。错误页是
+   一份自己的文档，而不是往一个还在加载的页面上打补丁。
 
-Both of those last two details were measured the hard way:
+最后两条细节都是硬吃下来的：
 
-* Creating the window from the waiting thread loads the page (read through
-  WebView2's debugging port: `#root` held 7,819 bytes of markup, the stylesheet
-  had 267 rules, `errors` was empty) and then paints nothing but black, because
-  the WebView2 controller belongs to the thread that runs the event loop.
-* Opening a placeholder page and navigating it once the server is up leaves a
-  blank document behind when the two loads overlap: the new page is laid out
-  against a viewport the old document had not finished setting up.
+* 从等待线程里创建窗口，页面确实会加载（用 WebView2 的调试端口读过：`#root`
+  里有 7,819 字节 markup，样式表有 267 条规则，`errors` 是空的），然后只画出一片
+  纯黑——因为 WebView2 的 controller 归运行事件循环的那个线程所有。
+* 先开一张占位页、等服务器起来再导航过去，两次加载会重叠，最后留下一份空白文档：
+  新页面是按旧文档还没设置完的视口布局的。
 
-The window is what the CSP in `tauri.conf.json` covers. It is deliberately
-narrow — `default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:` —
-because the only document Tauri itself serves is the fallback page in `ui/`.
+窗口就是 `tauri.conf.json` 里那条 CSP 覆盖的范围。它刻意很窄——
+`default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:`——因为 Tauri
+自己服务的唯一文档就是 `ui/` 里的兜底页。
 
-## Closing
+## 关闭
 
-The server is a child process, and the exit handler kills and waits for it, so a
-closed window does not leave a listener behind on a loopback port. This is
-verified, not assumed: with the window closed, `GET /api/capabilities` on the old
-port answers `000` (nothing is listening) and the `hearth.exe` process is gone.
+服务器是子进程，退出处理里会 kill 并 wait 它，所以关掉窗口不会在回环端口上留下
+一个监听者。这是实测的，不是假设：窗口关掉后，对旧端口的
+`GET /api/capabilities` 返回 `000`（没有东西在监听），`hearth.exe` 进程也没了。
 
-## What this crate does not do
+## 这个 crate 不做什么
 
-* It does not bundle a model, a token or a configuration. First run wants
-  `--model` or a `config.json`.
-* It does not open a browser, and it does not own a "quit" menu item: closing the
-  window is quitting.
-* It does not build installers here. `cargo build` produces
-  `target/{debug,release}/hearth-desktop.exe`; `tauri.conf.json` has the bundle
-  metadata, but no `tauri` CLI is installed on this machine and none is needed to
-  build.
-* It is not covered by `check.ps1` or CI. See "Building" for why; the shell has no
-  tests of its own, so nothing here can pass a gate it is not part of.
+* 它不打包模型、token 或配置。第一次运行还是需要 `--model` 或一份 `config.json`。
+* 它不开浏览器，也没有自己的「退出」菜单项：关窗就是退出。
+* 它不在这里构建安装包。`cargo build` 产出
+  `target/{debug,release}/hearth-desktop.exe`；`tauri.conf.json` 里有打包元数据，
+  但这台机器上没装 `tauri` CLI，构建也不需要它。
+* 它不在 `check.ps1` 或 CI 的覆盖范围内。原因见「构建」；壳自己没有测试，
+  所以这里没有任何东西能通过一个它并不参与的门禁。

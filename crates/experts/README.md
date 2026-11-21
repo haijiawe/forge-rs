@@ -27,107 +27,48 @@ gate: cargo test -p hearth-experts --offline
 
 ## 做什么
 
-An expert is a persona that can be summoned as a subagent: a Markdown file whose
-frontmatter carries `name`, `slug`, `description` and optionally `division`,
-`enabled` and `tools`, and whose body is the system prompt. A team is a Markdown
-file that names experts and their duties plus one `coordinator`, and whose body
-is the team-level instruction.
+一个 expert 就是一个能被当作子代理召来的人格：一个 Markdown 文件，frontmatter 里带 `name`、`slug`、`description`，可选带 `division`、`enabled` 和 `tools`，正文就是系统提示。一个 team 也是一个 Markdown 文件，点名若干 expert 及其职责、外加一个 `coordinator`，正文是团队级指令。
 
-`scan(root)` walks a directory tree, parses every `.md` file, and returns a `Set`
-that has been checked against itself: slugs are legal and unique across the whole
-tree, every required field is present, and every team reference resolves to a
-real, enabled expert. A missing root is an **empty set**, not an error, because a
-machine that has never created an experts directory is a normal machine and must
-still start.
+`scan(root)` 遍历一棵目录树，解析每个 `.md` 文件，返回一个**已经对自身做过校验**的 `Set`：slug 合法且整棵树内唯一，每个必填字段都在，每个 team 引用都指向一个真实且已启用的 expert。根目录不存在是**空集合**而不是错误，因为一台从没建过 experts 目录的机器是正常机器，它必须仍然能启动。
 
-`prompt_for(&set, slug)` and `team_prompt(&set, slug)` turn one entry of that set
-into the exact string a caller sends to a model. Both are pure functions of the
-set and the slug, so two calls give byte-identical strings; a team's members
-appear in the order its file lists them, never re-sorted.
+`prompt_for(&set, slug)` 和 `team_prompt(&set, slug)` 把那个集合里的一条变成调用方发给模型的准确字符串。两者都是集合与 slug 的纯函数，所以调两次得到逐字节相同的字符串；一个 team 的成员按其文件里的顺序出现，绝不重新排序。
 
-The three rules that shaped every refusal:
+塑造了所有拒绝的三条规则：
 
-- **Refuse, do not warn.** Losing a `tools:` line turns a read-only reviewer into
-  a persona that may run commands. Losing a `members:` line turns a four-person
-  team into a three-person team without a word. Each refusal names the file and
-  what to change.
-- **The body is bytes.** `Expert::prompt` and `Team::prompt` are the file body
-  exactly as written, including `\r\n`, tabs, a line that looks like a closing
-  fence, and trailing newlines. A loader that normalised anything would make the
-  prompt differ from the file a reviewer approved.
-- **One namespace.** A team slug and an expert slug share one namespace, and two
-  files defining the same slug are refused with both paths in the message.
-  "Which one wins" is exactly the ambiguity a roster must not have.
+- **拒绝，不警告。** 丢掉一行 `tools:` 会把一个只读审阅者变成一个可以跑命令的人格。丢掉一行 `members:` 会让一个四个人的 team 悄悄变成三个人的团队。每一种拒绝都点名文件以及要改什么。
+- **正文是字节。** `Expert::prompt` 与 `Team::prompt` 就是文件正文原样，包括 `\r\n`、制表符、一行看起来像结束围栏的文本，以及结尾换行。任何做规范化的加载器，都会让提示与审阅者批准过的那份文件不一致。
+- **一个命名空间。** team slug 与 expert slug 共用一个命名空间，两个文件定义同一个 slug 时被拒，消息里带上两条路径。「哪一个赢」正是一份名册绝不能有的歧义。
 
 ## 公开面
 
-- `scan(&Path) -> Result<Set>`; `Set::empty()`.
-- `Set`: `experts()`, `teams()`, `expert(slug)`, `team(slug)`, `summonable(slug)`,
-  `is_empty()`, `len()`. Only `scan` can build a non-empty one, so "a `Set`
-  exists" means "the tree was checked".
-- `Expert { slug, name, description, division, enabled, tools, prompt, path }`.
-  `tools: Option<Vec<String>>`: `None` means no restriction was stated,
-  `Some(vec![])` means `tools: []`. The two are different instructions and the
-  assembled prompt says so.
-- `Team { slug, name, description, coordinator, members, prompt, path }`,
-  `TeamMember { expert, duty, description }` (`description` is the member
-  expert's own, resolved at load).
-- `prompt_for(&Set, slug) -> Option<String>` — the body, plus the tool
-  restriction line when `tools` is present. `None` for an unknown or disabled
-  slug.
-- `team_prompt(&Set, slug) -> Option<String>` — the body, plus the coordinator
-  instruction, plus one numbered line per member with its slug, duty and
-  description. `None` for an unknown slug.
-- `Error` with `kind()`, `code()` and `message()`; `ErrorKind` with `as_str()`;
-  `ERROR_CODES` for the whole set of stable codes.
+- `scan(&Path) -> Result<Set>`；`Set::empty()`。
+- `Set`：`experts()`、`teams()`、`expert(slug)`、`team(slug)`、`summonable(slug)`、`is_empty()`、`len()`。只有 `scan` 能造出非空的那个，所以「一个 `Set` 存在」就意味着「那棵树被检查过」。
+- `Expert { slug, name, description, division, enabled, tools, prompt, path }`。`tools: Option<Vec<String>>`：`None` 表示没有声明任何限制，`Some(vec![])` 表示 `tools: []`。这是两条不同的指令，拼出来的提示会明说。
+- `Team { slug, name, description, coordinator, members, prompt, path }`，`TeamMember { expert, duty, description }`（`description` 是被点名成员自己的，在加载时解析出来）。
+- `prompt_for(&Set, slug) -> Option<String>`——正文，加上 `tools` 存在时的工具限制行。未知或已禁用的 slug 得到 `None`。
+- `team_prompt(&Set, slug) -> Option<String>`——正文，加上 coordinator 指令，加上每个成员一行带编号的 slug、职责与描述。未知 slug 得到 `None`。
+- `Error` 带 `kind()`、`code()` 与 `message()`；`ErrorKind` 带 `as_str()`；`ERROR_CODES` 给出全部稳定码。
 
-Codes, stable for the CLI: `missing_frontmatter`, `bad_frontmatter`,
-`missing_field`, `bad_slug`, `duplicate_slug`, `unknown_member`,
-`disabled_member`, `too_few_members`, `unreadable`.
+对 CLI 稳定的码表：`missing_frontmatter`、`bad_frontmatter`、`missing_field`、`bad_slug`、`duplicate_slug`、`unknown_member`、`disabled_member`、`too_few_members`、`unreadable`。
 
 ## 依赖与边界
 
-Standard library only. No hearth-internal dependency, no external crate, no
-`anyhow`, no async runtime. The roster is text: a dependency would only add a
-version to argue about, and the brief's law 3 refuses one.
+只用标准库。没有 hearth 内部依赖，没有外部 crate，没有 `anyhow`，没有 async 运行时。这份名册就是文本：加一个依赖只会多出版本要争论，而任务书里的第三条法则不允许这么做。
 
-Why `hearth-skill`'s reader is not reused, even though it is a same-layer edge and
-would have been legal on three counts:
+为什么不复用 `hearth-skill` 的读取器——尽管那是一条同层边，而且从三个角度看都合法：
 
-- its frontmatter parser and its walker are `pub(crate)`, so reuse means widening
-  another crate's privacy to reach a `BTreeMap`;
-- it scans exactly `root/*/SKILL.md` and never recurses, while a roster is a
-  genuinely nested tree;
-- its policies are the opposite of this crate's: it drops a key it cannot read
-  and normalises `\r\n` to `\n` while trimming the body's leading newlines. Both
-  are correct for a skill and both are disqualifying for a prompt that must be
-  byte-verbatim and for a `tools:` line whose loss changes what the model may do.
+- 它的 frontmatter 解析器和它的遍历器都是 `pub(crate)`，复用意味着为了拿到一个 `BTreeMap` 而把另一个 crate 的隐私面撕开；
+- 它只扫 `root/*/SKILL.md` 且从不递归，而一份名册是真正嵌套的树；
+- 它的策略与本 crate 的正相反：它丢掉读不懂的键，把 `\r\n` 规范成 `\n`，还裁掉正文开头的换行。这三条对一个 skill 都对，对一个必须逐字节保持原样、且丢掉一行 `tools:` 就会改变模型能做什么的提示来说，全都是不可接受的。
 
-The boundary is "read and check, never decide". This crate reports which experts
-and teams exist and produces their prompts; which expert a turn should summon is
-policy and belongs above L1.
+边界是「读并检查，绝不做决定」。本 crate 报告存在哪些 expert 和 team，并产出它们的提示；哪一轮该召哪一个 expert 是策略，属于 L1 之上。
 
 ## 不要做
 
-- Do not support the rest of YAML. The accepted subset is: a `---` fence, scalar
-  `key: value` at column 1, `key: [a, b]` flow lists, and `- item` block lists of
-  scalars or of single-level `- key: value` maps. Block scalars (`|`, `>`), nested
-  maps, nested lists, anchors, tags, flow maps and multi-document files are
-  refused with a message, never guessed at — the body is where long text goes.
-- Do not normalise a body. No newline translation, no trimming, no BOM inside the
-  body. A test asserts the body survives `\r\n`, a tab, a `---` line and non-ASCII.
-- Do not inline a whole file. Reads are capped at 1 MiB and an oversized file is
-  refused, never truncated: a truncated prompt is a prompt nobody reviewed.
-- Do not sort, dedupe or reorder members, and do not sort the prompt lines. File
-  order is what was reviewed.
-- Do not treat an unknown field as a warning. `tool:` mistyped for `tools:` would
-  silently drop a tool restriction, so an unrecognised field is a refusal.
-- Do not recurse without bounds. Depth is capped at 32 levels and a directory
-  reached twice is walked once, so a wrong root or a symlink cycle cannot hang
-  the loader.
-- Not implemented, stated plainly: no writer (`scan` never creates or modifies a
-  file; there is no `hearth expert new` here), no watching or caching (each `scan`
-  re-reads the tree), no inheritance between experts, no validation that a
-  `tools:` name is a tool `hearth-tool` actually registers — this crate does not
-  import L2 and cannot know, so a typo there is caught by the registry at call
-  time, not here.
+- 不要支持 YAML 的其余部分。可接受的子集是：一行 `---` 围栏、第 1 列上的标量 `key: value`、`key: [a, b]` 流式列表，以及由标量或单层 `- key: value` 映射构成的 `- item` 块列表。块标量（`|`、`>`）、嵌套映射、嵌套列表、锚点、标签、流式映射和多文档文件一律带消息拒绝，绝不猜测——长文本该放的地方是正文。
+- 不要规范化正文。不转换换行、不裁剪、正文里不处理 BOM。有测试断言正文能挺过 `\r\n`、制表符、一行 `---` 和非 ASCII。
+- 不要整份读入一个文件。读取上限 1 MiB，超限文件被拒绝而不是截断：被截断的提示是没人审阅过的提示。
+- 不要排序、去重或重排成员，也不要给提示行排序。文件里的顺序就是被审阅过的顺序。
+- 不要把未知字段当警告。把 `tool:` 误写成 `tools:` 会悄悄丢掉一条工具限制，所以认不出的字段就是一次拒绝。
+- 不要无界递归。深度上限 32 层，一个目录被第二次遇到时只走一次，这样一条错根或一个符号链接环不可能把加载器挂死。
+- 明确说清楚**没有**实现的：没有写入器（`scan` 从不创建或修改文件，这里没有 `hearth expert new`）；没有监视或缓存（每次 `scan` 重新读那棵树）；expert 之间没有继承；也不校验 `tools:` 里的名字是不是 `hearth-tool` 真的注册了的工具——本 crate 不导入 L2，无从知道，所以那里的拼写错误由注册表在调用时抓到，而不是在这里。

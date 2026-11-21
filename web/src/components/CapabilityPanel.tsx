@@ -32,15 +32,15 @@ function PlatformNote({ sections }: { sections: readonly CapabilitySection[] }) 
     // two P3 tools simply were not among them.
     return (
       <p className="muted capability-note">
-        neither <code>expert</code> nor <code>team</code> was offered in this request, so the
-        expert roster and the team board are not reachable from this session.
+        <code>expert</code> 和 <code>team</code> 都没有出现在这次请求里，
+        所以本次会话访问不到专家名册和团队任务板。
       </p>
     );
   }
   return (
     <p className="muted capability-note">
-      <code>expert</code> summoning is what the roster is for; <code>team</code> is what keeps a
-      board. The configured rows below say which experts and teams exist.
+      <code>expert</code> 的用途就是召唤名册里的专家；<code>team</code> 的用途则是维护一块
+      任务板。下面列出的已配置条目说明了有哪些专家和团队。
     </p>
   );
 }
@@ -49,21 +49,21 @@ function Configured({ report, error }: { report: CapabilityReport | null; error:
   if (error !== null) {
     return (
       <p className="muted capability-note">
-        the configured set could not be read: <code>{error}</code>. this pane lists only what the
-        last request carried; <code>hearth plugin list</code>, <code>hearth expert list</code> and{' '}
-        <code>hearth team list</code> read it from the CLI.
+        无法读取已配置的集合：<code>{error}</code>。本面板只列出上次请求携带的内容；
+        <code>hearth plugin list</code>、<code>hearth expert list</code> 和{' '}
+        <code>hearth team list</code> 可以从命令行读取它。
       </p>
     );
   }
   if (report === null) {
-    return <p className="muted capability-note">reading the configured set…</p>;
+    return <p className="muted capability-note">正在读取已配置的集合…</p>;
   }
   const groups = configuredGroups(report);
   if (groups.length === 0) {
     return (
       <p className="muted capability-note">
-        nothing is configured but unused: this process has no plugins, rosters, bundles, MCP
-        servers or skills on disk. That is a configuration, not a failure.
+        没有任何已配置但未被使用的项：这个进程在磁盘上没有插件、名册、插件包、MCP 服务器或
+        技能。这是一种配置状态，不是故障。
       </p>
     );
   }
@@ -71,9 +71,9 @@ function Configured({ report, error }: { report: CapabilityReport | null; error:
   return (
     <div className="capability-configured">
       <h3 className="capability-title">
-        configured{' '}
+        已配置{' '}
         <span className="muted">
-          {off === 0 ? 'all offered' : `${String(off)} not offered`}
+          {off === 0 ? '全部已提供' : `${String(off)} 项未提供`}
         </span>
       </h3>
       {groups.map((group) => (
@@ -94,7 +94,7 @@ function Configured({ report, error }: { report: CapabilityReport | null; error:
                 title={entry.detail}
               >
                 {entry.name}
-                {entry.active ? null : <span className="capability-off"> (not offered)</span>}
+                {entry.active ? null : <span className="capability-off">（未提供）</span>}
               </li>
             ))}
           </ul>
@@ -110,12 +110,11 @@ export function CapabilityPanel({ names, report = null, reportError = null }: Ca
 
   if (total === 0) {
     return (
-      <section className="capabilities" aria-label="capabilities">
-        <h2 className="capabilities-head">tools</h2>
+      <section className="capabilities" aria-label="能力">
+        <h2 className="capabilities-head">工具</h2>
         <p className="muted capabilities-empty">
-          this session has no <code>llm/call</code> event yet, so the request that would name
-          the tools has not been written. Nothing is guessed here: an empty list means “not
-          requested yet”, not “no tools installed”.
+          本次会话还没有 <code>llm/call</code> 事件，因此那条会列出工具的请求尚未写入。
+          这里不做任何猜测：空列表意味着“还没有发起请求”，而不是“没有安装工具”。
         </p>
         <Configured report={report} error={reportError} />
       </section>
@@ -123,9 +122,9 @@ export function CapabilityPanel({ names, report = null, reportError = null }: Ca
   }
 
   return (
-    <section className="capabilities" aria-label="capabilities">
+    <section className="capabilities" aria-label="能力">
       <h2 className="capabilities-head">
-        tools <span className="muted">{String(total)} in the last request</span>
+        工具 <span className="muted">上次请求共 {String(total)} 个</span>
       </h2>
       {sections.map((section) => (
         <div className="capability-section" key={section.group}>

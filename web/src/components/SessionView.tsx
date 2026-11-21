@@ -61,7 +61,7 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
       },
       (error: unknown) => {
         if (!live) return;
-        setReportError(error instanceof Error ? error.message : 'capabilities unavailable');
+        setReportError(error instanceof Error ? error.message : '能力信息不可用');
       },
     );
     return () => {
@@ -97,7 +97,7 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
       (error: unknown) => {
         if (!live) return;
         setSubagentError(
-          error instanceof Error ? error.message : 'subagents unavailable',
+          error instanceof Error ? error.message : '子代理信息不可用',
         );
       },
     );
@@ -132,7 +132,7 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
             }, 400);
             return;
           }
-          setGoalError(error instanceof Error ? error.message : 'goal unavailable');
+          setGoalError(error instanceof Error ? error.message : '目标信息不可用');
         },
       );
     };
@@ -164,7 +164,7 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
   const turnActive = running || state.status === 'awaiting_approval';
   // Counted from the projection, not stored twice: `blocks` is what the log
   // wrote, and the marks in `rows` are what those blocks hid.
-  const blocksLabel = `${String(state.blocks.length)} block${state.blocks.length === 1 ? '' : 's'} hidden from the model`;
+  const blocksLabel = `${String(state.blocks.length)} 个块已从模型中隐藏`;
 
   // One screen, two shapes. Everything below the fold is built once and placed
   // in either layout: the workbench wraps the same transcript and composer in a
@@ -177,7 +177,7 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
   const head = (
     <header className="session-head">
       <button type="button" className="button button-ghost" onClick={onBack}>
-        ← sessions
+        ← 会话列表
       </button>
       <div className="session-title">
         <span className="mono">{state.session?.id ?? sessionId}</span>
@@ -191,7 +191,7 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
       {state.blocks.length > 0 && (
         <span
           className="session-compressed"
-          title={`block ids: ${state.blocks.map((block) => block.blockId).join(', ')}`}
+          title={`块 id：${state.blocks.map((block) => block.blockId).join(', ')}`}
         >
           {blocksLabel}
         </span>
@@ -205,16 +205,16 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
         <p className="banner banner-error" role="alert">
           {state.actionError}
           <button type="button" className="link-button" onClick={dismiss}>
-            dismiss
+            关闭
           </button>
         </p>
       )}
 
       {state.needsResync && (
-        <p className="banner banner-warn">resyncing transcript from the event log…</p>
+        <p className="banner banner-warn">正在从事件日志重新同步对话记录…</p>
       )}
 
-      <Transcript rows={state.rows} rowKeys={state.rowKeys} emptyHint="waiting for the first event…" />
+      <Transcript rows={state.rows} rowKeys={state.rowKeys} emptyHint="正在等待第一个事件…" />
 
       <CapabilityPanel names={state.toolNames} report={report} reportError={reportError} />
 
@@ -226,7 +226,7 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
 
       <Composer
         disabled={state.status === 'awaiting_approval'}
-        disabledReason="waiting for an approval…"
+        disabledReason="正在等待审批…"
         onSend={send}
         running={turnActive}
         onSteer={steer}

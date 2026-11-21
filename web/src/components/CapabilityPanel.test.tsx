@@ -28,8 +28,8 @@ function emptyReport(overrides: Partial<CapabilityReport> = {}): CapabilityRepor
 describe('CapabilityPanel', () => {
   it('says plainly that there is nothing to report before a request', () => {
     const { container, unmount } = render([]);
-    expect(container.textContent).toContain('no llm/call event yet');
-    expect(container.textContent).toContain('not requested yet');
+    expect(container.textContent).toContain('本次会话还没有');
+    expect(container.textContent).toContain('还没有发起请求');
     // It must not render an empty table that reads like "no tools exist".
     expect(container.querySelectorAll('.capability-tool')).toHaveLength(0);
     unmount();
@@ -43,30 +43,30 @@ describe('CapabilityPanel', () => {
     expect(chips).toContain('fs_read');
     expect(chips).toContain('shell');
     expect(chips).toContain('reference.echo');
-    expect(container.textContent).toContain('3 in the last request');
+    expect(container.textContent).toContain('上次请求共 3 个');
     unmount();
   });
 
   it('groups plugin and mcp tools under their own headings', () => {
     const { container, unmount } = render(['mcp__github__search', 'reference.echo']);
-    expect(container.textContent).toContain('mcp servers');
-    expect(container.textContent).toContain('plugins');
+    expect(container.textContent).toContain('MCP 服务器');
+    expect(container.textContent).toContain('插件');
     // The group heading carries the count, so a collapsed section still says
     // how much it holds.
-    expect(container.textContent).toContain('child processes speaking the plugin protocol');
+    expect(container.textContent).toContain('用插件协议通信的子进程');
     unmount();
   });
 
   it('keeps an unknown tool visible instead of dropping it', () => {
     const { container, unmount } = render(['mystery_tool']);
     expect(container.textContent).toContain('mystery_tool');
-    expect(container.textContent).toContain('other');
+    expect(container.textContent).toContain('其他');
     unmount();
   });
 
   it('gives the two P3 platform tools their own section', () => {
     const { container, unmount } = render(['expert', 'team', 'fs_read']);
-    expect(container.textContent).toContain('platform (experts & teams)');
+    expect(container.textContent).toContain('平台（专家与团队）');
     const chips = Array.from(container.querySelectorAll('.capability-tool')).map(
       (chip) => chip.textContent,
     );
@@ -77,7 +77,7 @@ describe('CapabilityPanel', () => {
 
   it('says a P3 tool was not offered rather than hinting at a hidden roster', () => {
     const { container, unmount } = render(['fs_read', 'shell']);
-    expect(container.textContent).toContain('neither expert nor team was offered');
+    expect(container.textContent).toContain('都没有出现在这次请求里');
     unmount();
   });
 
@@ -89,12 +89,12 @@ describe('CapabilityPanel', () => {
       ],
     });
     const { container, unmount } = render(['fs_read'], report);
-    expect(container.textContent).toContain('configured');
-    expect(container.textContent).toContain('1 not offered');
+    expect(container.textContent).toContain('已配置');
+    expect(container.textContent).toContain('1 项未提供');
     const off = container.querySelectorAll('.capability-tool-off');
     expect(off).toHaveLength(1);
     expect(off[0]?.textContent).toContain('ghost');
-    expect(off[0]?.textContent).toContain('(not offered)');
+    expect(off[0]?.textContent).toContain('（未提供）');
     // The active one must not carry the warning suffix.
     const on = Array.from(container.querySelectorAll('.capability-tool')).find((chip) =>
       chip.textContent?.startsWith('counter'),
@@ -105,7 +105,7 @@ describe('CapabilityPanel', () => {
 
   it('says a configuration with nothing unused is a configuration, not a failure', () => {
     const { container, unmount } = render(['fs_read'], emptyReport());
-    expect(container.textContent).toContain('nothing is configured but unused');
+    expect(container.textContent).toContain('没有任何已配置但未被使用的项');
     unmount();
   });
 
@@ -118,7 +118,7 @@ describe('CapabilityPanel', () => {
 
   it('waits quietly before the configured set arrives', () => {
     const { container, unmount } = render(['fs_read']);
-    expect(container.textContent).toContain('reading the configured set');
+    expect(container.textContent).toContain('正在读取已配置的集合');
     unmount();
   });
 });

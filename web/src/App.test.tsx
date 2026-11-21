@@ -60,7 +60,7 @@ describe('App', () => {
     const rendered = () => view.container.textContent ?? '';
     await waitFor(() => rendered().includes('sess-1'));
     const text = rendered();
-    expect(text).toContain('sessions');
+    expect(text).toContain('会话');
     expect(text).toContain('sess-1');
     expect(text).toContain('deepseek-v4');
     expect(text).toContain('work/repo');
@@ -71,11 +71,11 @@ describe('App', () => {
     window.location.hash = '#/s/sess-1';
     const view = mount(<App baseUrl="" />);
     const rendered = () => view.container.textContent ?? '';
-    await waitFor(() => rendered().includes('hello') && rendered().includes('lastSeq'));
+    await waitFor(() => rendered().includes('hello') && rendered().includes('序号'));
     const text = rendered();
     expect(text).toContain('hello');
     expect(text).toContain('hi');
-    expect(text).toContain('lastSeq');
+    expect(text).toContain('序号');
     view.unmount();
   });
 });

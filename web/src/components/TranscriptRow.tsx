@@ -39,7 +39,7 @@ export const UserRowView = memo(function UserRowView({ row }: { row: UserRow }) 
     <div className="row row-user">
       <div className="user-bubble">
         <div className="row-meta">
-          <span>you</span>
+          <span>你</span>
           <span>{formatTime(row.ts)}</span>
           {row.attachments > 0 && (
             <span title={row.attachmentLabels.join('\n')}>
@@ -57,15 +57,15 @@ export const AssistantRowView = memo(function AssistantRowView({ row }: { row: A
   return (
     <div className={`row row-assistant${row.streaming ? ' row-streaming' : ''}`}>
       <div className="row-meta">
-        <span>assistant</span>
+        <span>助手</span>
         <span>{formatTime(row.ts)}</span>
         {row.stopReason !== undefined && row.stopReason !== 'end_turn' && (
           <span className="row-reason">{row.stopReason}</span>
         )}
-        {row.partial === true && <span className="row-reason">partial</span>}
+        {row.partial === true && <span className="row-reason">部分</span>}
       </div>
       <Markdown text={row.text} />
-      {row.streaming && <span className="caret" aria-label="streaming" />}
+      {row.streaming && <span className="caret" aria-label="正在流式输出" />}
     </div>
   );
 });
@@ -75,12 +75,12 @@ export const ApprovalRowView = memo(function ApprovalRowView({ row }: { row: App
   return (
     <div className={`row row-approval${decided ? '' : ' row-approval-pending'}`}>
       <div className="row-meta">
-        <span>approval</span>
+        <span>审批</span>
         <span className="mono">{row.callId}</span>
         <span className={`pill ${row.decision === 'deny' ? 'pill-bad' : decided ? 'pill-good' : 'pill-muted'}`}>
-          {row.decision ?? 'pending'}
+          {row.decision ?? '待处理'}
         </span>
-        {row.note !== undefined && <span>note: {row.note}</span>}
+        {row.note !== undefined && <span>备注：{row.note}</span>}
       </div>
       <p>
         <span className="mono">{row.tool}</span>
@@ -95,10 +95,10 @@ export const SummaryRowView = memo(function SummaryRowView({ row }: { row: Summa
   return (
     <div className="row row-summary">
       <div className="row-meta">
-        <span>compaction summary</span>
+        <span>压缩摘要</span>
         {row.from !== undefined && row.to !== undefined && (
           <span className="mono">
-            replaces {String(row.from)}–{String(row.to)}
+            替换 {String(row.from)}–{String(row.to)}
           </span>
         )}
       </div>
@@ -121,12 +121,12 @@ export const SummaryRowView = memo(function SummaryRowView({ row }: { row: Summa
 export const CompressedRowView = memo(function CompressedRowView({ row }: { row: CompressedRow }) {
   const range =
     row.from !== undefined && row.to !== undefined
-      ? `seq ${String(row.from)}..${String(row.to)}`
+      ? `序号 ${String(row.from)}..${String(row.to)}`
       : row.from !== undefined
-        ? `from seq ${String(row.from)}`
+        ? `起始序号 ${String(row.from)}`
         : row.to !== undefined
-          ? `to seq ${String(row.to)}`
-          : 'seq range unknown';
+          ? `结束序号 ${String(row.to)}`
+          : '序号范围未知';
   // The writer's own count when it said one, otherwise the count the range
   // implies — the range is the address, the count is only a diagnostic (§4.0.3).
   const records =
@@ -135,15 +135,15 @@ export const CompressedRowView = memo(function CompressedRowView({ row }: { row:
       : row.from !== undefined && row.to !== undefined && row.to >= row.from
         ? row.to - row.from + 1
         : undefined;
-  const count = records === undefined ? '' : ` (${String(records)} records)`;
+  const count = records === undefined ? '' : `（${String(records)} 条记录）`;
   // One string, not adjacent JSX expressions: JSX drops the whitespace between
   // expressions on different lines, which would glue `40` to `(29 records)`.
-  const note = `${row.summary === '' ? 'summary missing for' : 'summary replaced'} ${range}${count}`;
+  const note = `${row.summary === '' ? '缺少摘要' : '摘要已替换'} ${range}${count}`;
   return (
     <div className={`row row-compressed${row.incomplete ? ' row-compressed-incomplete' : ''}`}>
       <div className="row-meta">
-        <span>compressed</span>
-        {row.incomplete && <span className="pill pill-warn">incomplete</span>}
+        <span>压缩</span>
+        {row.incomplete && <span className="pill pill-warn">不完整</span>}
         {row.blockId !== '' && (
           <span className="mono muted" title={row.blockId}>
             {row.blockId.slice(0, 8)}
@@ -152,10 +152,10 @@ export const CompressedRowView = memo(function CompressedRowView({ row }: { row:
         <span>{formatTime(row.ts)}</span>
       </div>
       <p className="mono compressed-note">{note}</p>
-      {row.problem !== undefined && <p className="compressed-problem">payload problem: {row.problem}</p>}
+      {row.problem !== undefined && <p className="compressed-problem">载荷问题：{row.problem}</p>}
       {row.summary !== '' && (
         <details className="compressed-summary">
-          <summary>what the model reads instead</summary>
+          <summary>模型实际读到的内容</summary>
           <p className="mono muted">{row.summary}</p>
         </details>
       )}
@@ -167,9 +167,9 @@ export const ErrorRowView = memo(function ErrorRowView({ row }: { row: ErrorRow 
   return (
     <div className="row row-error">
       <div className="row-meta">
-        <span>error</span>
+        <span>错误</span>
         {row.code !== undefined && <span className="error-code">{row.code}</span>}
-        {row.retryable === true && <span className="row-reason">retryable</span>}
+        {row.retryable === true && <span className="row-reason">可重试</span>}
         <span>{formatTime(row.ts)}</span>
       </div>
       <p className="mono">{row.message}</p>
@@ -183,8 +183,8 @@ export const TurnRowView = memo(function TurnRowView({ row }: { row: TurnRow }) 
       <span className="turn-rule" />
       <span className="turn-label">
         turn {row.turn}
-        {row.phase === 'end' ? ' ended' : ' started'}
-        {row.reason !== undefined ? ` (${row.reason})` : ''}
+        {row.phase === 'end' ? ' 已结束' : ' 已开始'}
+        {row.reason !== undefined ? `（${row.reason}）` : ''}
       </span>
       <span className="turn-rule" />
     </div>
@@ -205,7 +205,7 @@ export const EventRowView = memo(function EventRowView({ row }: { row: EventRow 
         <button type="button" className="link-button" onClick={() => setOpen((v) => !v)}>
           {open ? '▾' : '▸'} {row.type}
         </button>
-        <span className="mono muted">seq {String(row.seq)}</span>
+        <span className="mono muted">序号 {String(row.seq)}</span>
         {open && payload !== '' && <pre className="mono tool-args">{payload}</pre>}
       </div>
     );
@@ -214,7 +214,7 @@ export const EventRowView = memo(function EventRowView({ row }: { row: EventRow 
     <div className="row row-event">
       <div className="row-meta">
         <span className="mono event-type">{row.type}</span>
-        <span className="mono muted">seq {String(row.seq)}</span>
+        <span className="mono muted">序号 {String(row.seq)}</span>
         <span>{formatTime(row.ts)}</span>
       </div>
       {payload !== '' && <pre className="mono tool-args">{payload}</pre>}

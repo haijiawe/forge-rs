@@ -12,19 +12,26 @@
 // "empty" text a statement about the workspace rather than about the network.
 
 import { ApiError } from '../api/client';
-import { listDir, listDiff, readFile, writeFile } from '../api/workbench';
-import type { DiffEntry, DirListing, FileText, SaveResult } from '../api/workbench';
+import { listDir, listDiff, readDiff, readFile, writeFile } from '../api/workbench';
+import type { DiffEntry, DirListing, FileDiff, FileText, SaveResult } from '../api/workbench';
 
 /** The reads and the one write the workbench performs, faked whole in tests. */
 export interface WorkbenchApi {
   listDir(sessionId: string, path: string): Promise<DirListing>;
   readFile(sessionId: string, path: string): Promise<FileText>;
   listDiff(sessionId: string): Promise<DiffEntry[]>;
+  readDiff(sessionId: string, path: string): Promise<FileDiff>;
   saveFile(sessionId: string, path: string, text: string, expectedSha256: string): Promise<SaveResult>;
 }
 
 /** The real HTTP module; a module constant so a prop default keeps its identity. */
-export const defaultWorkbenchApi: WorkbenchApi = { listDir, readFile, listDiff, saveFile: writeFile };
+export const defaultWorkbenchApi: WorkbenchApi = {
+  listDir,
+  readFile,
+  listDiff,
+  readDiff,
+  saveFile: writeFile,
+};
 
 /** One directory in the tree, keyed by its relative path ('' is the root). */
 export interface DirState {
@@ -54,6 +61,14 @@ export interface FileTab {
   saveError: string | null;
 }
 
+/** One expanded row of the diff list: its unified diff, once it has answered. */
+export interface FileDiffState {
+  path: string;
+  body: FileDiff | null;
+  loading: boolean;
+  error: string | null;
+}
+
 export interface WorkbenchState {
   /** Monotonic; useSyncExternalStore subscribers diff on this. */
   version: number;
@@ -68,6 +83,21 @@ export interface WorkbenchState {
   diff: readonly DiffEntry[] | null;
   diffLoading: boolean;
   diffError: string | null;
+  /**
+   * The diff row whose lines are showing, or null when every row is collapsed.
+   *
+   * One at a time, because two diffs open at once would scroll independently and
+   * the reader would have to remember which half of the pane they were in.
+   */
+  fileDiff: FileDiffState | null;
+  /**
+   * A tab the operator asked to close while it had unsaved changes.
+   *
+   * The close is held here instead of thrown away so the pane can ask. Nothing
+   * reaches the disk either way, but a draft that disappears on a stray click
+   * is work the operator cannot get back, and the log has no record of it.
+   */
+  pendingClose: string | null;
 }
 
 export interface WorkbenchOptions {
@@ -103,6 +133,8 @@ export class WorkbenchStore {
       diff: null,
       diffLoading: false,
       diffError: null,
+      fileDiff: null,
+      pendingClose: null,
     };
   }
 
@@ -170,16 +202,68 @@ export class WorkbenchStore {
     this.openFile(path);
   }
 
-  /** Close a tab; the neighbour takes the focus when it was the active one. */
+  /**
+   * Expand one row's lines, or collapse it when it is already the open one.
+   *
+   * The row is not re-read on collapse-then-expand: a diff that has answered is
+   * kept, and `refreshDiff` is how a stale one is replaced. The count in the row
+   * and the lines below it can therefore disagree for a moment after the agent
+   * writes something, which is why the row shows the count and the pane shows
+   * the bytes rather than one number derived from the other.
+   */
+  toggleFileDiff(path: string): void {
+    const current = this.state.fileDiff;
+    if (current !== null && current.path === path) {
+      this.publish({ fileDiff: null });
+      return;
+    }
+    this.publish({ fileDiff: { path, body: null, loading: true, error: null } });
+    void this.loadFileDiff(path);
+  }
+
+  /** Re-read the expanded row after a failure, leaving it expanded. */
+  retryFileDiff(path: string): void {
+    this.publish({ fileDiff: { path, body: null, loading: true, error: null } });
+    void this.loadFileDiff(path);
+  }
+
+  /** Collapse the expanded row (the pane's close button). */
+  hideFileDiff(): void {
+    if (this.state.fileDiff === null) return;
+    this.publish({ fileDiff: null });
+  }
+
+  /**
+   * Close a tab; the neighbour takes the focus when it was the active one.
+   *
+   * A tab with unsaved changes is not closed here: it is parked in
+   * `pendingClose` so the pane can ask. Every other path through this method
+   * (a clean tab, a failed read, a binary file nobody can edit) closes at once,
+   * because a confirmation on work that cannot be lost is noise that trains the
+   * operator to click through the one that matters.
+   */
   closeFile(path: string): void {
-    const index = this.state.open.findIndex((tab) => tab.path === path);
-    if (index < 0) return;
-    const open = this.state.open.filter((tab) => tab.path !== path);
-    const activePath =
-      this.state.activePath !== path
-        ? this.state.activePath
-        : (open[index]?.path ?? open[index - 1]?.path ?? null);
-    this.publish({ open, activePath });
+    const tab = this.state.open.find((entry) => entry.path === path);
+    if (tab === undefined) return;
+    if (tab.draft !== null) {
+      this.publish({ pendingClose: path });
+      return;
+    }
+    this.closeNow(path);
+  }
+
+  /** Throw the parked draft away and close the tab. */
+  confirmClose(): void {
+    const path = this.state.pendingClose;
+    if (path === null) return;
+    this.publish({ pendingClose: null });
+    this.closeNow(path);
+  }
+
+  /** Keep the draft; the tab stays open and the question goes away. */
+  cancelClose(): void {
+    if (this.state.pendingClose === null) return;
+    this.publish({ pendingClose: null });
   }
 
   setActive(path: string): void {
@@ -261,11 +345,52 @@ export class WorkbenchStore {
   /** Re-read the diff list after a failure (the pane's retry button). */
   refreshDiff(): void {
     void this.loadDiff();
+    // A refresh is the operator saying "what is on screen may be old", so the
+    // expanded row is re-read too: leaving it would show fresh counts above
+    // stale lines, which reads as a diff that disagrees with itself.
+    const open = this.state.fileDiff;
+    if (open !== null) {
+      this.publish({ fileDiff: { path: open.path, body: null, loading: true, error: null } });
+      void this.loadFileDiff(open.path);
+    }
   }
 
   /** Re-read a directory, e.g. after the agent wrote a file. */
   refreshDir(path: string): void {
     void this.loadDir(path);
+  }
+
+  private closeNow(path: string): void {
+    const index = this.state.open.findIndex((tab) => tab.path === path);
+    if (index < 0) return;
+    const open = this.state.open.filter((tab) => tab.path !== path);
+    const activePath =
+      this.state.activePath !== path
+        ? this.state.activePath
+        : (open[index]?.path ?? open[index - 1]?.path ?? null);
+    // The expanded row belongs to the list, not to the tab, so it survives a
+    // close; but a parked question about this very tab must not outlive it.
+    this.publish({
+      open,
+      activePath,
+      pendingClose: this.state.pendingClose === path ? null : this.state.pendingClose,
+    });
+  }
+
+  private async loadFileDiff(path: string): Promise<void> {
+    try {
+      const body = await this.api.readDiff(this.state.sessionId, path);
+      // The operator may have collapsed the row, or expanded another one, while
+      // the read was in flight; an answer for a row that is no longer the open
+      // one is dropped rather than shown under the wrong path.
+      const live = this.state.fileDiff;
+      if (live === null || live.path !== path) return;
+      this.publish({ fileDiff: { path, body, loading: false, error: null } });
+    } catch (error) {
+      const live = this.state.fileDiff;
+      if (live === null || live.path !== path) return;
+      this.publish({ fileDiff: { path, body: null, loading: false, error: errorMessage(error) } });
+    }
   }
 
   private async loadDir(path: string): Promise<void> {

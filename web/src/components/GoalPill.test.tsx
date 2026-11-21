@@ -36,9 +36,9 @@ describe('GoalPill', () => {
     const { container, unmount } = render({ goal: goal() });
     const chip = pill(container);
     expect(chip).not.toBeNull();
-    expect(chip?.textContent).toContain('round 1 of 4');
+    expect(chip?.textContent).toContain('第 1 轮，共 4 轮');
     // Round 0 of 4 would be the off-by-one this component exists to avoid.
-    expect(chip?.textContent).not.toContain('round 0');
+    expect(chip?.textContent).not.toContain('第 0 轮');
     expect(chip?.textContent).toContain('keep the smoke test honest');
     expect(chip?.className).toBe('goal-pill goal-pill-active');
     unmount();
@@ -47,7 +47,7 @@ describe('GoalPill', () => {
   it('carries the whole line in title and aria-label', () => {
     const { container, unmount } = render({ goal: goal({ nextRound: 2 }) });
     const chip = pill(container);
-    const line = 'keep the smoke test honest — round 1 of 4, active, next round 2';
+    const line = 'keep the smoke test honest — 第 1 轮，共 4 轮，active，下一轮 2';
     expect(chip?.getAttribute('title')).toBe(line);
     expect(chip?.getAttribute('aria-label')).toBe(line);
     unmount();
@@ -58,11 +58,11 @@ describe('GoalPill', () => {
     // and the log has no `goal/ended` line yet, so the status is still active.
     const { container, unmount } = render({ goal: goal({ rounds: 3, nextRound: undefined }) });
     const chip = pill(container);
-    expect(chip?.textContent).toContain('round 4 of 4');
+    expect(chip?.textContent).toContain('第 4 轮，共 4 轮');
     expect(chip?.textContent).toContain('active');
     // Nothing may invent round 5 here: the server did not promise it.
-    expect(chip?.textContent).not.toContain('next');
-    expect(chip?.getAttribute('title')).toBe('keep the smoke test honest — round 4 of 4, active');
+    expect(chip?.textContent).not.toContain('下一轮');
+    expect(chip?.getAttribute('title')).toBe('keep the smoke test honest — 第 4 轮，共 4 轮，active');
     unmount();
   });
 
@@ -80,7 +80,7 @@ describe('GoalPill', () => {
   it('reports a goal it could not read instead of showing a stale chip', () => {
     const { container, unmount } = render({ goal: null, error: 'connection refused' });
     const failure = container.querySelector('[data-testid="goal-error"]');
-    expect(failure?.textContent).toBe('the goal could not be read: connection refused');
+    expect(failure?.textContent).toBe('目标无法读取：connection refused');
     expect(pill(container)).toBeNull();
     unmount();
   });

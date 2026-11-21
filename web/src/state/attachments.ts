@@ -249,14 +249,14 @@ function newAttachmentId(): string {
 function tooLarge(name: string, bytes: number, limit: number): AttachmentRefusal {
   return {
     name,
-    reason: `Too large: "${name}" is ${formatBytes(bytes)}; the limit is ${formatBytes(limit)} per attachment.`,
+    reason: `太大："${name}" 有 ${formatBytes(bytes)}；每个附件的上限是 ${formatBytes(limit)}。`,
   };
 }
 
 function tooMuchTogether(name: string, total: number, limit: number): AttachmentRefusal {
   return {
     name,
-    reason: `Too much at once: "${name}" would bring the attachments to ${formatBytes(total)}; the limit is ${formatBytes(limit)} in total.`,
+    reason: `合计太大："${name}" 会让附件总量达到 ${formatBytes(total)}；总量上限是 ${formatBytes(limit)}。`,
   };
 }
 
@@ -279,7 +279,7 @@ export async function addFiles(
   if (files.length === 0) {
     return {
       added: [],
-      refused: [{ name: null, reason: 'No files were chosen, so nothing was attached.' }],
+      refused: [{ name: null, reason: '没有选择任何文件，所以没有附件被添加。' }],
       totalBytes: totalBytesOf(existing),
     };
   }
@@ -292,7 +292,7 @@ export async function addFiles(
     if (existing.length + added.length >= limits.count) {
       refused.push({
         name: file.name,
-        reason: `Too many attachments: one message may carry ${String(limits.count)}; "${file.name}" would be number ${String(existing.length + added.length + 1)}.`,
+        reason: `附件太多：一条消息最多携带 ${String(limits.count)} 个；"${file.name}" 会是第 ${String(existing.length + added.length + 1)} 个。`,
       });
       continue;
     }
@@ -302,15 +302,15 @@ export async function addFiles(
       continue;
     }
     if (file.size === 0) {
-      refused.push({ name: file.name, reason: `Empty file: "${file.name}" has no bytes to attach.` });
+      refused.push({ name: file.name, reason: `空文件："${file.name}" 里没有任何字节可以附加。` });
       continue;
     }
     const kind = classifyAttachment(file.type, file.name);
     if (kind === null) {
-      const described = file.type.trim() === '' ? 'not an image or a diff' : `type ${file.type}`;
+      const described = file.type.trim() === '' ? '既不是图片也不是 diff' : `类型 ${file.type}`;
       refused.push({
         name: file.name,
-        reason: `Unsupported file: "${file.name}" is ${described}. Attach an image or a .diff/.patch file; a plain file must be named by a path inside the workspace, which a picked file cannot carry.`,
+        reason: `不支持的文件："${file.name}" ${described}。请附加图片或 .diff/.patch 文件；普通文件必须用工作区内的路径来指名，而用户挑选的文件带不了路径。`,
       });
       continue;
     }
@@ -326,7 +326,7 @@ export async function addFiles(
       const detail = error instanceof Error ? error.message : String(error);
       refused.push({
         name: file.name,
-        reason: `Could not read "${file.name}": ${detail}. It was not attached.`,
+        reason: `无法读取 "${file.name}"：${detail}。它没有被附加。`,
       });
       continue;
     }

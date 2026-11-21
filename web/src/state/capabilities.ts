@@ -46,44 +46,44 @@ export interface CapabilitySection {
 
 const TITLES: Record<CapabilityGroup, { title: string; detail: string }> = {
   files: {
-    title: 'files',
-    detail: 'read, write, search inside the workspace',
+    title: '文件',
+    detail: '在工作区内读取、写入、搜索',
   },
   process: {
-    title: 'process',
-    detail: 'runs under the sandbox; approval depends on the mode',
+    title: '进程',
+    detail: '在沙箱中运行；是否需要审批取决于当前模式',
   },
   notes: {
-    title: 'notes',
-    detail: 'the model\u2019s own bookkeeping',
+    title: '笔记',
+    detail: '模型自己的记事本',
   },
   network: {
-    title: 'network',
-    detail: 'runs inside the harness, so the sandbox cannot contain it',
+    title: '网络',
+    detail: '在 harness 内部运行，因此沙箱无法约束它',
   },
   servers: {
-    title: 'mcp servers',
-    detail: 'remote tools; the operator approves each call',
+    title: 'MCP 服务器',
+    detail: '远端工具；每次调用都要由操作者审批',
   },
   plugins: {
-    title: 'plugins',
-    detail: 'child processes speaking the plugin protocol',
+    title: '插件',
+    detail: '用插件协议通信的子进程',
   },
   platform: {
-    title: 'platform (experts & teams)',
-    detail: 'P3: summons an expert from the roster, or dispatches a team over a board',
+    title: '平台（专家与团队）',
+    detail: 'P3：从名册中召唤一位专家，或者通过任务板派出一支团队',
   },
   delegation: {
-    title: 'delegation',
-    detail: 'spends more model calls than this turn',
+    title: '委派',
+    detail: '会花掉比本回合更多的模型调用',
   },
   skills: {
-    title: 'skills',
-    detail: 'installed documents the model may open',
+    title: '技能',
+    detail: '已安装、模型可以打开阅读的文档',
   },
   other: {
-    title: 'other',
-    detail: 'names this build does not classify; shown rather than hidden',
+    title: '其他',
+    detail: '本构建无法归类的名称；显示出来，而不是隐藏',
   },
 };
 

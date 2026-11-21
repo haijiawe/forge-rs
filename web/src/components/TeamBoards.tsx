@@ -47,16 +47,16 @@ export interface TeamBoardsProps {
 /** The three states, with the evidence each one stands on. */
 const STATE_TEXT: Record<WorkerState, { label: string; hint: string }> = {
   finished: {
-    label: 'finished',
-    hint: 'the transcript has a worker/end line whose ok flag is true',
+    label: '已完成',
+    hint: '对话记录里有 worker/end 行，且其 ok 标志为 true',
   },
   failed: {
-    label: 'failed',
-    hint: 'the transcript has a worker/end line whose ok flag is false',
+    label: '失败',
+    hint: '对话记录里有 worker/end 行，且其 ok 标志为 false',
   },
   unknown: {
-    label: 'unknown',
-    hint: 'no worker/end line: this build cannot say whether it finished',
+    label: '未知',
+    hint: '没有 worker/end 行：本构建无法判断它是否已完成',
   },
 };
 
@@ -67,7 +67,7 @@ function statusClass(status: string): string {
 }
 
 function statusLabel(status: string): string {
-  return status === '' ? 'status not recorded' : status;
+  return status === '' ? '状态未记录' : status;
 }
 
 /** `n task(s)`, so a count of one does not read as a plural. */
@@ -85,14 +85,14 @@ function TaskCounts({ counts, total }: { counts: readonly TaskStatusCount[]; tot
   if (total === 0) {
     return (
       <p className="team-board-tasks team-board-tasks-empty">
-        no tasks on this board — its <code>board.json</code> lists none, or could not
-        be read; the diagnostics say which.
+        这块任务板上没有任务 — 其 <code>board.json</code> 没有列出任何任务，或读取失败；
+        诊断信息会说明是哪一种。
       </p>
     );
   }
   return (
     <p className="team-board-tasks">
-      tasks <span className="team-board-total">{String(total)}</span>
+      任务 <span className="team-board-total">{String(total)}</span>
       <span className="muted"> — </span>
       {counts.map((entry, index) => (
         <Fragment key={`${entry.status}:${String(index)}`}>
@@ -111,7 +111,7 @@ function StateCounts({ workers }: { workers: readonly TeamWorker[] }) {
   const states: readonly WorkerState[] = ['finished', 'failed', 'unknown'];
   return (
     <p className="team-board-workers">
-      workers <span className="team-board-total">{String(workers.length)}</span>
+      工作者 <span className="team-board-total">{String(workers.length)}</span>
       <span className="muted"> — </span>
       {states.map((state, index) => (
         <Fragment key={state}>
@@ -127,23 +127,23 @@ function StateCounts({ workers }: { workers: readonly TeamWorker[] }) {
 
 function TaskTable({ tasks }: { tasks: readonly TeamTask[] }) {
   if (tasks.length === 0) {
-    return <p className="muted team-board-note">no task rows to show</p>;
+    return <p className="muted team-board-note">没有可显示的任务行</p>;
   }
   return (
     <table className="team-board-table">
       <thead>
         <tr>
-          <th scope="col">id</th>
-          <th scope="col">task</th>
-          <th scope="col">status</th>
-          <th scope="col">owner</th>
+          <th scope="col">标识</th>
+          <th scope="col">任务</th>
+          <th scope="col">状态</th>
+          <th scope="col">负责人</th>
         </tr>
       </thead>
       <tbody>
         {tasks.map((task, index) => (
           <tr key={`${task.id}:${String(index)}`}>
             <td className="mono">{task.id === '' ? '—' : task.id}</td>
-            <td>{task.subject === '' ? <span className="muted">no subject</span> : task.subject}</td>
+            <td>{task.subject === '' ? <span className="muted">无标题</span> : task.subject}</td>
             <td
               className={`team-task-status team-task-status-${statusClass(task.status)}`}
               title={statusLabel(task.status)}
@@ -152,7 +152,7 @@ function TaskTable({ tasks }: { tasks: readonly TeamTask[] }) {
             </td>
             <td className="team-task-owner">
               {task.owner === null ? (
-                <span className="muted">unassigned</span>
+                <span className="muted">未分配</span>
               ) : (
                 <span className="mono">{task.owner}</span>
               )}
@@ -166,16 +166,16 @@ function TaskTable({ tasks }: { tasks: readonly TeamTask[] }) {
 
 function WorkerTable({ workers }: { workers: readonly TeamWorker[] }) {
   if (workers.length === 0) {
-    return <p className="muted team-board-note">no worker transcripts to show</p>;
+    return <p className="muted team-board-note">没有可显示的工作者记录</p>;
   }
   return (
     <table className="team-board-table">
       <thead>
         <tr>
-          <th scope="col">worker</th>
-          <th scope="col">state</th>
-          <th scope="col">events</th>
-          <th scope="col">note</th>
+          <th scope="col">工作者</th>
+          <th scope="col">状态</th>
+          <th scope="col">事件数</th>
+          <th scope="col">备注</th>
         </tr>
       </thead>
       <tbody>
@@ -197,7 +197,7 @@ function WorkerTable({ workers }: { workers: readonly TeamWorker[] }) {
               </td>
               <td className="mono team-worker-events">
                 {worker.events === null ? (
-                  <span className="muted">not reported</span>
+                  <span className="muted">未报告</span>
                 ) : (
                   String(worker.events)
                 )}
@@ -205,7 +205,7 @@ function WorkerTable({ workers }: { workers: readonly TeamWorker[] }) {
               <td className="team-worker-note">
                 {worker.note === '' ? (
                   <span className="muted">
-                    {state === 'unknown' ? 'no worker/end line was written' : 'no note'}
+                    {state === 'unknown' ? '未写入 worker/end 行' : '无备注'}
                   </span>
                 ) : (
                   worker.note
@@ -235,8 +235,8 @@ function BoardItem({
   const counts = taskStatusCounts(board.tasks);
   const parallel =
     board.parallel === null ? (
-      <span className="team-board-parallel team-board-parallel-unknown" title="nothing persists the parallelism yet">
-        unknown
+      <span className="team-board-parallel team-board-parallel-unknown" title="目前还没有地方持久化并行度">
+        未知
       </span>
     ) : (
       <span className="team-board-parallel mono">{String(board.parallel)}</span>
@@ -247,14 +247,14 @@ function BoardItem({
       <div className="team-board-summary">
         <h3 className="team-board-title">
           <span className="mono team-board-team">
-            {board.team === '' ? 'team not recorded' : board.team}
+            {board.team === '' ? '团队未记录' : board.team}
           </span>{' '}
           <span className="muted team-board-id">{board.board}</span>
         </h3>
         <p className="team-board-meta">
-          ran{' '}
+          运行于{' '}
           {board.createdAt === null ? (
-            <span className="muted team-board-when">when unknown</span>
+            <span className="muted team-board-when">时间未知</span>
           ) : (
             // The server stamps UTC and says so; the raw string is shown rather
             // than a localised one, because a board's clock is the server's.
@@ -263,14 +263,14 @@ function BoardItem({
             </time>
           )}
           <span className="muted"> · </span>
-          parallelism {parallel}
+          并行度 {parallel}
         </p>
         <TaskCounts counts={counts} total={board.tasks.length} />
         <StateCounts workers={board.workers} />
         {board.diagnostics.length > 0 && (
           <p className="team-board-diagnostic-badge">
-            <span className="pill pill-warn" title="the strings are for humans; the pane shows them, it does not parse them">
-              {plural(board.diagnostics.length, 'diagnostic', 'diagnostics')}
+            <span className="pill pill-warn" title="这些字符串是给人看的；面板只显示它们，并不解析它们">
+              {plural(board.diagnostics.length, '条诊断', '条诊断')}
             </span>
           </p>
         )}
@@ -279,19 +279,19 @@ function BoardItem({
           className="button team-board-toggle"
           aria-expanded={open}
           aria-controls={detailId}
-          aria-label={`${open ? 'hide' : 'show'} details for ${board.board}`}
+          aria-label={`${open ? '隐藏' : '显示'} ${board.board} 的详情`}
           onClick={() => {
             onToggle(board.board);
           }}
         >
-          {open ? 'hide details' : 'show details'}
+          {open ? '隐藏详情' : '显示详情'}
         </button>
       </div>
       {open && (
         <div className="team-board-detail" id={detailId}>
           {board.diagnostics.length > 0 && (
             <>
-              <h4 className="team-board-detail-head">diagnostics</h4>
+              <h4 className="team-board-detail-head">诊断</h4>
               <ul className="team-board-diagnostics">
                 {board.diagnostics.map((line, index) => (
                   <li key={`${String(index)}:${line}`}>{line}</li>
@@ -299,9 +299,9 @@ function BoardItem({
               </ul>
             </>
           )}
-          <h4 className="team-board-detail-head">tasks</h4>
+          <h4 className="team-board-detail-head">任务</h4>
           <TaskTable tasks={board.tasks} />
-          <h4 className="team-board-detail-head">workers</h4>
+          <h4 className="team-board-detail-head">工作者</h4>
           <WorkerTable workers={board.workers} />
         </div>
       )}
@@ -360,9 +360,9 @@ export function TeamBoards({ load }: TeamBoardsProps) {
   const boards = report?.boards ?? [];
 
   return (
-    <section className="teams" aria-label="team boards">
+    <section className="teams" aria-label="团队任务板">
       <div className="teams-head">
-        <h2 className="teams-title">team boards</h2>
+        <h2 className="teams-title">团队任务板</h2>
         <button
           type="button"
           className="button teams-retry"
@@ -371,29 +371,28 @@ export function TeamBoards({ load }: TeamBoardsProps) {
           }}
           disabled={reading}
         >
-          {reading && report === null ? 'reading…' : 'read again'}
+          {reading && report === null ? '正在读取…' : '重新读取'}
         </button>
       </div>
       <p className="muted teams-note">
-        boards on this machine, from <code>hearth team run</code>; newest first, as the server
-        ordered them.
+        本机上的任务板，来自 <code>hearth team run</code>；按服务端排列的顺序，最新的在前。
       </p>
 
-      {reading && <p className="muted teams-note team-reading">reading the team boards…</p>}
+      {reading && <p className="muted teams-note team-reading">正在读取团队任务板…</p>}
 
       {error !== null && (
         <p className="banner banner-error" role="alert">
-          the team boards could not be read: <code>{error}</code>. no board is shown, so this
-          says nothing about whether a team ran. the CLI can still answer:{' '}
-          <code>hearth team list</code>.
+          无法读取团队任务板：<code>{error}</code>。这里没有显示任何任务板，因此不能据此判断
+          是否有团队运行过。命令行仍可回答：{' '}
+          <code>hearth team list</code>。
         </p>
       )}
 
       {!reading && error === null && boards.length === 0 && (
         <p className="empty teams-empty">
-          no team has run in this data directory, so there are no boards to show. that is not a
-          failure: the route does not create the directory, and <code>hearth team list</code>{' '}
-          reads the same answer.
+          这个数据目录里还没有团队运行过，所以没有任务板可显示。这不是故障：该路由不会创建
+          这个目录，而 <code>hearth team list</code>{' '}
+          读到的也是同一个答案。
         </p>
       )}
 

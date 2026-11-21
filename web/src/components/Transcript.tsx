@@ -111,7 +111,7 @@ export function Transcript({ rows, rowKeys, emptyHint }: TranscriptProps) {
             className={row.foldedBy === undefined ? 'row-wrap' : 'row-wrap row-folded'}
             {...(row.foldedBy === undefined
               ? {}
-              : { title: `hidden from the model by block ${row.foldedBy}`, 'data-folded-by': row.foldedBy })}
+              : { title: `该行被块 ${row.foldedBy} 从模型中隐藏`, 'data-folded-by': row.foldedBy })}
             ref={(node) => {
               if (node === null) nodesRef.current.delete(row.key);
               else nodesRef.current.set(row.key, node);
@@ -122,7 +122,7 @@ export function Transcript({ rows, rowKeys, emptyHint }: TranscriptProps) {
         ))}
       </div>
 
-      {rows.length === 0 && <p className="transcript-empty">{emptyHint ?? 'no events yet'}</p>}
+      {rows.length === 0 && <p className="transcript-empty">{emptyHint ?? '还没有事件'}</p>}
 
       {!stuck && rows.length > 0 && (
         <button
@@ -136,7 +136,7 @@ export function Transcript({ rows, rowKeys, emptyHint }: TranscriptProps) {
             setStuck(true);
           }}
         >
-          ↓ latest
+          ↓ 最新
         </button>
       )}
     </div>

@@ -160,8 +160,7 @@ export function describeState(row: SubagentRow): string {
     return `${row.diagnostic.kind}${row.diagnostic.detail === '' ? '' : `: ${row.diagnostic.detail}`}`;
   }
   const timing = row.timing;
-  if (timing === undefined) return 'no log yet';
-  if (timing.active) return 'working';
-  const turnWord = timing.turns === 1 ? 'turn' : 'turns';
-  return `settled in ${formatSettled(timing.settledMs)}, ${String(timing.turns)} ${turnWord}`;
+  if (timing === undefined) return '还没有日志';
+  if (timing.active) return '正在工作';
+  return `已在 ${formatSettled(timing.settledMs)} 内结束，共 ${String(timing.turns)} 轮`;
 }

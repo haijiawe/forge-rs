@@ -1,129 +1,113 @@
-# hearth web UI (M3)
+# hearth web 界面
 
-The browser UI for a `hearth` session: a session list, a virtualized transcript,
-tool cards, the approval dialog and the composer. It talks to `hearth web` over
-HTTP and one WebSocket per session. No UI kit, no CSS framework, no
-virtualization library — the virtualizer and the stream reducer are in this
-directory because they are the interesting part.
+一个 `hearth` 会话的浏览器界面：会话列表、虚拟化转录、工具卡片、审批弹窗和输入框。
+它通过 HTTP 加上每会话一个 WebSocket 跟 `hearth web` 说话。没有 UI 套件、没有 CSS
+框架、没有虚拟化库——虚拟滚动与流式 reducer 就在这个目录里，因为它们才是有意思的
+部分。
 
-## Run it
+## 跑起来
 
-The UI is embedded in the `hearth` binary from `web/dist` and served at `/`. For
-development, run the API and Vite side by side:
+界面在编译期从 `web/dist` 内嵌进 `hearth` 二进制，并从 `/` 提供。开发时把 API 与
+Vite 并行跑：
 
 ```powershell
-# terminal 1 — the API on 127.0.0.1:8848 (the token is printed to stderr)
+# 终端 1 —— 127.0.0.1:8848 上的 API（token 打在 stderr）
 cd D:\hearth
 .\bin\hearth.exe web --addr 127.0.0.1:8848
 
-# terminal 2 — the UI on 127.0.0.1:5173, proxying /api and /ws to :8848
+# 终端 2 —— 127.0.0.1:5173 上的界面，把 /api 与 /ws 代理到 :8848
 $env:npm_config_cache="D:\hearth\.cache\npm"
-$env:npm_config_store_dir="D:\hearth\.cache\pnpm-store"
 cd web
 npm run dev
 ```
 
-Open the dev URL with the session token once:
+带着会话 token 打开一次开发地址：
 
 ```
 http://127.0.0.1:5173/?token=<token>
 ```
 
-`?token=` is read **once**, stored in `sessionStorage` (never `localStorage`),
-and then removed from the address bar with `history.replaceState` — a token in
-the URL ends up in screenshots, shell history and the browser history.
-Reloads reuse the stored token. Routes are hash routes (`#/s/<id>`) so the
-server needs no SPA fallback rule.
+`?token=` 只被读**一次**，存进 `sessionStorage`（**绝不**用 `localStorage`），
+然后用 `history.replaceState` 从地址栏删掉——URL 里的 token 会留在截图、shell 历史
+和浏览器历史里。刷新时复用已存的 token。路由是 hash 路由（`#/s/<id>`），所以服务器
+不需要任何 SPA 兜底规则。
 
-Point the dev proxy at a different server with
-`$env:HEARTH_DEV_API="http://127.0.0.1:9000"`.
+想把开发代理指向别的服务器，设 `$env:HEARTH_DEV_API="http://127.0.0.1:9000"`。
 
-## Build, test, check
+## 构建、测试、检查
 
 ```powershell
 $env:npm_config_cache="D:\hearth\.cache\npm"
 cd web
-npm ci            # exact pinned versions, lockfile committed
+npm ci            # 精确锁定的版本，lockfile 进仓库
 npm run typecheck # tsc --noEmit
-npx vitest run    # tests
+npx vitest run    # 测试
 npm run build     # -> web/dist/index.html + web/dist/assets/*
-node scripts/bundle-budget.cjs   # two budgets: eager payload, and the lazy set
+node scripts/bundle-budget.cjs   # 两份预算：首屏载荷，以及懒加载那一组
 ```
 
-The npm cache must live inside the repo: the sandbox blocks the default cache
-under the user profile (`E:\Cache\npm`), so a bare `npm install` fails. The
-variables above are the fix, not a preference.
+npm 的缓存必须放在仓库里：沙箱挡住了用户目录下的默认缓存（`E:\Cache\npm`），
+所以裸跑 `npm install` 会失败。上面那两个变量是修法，不是偏好。
 
-`scripts/bundle-budget.cjs` measures two payloads, because the workbench has two
-kinds of JavaScript. The **eager** one — `index.html` plus its static imports, the
-thing a reader waits for — is held to 600 KiB gzip, which is the number the UI
-design promises. Monaco is a dynamic `import()`, so it is not fetched until a file
-is opened; its chunks and their grammar files are measured separately as the
-**lazy** set. Both numbers print on every run and both ceilings live in the
-script, so raising one is a visible edit rather than a silent drift.
+`scripts/bundle-budget.cjs` 量两份载荷，因为工作台里有两种 JavaScript。**首屏**那份
+——`index.html` 加它的静态 import，也就是读者要等的东西——上限是 600 KiB gzip，
+这是界面设计承诺的数字。Monaco 走动态 `import()`，没打开文件前不会取它；它的
+chunk 和语法文件单独算作**懒加载**那一组。两个数字每次运行都会打印，两个上限都写在
+脚本里，所以抬高其中任何一个是可见的编辑，而不是悄悄漂移。
 
-`npm run build` writes `web/dist`, which the `hearth-cli` binary embeds with
-`include_dir!` at compile time — a running binary does not read this directory,
-so a rebuilt bundle needs a rebuilt binary (`cargo build --release -p hearth-cli`
-and copy the artifact to `bin/hearth.exe`). Source maps stay off (they would ship
-the sources in the binary).
+`npm run build` 写出 `web/dist`，`hearth-cli` 在编译期用 `include_dir!` 把它内嵌——
+跑起来的二进制不读这个目录，所以重建了 bundle 就得重建二进制
+（`cargo build --release -p hearth-cli`，再把产物复制成 `bin/hearth.exe`）。
+source map 保持关闭（它们会把源码也打进二进制）。
 
-## What is where
+## 每样东西在哪
 
-| Path | Owns |
+| 路径 | 负责什么 |
 | --- | --- |
-| `src/api/protocol.ts` | the wire shapes, mirroring `crates/protocol/src/protocol.rs` — the two change in one commit (the Go generator behind this file did not come across) |
-| `src/api/types.ts` | the single import door for protocol types (keeps tests independent of the generator) |
-| `src/api/events.ts` | the event envelope and payload shapes from `docs/contracts/events-v1.md`, with an unknown-type fallback |
-| `src/api/client.ts` | typed fetch wrapper (Bearer + `X-Hearth-Protocol`), token capture, `Idempotency-Key` on POSTs |
-| `src/api/stream.ts` | the stream reducer: snapshot → event → delta, dedup by seq, gap detection |
-| `src/api/transport.ts` | the WebSocket itself: reconnect with backoff, `?after=<lastSeq>`, pings |
-| `src/state/rows.ts` | events → transcript rows (tool call/result and approval request/decision merge) |
-| `src/state/sessionStore.ts` | per-session store for `useSyncExternalStore`, one render per animation frame |
-| `src/state/capabilities.ts` | tool names from the last request → the capability panel's sections |
-| `src/state/workbench.ts` | the workbench store: open tabs, drafts, the digest each tab was read at, save and conflict state |
-| `src/api/workbench.ts` | `files`/`file`/`diff`/`PUT file` — listing, reading, saving, and the parsers that reject a malformed answer instead of rendering it |
-| `src/virtual/` | the virtualizer: Fenwick offset index, measured heights by row key, anchor restore |
-| `src/components/` | the screens and rows (`Transcript`, `TranscriptRow`, `ToolCard`, `ApprovalDialog`, `Composer`, `StatusBar`, `SessionList`, `SessionView`, `CapabilityPanel`, `SubagentPanel`) |
-| `src/components/ide/` | the three-column workbench: `Workbench`, `FileTree`, `Tabs`, `EditorPane` (Monaco, loaded lazily), `DiffList` |
-| `src/markdown/parse.ts` | block-level markdown parser (no syntax highlighting in M3) |
+| `src/api/protocol.ts` | wire 形状，镜像 `crates/protocol/src/protocol.rs`——两者必须在同一次提交里改（当初生成这个文件的 Go 生成器没有随重写搬过来） |
+| `src/api/types.ts` | 协议类型唯一的导入口（让测试不依赖生成器） |
+| `src/api/events.ts` | 来自 `docs/contracts/events-v1.md` 的事件信封与 payload 形状，带未知类型的兜底 |
+| `src/api/client.ts` | 带类型的 fetch 包装（Bearer + `X-Hearth-Protocol`）、token 捕获、POST 上的 `Idempotency-Key` |
+| `src/api/stream.ts` | 流式 reducer：snapshot → event → delta，按 seq 去重，检测空洞 |
+| `src/api/transport.ts` | WebSocket 本身：带退避的重连、`?after=<lastSeq>`、心跳 |
+| `src/state/rows.ts` | 事件 → 转录行（工具调用/结果与审批请求/裁决各自合并） |
+| `src/state/sessionStore.ts` | 给 `useSyncExternalStore` 用的每会话 store，每个动画帧只渲染一次 |
+| `src/state/capabilities.ts` | 从最后一次请求的工具名 → 能力面板的分节 |
+| `src/state/workbench.ts` | 工作台 store：打开的标签、草稿、每个标签读到时的摘要、保存与冲突状态 |
+| `src/api/workbench.ts` | `files`/`file`/`diff`/`PUT file`——列目录、读、存，以及那些「宁可拒绝也不渲染」的解析器 |
+| `src/virtual/` | 虚拟滚动：Fenwick 偏移索引、按行键测量的高度、锚点恢复 |
+| `src/components/` | 各个界面与行（`Transcript`、`TranscriptRow`、`ToolCard`、`ApprovalDialog`、`Composer`、`StatusBar`、`SessionList`、`SessionView`、`CapabilityPanel`、`SubagentPanel`） |
+| `src/components/ide/` | 三栏工作台：`Workbench`、`FileTree`、`Tabs`、`EditorPane`（Monaco，懒加载）、`DiffList` |
+| `src/markdown/parse.ts` | 块级 markdown 解析器（没有语法高亮） |
 
-## Rendering rules this UI is held to
+## 这个界面必须守的渲染规矩
 
-From the M3 design in the retired tree's `02-architecture.md` §10.1; the rules are
-enforced by tests here, and [../docs/web-ui.md](../docs/web-ui.md) records the
-measurements that hold them to account.
+出自退役树里 `02-architecture.md` §10.1 的设计；这些规矩在这里由测试守着，
+[../docs/web-ui.md](../docs/web-ui.md) 记录了让它们对得起账的实测数字。
 
-1. **Only the visible window ±1 screen is in the DOM**, however long the
-   transcript. Variable row heights are measured after commit and cached by row
-   key; scroll position is anchored so prepending older rows does not jump.
-2. **At most one render per animation frame while streaming.** Stream frames are
-   applied to the reducer synchronously (ordering cannot wait) but the React
-   snapshot is published from `requestAnimationFrame`; a burst of delta frames
-   costs one render.
-3. **Markdown is parsed per block and memoized per block.** A growing assistant
-   row re-parses its last block, not the whole transcript.
-4. **Deltas are advisory.** `assistant/message` carries the authoritative text
-   (`docs/contracts/api.md` §4.8); a delta whose seq never becomes a message
-   event is dropped rather than shown as a ghost.
-5. **Tool output is bounded.** The server caps it at 64 KiB and says so with
-   `truncated: true`; the card shows that marker, collapses to the first and
-   last 20 lines, and shows a machine error code when the tool failed.
-6. **No `any` in exported signatures, no token in `localStorage`.**
+1. **DOM 里只有可见窗口 ±1 屏**，不管转录多长。行高在提交后测量、按行键缓存；
+   滚动位置做锚定，所以往前面塞旧行不会跳。
+2. **流式过程中每个动画帧最多渲染一次。** 流帧同步打进 reducer（顺序等不了），
+   但 React 的快照从 `requestAnimationFrame` 发布；一串 delta 帧只花一次渲染。
+3. **markdown 按块解析、按块记忆。** 正在增长的助手行只重解析它最后一块，
+   不是整篇转录。
+4. **delta 只是提示。** `assistant/message` 才是权威文本（`docs/contracts/api.md`
+   §4.8）；一个 seq 最终没变成 message 事件的 delta 会被丢弃，而不是显示成幽灵。
+5. **工具输出是有界的。** 服务器封顶 64 KiB 并用 `truncated: true` 说明；
+   卡片显示这个标记、折叠成前 20 行和后 20 行，工具失败时显示机器错误码。
+6. **导出签名里不许有 `any`，token 不许进 `localStorage`。**
 
-## A seq gap is a server bug, not a UI state
+## seq 出现空洞是服务器的缺陷，不是界面的状态
 
-The stream must never apply an event twice and never skip one. The reducer
-tracks `lastSeq`, drops anything `<= lastSeq` (reconnect replay), and treats a
-`seq` beyond `lastSeq + 1` as a protocol violation: it stops trusting the socket
-and refetches `GET /events` from the last applied seq until caught up. The status
-bar shows `lastSeq` precisely so this is observable.
+这条流绝不能把同一个事件应用两次，也绝不能跳过任何一个。reducer 记着 `lastSeq`，
+丢掉任何 `<= lastSeq` 的（重连重放），并把超出 `lastSeq + 1` 的 `seq` 当作协议违规：
+停止信任这个 socket，从最后应用过的 seq 重新取 `GET /events` 直到追上。状态栏之所以
+显示 `lastSeq`，就是为了让这件事可被观察。
 
-## Open items
+## 仍未做
 
-- Compaction: the transcript renders a `compaction/summary` row, but there is no
-  "show the compacted-away turns" control in M3.
-- Older-history paging: the contract has no backward `GET /events` cursor, so the
-  UI always loads the full log from seq 1. The virtualizer's prepend path and its
-  scroll-restore behaviour are implemented and tested; they keep working when a
-  backward cursor arrives.
+- 往回翻的旧历史分页：契约里没有向后的 `GET /events` 游标，所以界面总是从 seq 1
+  加载整份日志。虚拟滚动的「前插」路径与它的滚动恢复行为已经实现并有测试，
+  等向后游标出现时它们仍然能用。
+- 关闭编辑器标签前询问未保存的改动：现在关掉一个脏标签只是丢掉草稿，日志里
+  不会留下任何记录。

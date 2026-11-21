@@ -155,7 +155,7 @@ export class HearthClient implements HearthApi {
       // The envelope is {"error":{"code","message","details"?}}; a proxy or a
       // crashed server may return something else, which must not crash the UI.
       let code = `http_${String(response.status)}`;
-      let message = response.statusText === '' ? 'request failed' : response.statusText;
+      let message = response.statusText === '' ? '请求失败' : response.statusText;
       let details: Record<string, unknown> | undefined;
       try {
         const body: unknown = await response.json();
@@ -180,7 +180,7 @@ export class HearthClient implements HearthApi {
     if (echoed !== null && echoed !== String(this.protocolVersion)) {
       throw new ApiError(
         'protocol_mismatch',
-        `server answered protocol ${echoed}, this client speaks ${String(this.protocolVersion)}`,
+        `服务端应答的协议版本是 ${echoed}，而本客户端说的是 ${String(this.protocolVersion)}`,
         response.status,
       );
     }

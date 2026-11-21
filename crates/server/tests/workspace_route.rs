@@ -313,6 +313,79 @@ fn a_workspace_that_is_not_a_repository_reports_no_changes() {
     let (status, body) = fixture.get(&session, "diff");
     assert_eq!(status, 200, "diff failed: {body}");
     assert_eq!(body["files"], json!([]));
+
+    // The same route with a path still answers: a file outside version control
+    // is a change with every line added, not an error.
+    let (status, body) = fixture.get(&session, "diff?path=README.md");
+    assert_eq!(status, 200, "single diff failed: {body}");
+    assert_eq!(body["status"], "unchanged");
+    assert_eq!(body["text"], "");
+}
+
+#[test]
+fn one_file_diff_carries_the_lines_and_the_list_carries_the_rows() {
+    let fixture = Fixture::start("difflines");
+    seed_workspace(&fixture);
+    // A repository with one commit, so "modified" means what it says.
+    for args in [
+        vec!["init", "--quiet"],
+        vec![
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.invalid",
+            "add",
+            "README.md",
+        ],
+        vec![
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "first",
+        ],
+    ] {
+        let ran = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&fixture.workspace)
+            .args(&args)
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .expect("git runs");
+        assert!(ran.status.success(), "git {args:?} failed");
+    }
+    fs::write(fixture.workspace.join("README.md"), "# demo\nmore\n").expect("edit");
+    let session = fixture.create_session();
+
+    let (status, body) = fixture.get(&session, "diff");
+    assert_eq!(status, 200, "diff failed: {body}");
+    let files = body["files"].as_array().expect("files");
+    // The seeded workspace holds other files, so this looks the row up rather
+    // than counting: git reports an untracked *directory* as a single `src/`
+    // row, which is correct and not something this test should pin.
+    let row = files
+        .iter()
+        .find(|row| row["path"] == "README.md")
+        .unwrap_or_else(|| panic!("no README.md row in {files:?}"));
+    assert_eq!(row["status"], "modified");
+    assert_eq!(row["additions"], 1);
+
+    let (status, body) = fixture.get(&session, "diff?path=README.md");
+    assert_eq!(status, 200, "single diff failed: {body}");
+    assert_eq!(body["path"], "README.md");
+    assert_eq!(body["status"], "modified");
+    assert_eq!(body["truncated"], false);
+    let text = body["text"].as_str().expect("text");
+    assert!(text.contains("+more"), "text was {text:?}");
+    assert!(text.contains("--- a/README.md"), "text was {text:?}");
+
+    // Every way out of the workspace is refused on this route too.
+    let (status, _) = fixture.get(&session, "diff?path=../../outside.txt");
+    assert_eq!(status, 400);
 }
 
 #[test]

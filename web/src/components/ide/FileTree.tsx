@@ -41,7 +41,7 @@ function Level({
   if (listing.entries.length === 0) {
     return (
       <p className="wb-empty wb-empty-nested" style={{ paddingLeft: `${String(8 + depth * INDENT_PX)}px` }}>
-        this directory is empty
+        这个目录是空的
       </p>
     );
   }
@@ -71,7 +71,7 @@ function Level({
               </button>
               {isOpen && child?.loading === true && (
                 <p className="wb-empty wb-empty-nested" style={{ paddingLeft: `${String(8 + (depth + 1) * INDENT_PX)}px` }}>
-                  reading {path}…
+                  正在读取 {path}…
                 </p>
               )}
               {isOpen && child?.error != null && (
@@ -103,7 +103,7 @@ function Level({
               type="button"
               className={active ? 'wb-row wb-row-file wb-row-active' : 'wb-row wb-row-file'}
               aria-current={active ? 'true' : undefined}
-              title={entry.size === undefined ? path : `${path} · ${String(entry.size)} bytes`}
+              title={entry.size === undefined ? path : `${path} · ${String(entry.size)} 字节`}
               style={{ paddingLeft: `${String(6 + depth * INDENT_PX + INDENT_PX)}px` }}
               onClick={() => {
                 onOpenFile(path);
@@ -122,16 +122,15 @@ export function FileTree({ dirs, expanded, activePath, onToggleDir, onOpenFile }
   const root = dirs[''];
   const empty = root?.listing != null && root.listing.entries.length === 0;
   return (
-    <nav className="wb-tree" aria-label="workspace files">
-      <h2 className="wb-pane-head">files</h2>
-      {root === undefined && <p className="wb-empty">the workspace listing has not been asked for yet.</p>}
-      {root?.loading === true && <p className="wb-empty">reading the workspace…</p>}
+    <nav className="wb-tree" aria-label="工作区文件">
+      <h2 className="wb-pane-head">文件</h2>
+      {root === undefined && <p className="wb-empty">工作区列表还没有被请求过。</p>}
+      {root?.loading === true && <p className="wb-empty">正在读取工作区…</p>}
       {root?.error != null && <p className="wb-empty wb-error">{root.error}</p>}
       {empty && (
         <p className="wb-empty">
-          the session&apos;s workspace root listed no entries. This bridge only lists files inside the
-          workspace, so an empty root means an empty directory — a read that failed would print its
-          error here instead.
+          该会话的工作区根目录没有列出任何条目。这个桥接只列出工作区之内的文件，
+          所以根目录为空就意味着目录确实是空的 — 如果是读取失败，这里显示的会是错误信息。
         </p>
       )}
       {root?.listing != null && !empty && (

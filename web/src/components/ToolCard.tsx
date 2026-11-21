@@ -29,7 +29,7 @@ export function collapseOutput(output: string, head = COLLAPSED_LINES, tail = CO
   const first = lines.slice(0, head);
   const last = lines.slice(lines.length - tail);
   return {
-    text: `${first.join('\n')}\n… ${String(omitted)} lines hidden …\n${last.join('\n')}`,
+    text: `${first.join('\n')}\n… 已隐藏 ${String(omitted)} 行 …\n${last.join('\n')}`,
     collapsed: true,
     lines: lines.length,
     omitted,
@@ -56,13 +56,13 @@ export const ToolCard = memo(function ToolCard({ row }: { row: ToolRow }) {
       <header className="tool-card-head">
         <span className="tool-name">{row.tool}</span>
         <span className="tool-call-id" title={row.callId}>
-          {row.callId === '' ? 'call' : row.callId}
+          {row.callId === '' ? '调用' : row.callId}
         </span>
         <span className={`pill ${row.done ? (failed ? 'pill-bad' : 'pill-good') : 'pill-muted'}`}>
-          {row.done ? (failed ? 'failed' : 'ok') : 'running'}
+          {row.done ? (failed ? '失败' : '成功') : '运行中'}
         </span>
         {row.errorCode !== undefined && (
-          <span className="error-code" title="tool error code">
+          <span className="error-code" title="工具错误码">
             {row.errorCode}
           </span>
         )}
@@ -70,7 +70,7 @@ export const ToolCard = memo(function ToolCard({ row }: { row: ToolRow }) {
 
       {args !== '' && (
         <details className="tool-section">
-          <summary>args</summary>
+          <summary>参数</summary>
           <pre className="mono tool-args">{args}</pre>
         </details>
       )}
@@ -78,15 +78,15 @@ export const ToolCard = memo(function ToolCard({ row }: { row: ToolRow }) {
       {output !== null && (
         <div className="tool-section">
           <div className="tool-output-head">
-            <span>output</span>
+            <span>输出</span>
             {row.truncated && (
-              <span className="truncated-marker" title="the server capped this output at 64 KiB">
-                truncated at 64 KiB
+              <span className="truncated-marker" title="服务端已把这段输出截断到 64 KiB">
+                已在 64 KiB 处截断
               </span>
             )}
             {output.collapsed && (
               <button type="button" className="link-button" onClick={() => setExpanded((v) => !v)}>
-                {expanded ? 'collapse' : `show all ${String(output.lines)} lines`}
+                {expanded ? '收起' : `显示全部 ${String(output.lines)} 行`}
               </button>
             )}
           </div>
@@ -98,7 +98,7 @@ export const ToolCard = memo(function ToolCard({ row }: { row: ToolRow }) {
 
       {row.meta !== undefined && (
         <details className="tool-section">
-          <summary>meta</summary>
+          <summary>元信息</summary>
           <pre className="mono tool-args">{formatArgs(row.meta)}</pre>
         </details>
       )}

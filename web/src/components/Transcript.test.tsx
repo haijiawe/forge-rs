@@ -74,8 +74,8 @@ describe('Transcript virtualization', () => {
   });
 
   it('shows the empty hint when there is nothing to render', () => {
-    const view = mount(<Transcript rows={[]} rowKeys={[]} emptyHint="waiting for the first event…" />);
-    expect(view.container.textContent).toContain('waiting for the first event…');
+    const view = mount(<Transcript rows={[]} rowKeys={[]} emptyHint="正在等待第一个事件…" />);
+    expect(view.container.textContent).toContain('正在等待第一个事件…');
     view.unmount();
   });
 });
@@ -113,7 +113,7 @@ describe('Transcript folded rows', () => {
     const folded = [...view.container.querySelectorAll('.row-wrap.row-folded')];
     expect(folded).toHaveLength(1);
     expect(folded[0]?.getAttribute('data-folded-by')).toBe(BLOCK);
-    expect(folded[0]?.getAttribute('title')).toBe(`hidden from the model by block ${BLOCK}`);
+    expect(folded[0]?.getAttribute('title')).toBe(`该行被块 ${BLOCK} 从模型中隐藏`);
 
     // The neighbouring rows, and the note describing the block, are untouched.
     const wrappers = [...view.container.querySelectorAll('.row-wrap')];

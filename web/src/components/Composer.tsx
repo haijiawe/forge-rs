@@ -40,7 +40,7 @@ export interface ComposerProps {
   onStop?: () => Promise<boolean>;
 }
 
-const PICKER_HINT = `Images and .diff/.patch files, up to ${formatBytes(MAX_ATTACHMENT_BYTES)} each, ${String(MAX_ATTACHMENTS)} per message`;
+const PICKER_HINT = `图片与 .diff/.patch 文件，每个最大 ${formatBytes(MAX_ATTACHMENT_BYTES)}，每条消息 ${String(MAX_ATTACHMENTS)} 个`;
 
 export function Composer({
   disabled,
@@ -108,7 +108,7 @@ export function Composer({
         {
           name: null,
           reason:
-            'A file cannot ride along with a steer: the running turn takes text only. Wait for the turn to end, then send it as a message.',
+            '转交时不能附带文件：正在运行的回合只接受文本。等这一回合结束后，再把它作为消息发送。',
         },
       ]);
       return;
@@ -150,10 +150,10 @@ export function Composer({
   };
 
   const placeholder = disabled
-    ? (disabledReason ?? 'the agent is running…')
+    ? (disabledReason ?? '代理正在运行…')
     : steering
-      ? 'Steer the running turn — Enter injects it between steps'
-      : 'Message the agent — Enter sends, Shift+Enter adds a line';
+      ? '引导正在运行的回合 — 按 Enter 在步骤之间插入'
+      : '给代理发消息 — Enter 发送，Shift+Enter 换行';
 
   return (
     <form
@@ -179,7 +179,7 @@ export function Composer({
               setRefusals([]);
             }}
           >
-            dismiss
+            关闭
           </button>
         </div>
       )}
@@ -197,13 +197,13 @@ export function Composer({
               <button
                 type="button"
                 className="link-button"
-                aria-label={`Remove ${attachment.name}`}
+                aria-label={`移除 ${attachment.name}`}
                 disabled={blocked}
                 onClick={() => {
                   commitAttachments(removeAttachment(attachmentsRef.current, attachment.id));
                 }}
               >
-                remove
+                移除
               </button>
             </li>
           ))}
@@ -233,7 +233,7 @@ export function Composer({
         type="file"
         multiple
         accept="image/*,.diff,.patch"
-        aria-label="Attach images or .diff/.patch files"
+        aria-label="添加图片或 .diff/.patch 文件"
         title={PICKER_HINT}
         disabled={blocked || reading}
         onChange={(event) => {
@@ -249,11 +249,11 @@ export function Composer({
             void stop();
           }}
         >
-          {stopping ? 'stopping…' : 'Stop'}
+          {stopping ? '正在停止…' : '停止'}
         </button>
       )}
       <button type="submit" className="button button-primary" disabled={blocked || draft.trim() === ''}>
-        {sending ? 'sending…' : steering ? 'Steer' : 'Send'}
+        {sending ? '正在发送…' : steering ? '引导' : '发送'}
       </button>
     </form>
   );

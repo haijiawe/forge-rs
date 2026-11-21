@@ -1,8 +1,8 @@
-# The gate order is the CI order: formatting, lints, architecture, tests.
+# The gate order is the CI order: formatting, lints, links, architecture, tests.
 # Every recipe assumes only .cargo/config.toml: no exported CC, no PATH edits,
 # no environment variables beyond what cargo reads itself.
 
-.PHONY: web build test fmt lint arch check bench bench-run bench-record bench-check release
+.PHONY: web build test fmt lint links arch check bench bench-run bench-record bench-check release
 
 # npm uses POSIX ';' here; the managed shell runs this recipe through bash/Git-Bash.
 web:
@@ -20,10 +20,13 @@ fmt:
 lint:
 	cargo clippy -- -D warnings
 
+links:
+	node scripts/check-links.cjs
+
 arch:
 	cargo run -q -p archcheck --offline --
 
-check: fmt lint arch test bench-check
+check: fmt lint links arch test bench-check
 
 bench:
 	cargo bench --offline

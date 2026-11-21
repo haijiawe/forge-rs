@@ -45,9 +45,9 @@ describe('SubagentPanel', () => {
       />,
     );
     const text = container.textContent ?? '';
-    expect(text).toContain('1 subagent below this session');
+    expect(text).toContain('本会话下有 1 个子代理');
     expect(text).toContain('agent-1');
-    expect(text).toContain('settled in 1.5 s, 2 turns');
+    expect(text).toContain('已在 1.5 s 内结束，共 2 轮');
     unmount();
   });
 
@@ -59,7 +59,7 @@ describe('SubagentPanel', () => {
         ])}
       />,
     );
-    expect(container.textContent).toContain('working');
+    expect(container.textContent).toContain('正在工作');
     unmount();
   });
 
@@ -104,7 +104,7 @@ describe('SubagentPanel', () => {
       <SubagentPanel tree={null} error="404 no such endpoint" />,
     );
     const text = container.textContent ?? '';
-    expect(text).toContain('could not be read');
+    expect(text).toContain('无法读取子代理树');
     expect(text).toContain('hearth subagent tree');
     unmount();
   });

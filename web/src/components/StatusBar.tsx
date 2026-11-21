@@ -26,15 +26,15 @@ export function StatusBar({
   needsResync,
   streamError,
 }: StatusBarProps) {
-  const connection = needsResync ? 'resyncing' : connecting ? 'connecting' : 'live';
+  const connection = needsResync ? '重新同步中' : connecting ? '连接中' : '在线';
   return (
     <footer className="status-bar">
       <span className={`status-dot status-${status}`} aria-hidden="true" />
       <span className="status-item status-mode">{status}</span>
-      <span className="status-item" title="model">{session?.model ?? '—'}</span>
-      <span className="status-item mono" title="session id">{shortId(sessionId)}</span>
-      <span className="status-item mono" title="last applied event seq">
-        lastSeq {String(lastSeq)}
+      <span className="status-item" title="模型">{session?.model ?? '—'}</span>
+      <span className="status-item mono" title="会话 id">{shortId(sessionId)}</span>
+      <span className="status-item mono" title="最后应用的事件序号">
+        序号 {String(lastSeq)}
       </span>
       <span className={`status-item conn conn-${connection}`}>{connection}</span>
       {streamError !== null && <span className="status-item status-error">{streamError}</span>}

@@ -77,6 +77,24 @@ export interface DiffEntry {
   deletions: number;
 }
 
+/**
+ * One file's unified diff.
+ *
+ * `text` is git's own format, carried verbatim: this module does not parse it
+ * into hunks. A parser here would be a second implementation of a format whose
+ * awkward cases — no newline at end of file, binary markers, rename headers —
+ * are exactly the ones that matter, and `git` already writes them correctly.
+ * The pane colours lines by their first character and nothing else.
+ */
+export interface FileDiff {
+  path: string;
+  /** A git word, or `unchanged` for a path whose bytes match the commit. */
+  status: string;
+  text: string;
+  /** The server caps `text` at 1 MiB and says so here. */
+  truncated: boolean;
+}
+
 let injected: HearthClient | null = null;
 let fallback: HearthClient | null = null;
 
@@ -137,6 +155,14 @@ export async function listDiff(sessionId: string): Promise<DiffEntry[]> {
   return parseDiff(value);
 }
 
+/** One file's lines. The same route as `listDiff`, narrowed by `?path=`. */
+export async function readDiff(sessionId: string, path: string): Promise<FileDiff> {
+  const value = await http().getJson<unknown>(
+    sessionPath(sessionId, `/diff?path=${encodeURIComponent(path)}`),
+  );
+  return parseFileDiff(value, path);
+}
+
 /**
  * Save a buffer. `expectedSha256` empty means "I have no token, overwrite".
  *
@@ -190,7 +216,7 @@ export function parseListing(value: unknown, requested = ''): DirListing {
 export function parseFile(value: unknown, requested = ''): FileText {
   const body = asRecord(value);
   if (body === null || typeof body.text !== 'string') {
-    throw new Error(`the server answered no text for ${requested === '' ? 'that path' : requested}`);
+    throw new Error(`服务端没有为 ${requested === '' ? '该路径' : requested} 返回任何文本`);
   }
   const echo = text(body.path);
   return {
@@ -217,12 +243,33 @@ export function parseSave(value: unknown, requested = ''): SaveResult {
   const body = asRecord(value);
   const sha256 = text(body?.sha256);
   if (sha256 === '') {
-    throw new Error(`the server saved ${requested === '' ? 'the file' : requested} but named no digest`);
+    throw new Error(`服务端保存了 ${requested === '' ? '该文件' : requested}，但没有给出摘要值`);
   }
   const echo = text(body?.path);
   return { path: echo === '' ? requested : echo, bytes: count(body?.bytes), sha256 };
 }
 
+/**
+ * Decode `{path, status, text, truncated}` from a single-file diff.
+ *
+ * Unlike `parseDiff` this throws when `text` is missing: an empty string is the
+ * honest answer for an unchanged file, so a body without the key is a server
+ * that does not know this route yet, and drawing it as "no changes" would be a
+ * claim about the workspace the reader cannot check.
+ */
+export function parseFileDiff(value: unknown, requested = ''): FileDiff {
+  const body = asRecord(value);
+  if (body === null || typeof body.text !== 'string') {
+    throw new Error(`服务端没有为 ${requested === '' ? '该路径' : requested} 返回任何改动内容`);
+  }
+  const echo = text(body.path);
+  return {
+    path: echo === '' ? requested : echo,
+    status: text(body.status),
+    text: body.text,
+    truncated: body.truncated === true,
+  };
+}
 /** Decode `{files[]}`; an answer without the key is the empty list, not an error. */
 export function parseDiff(value: unknown): DiffEntry[] {
   const body = asRecord(value);

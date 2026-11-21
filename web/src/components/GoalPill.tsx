@@ -28,7 +28,7 @@ export function GoalPill({ goal, error = null }: GoalPillProps) {
     // trust a number this render could not confirm.
     return (
       <span className="goal-error" data-testid="goal-error">
-        {`the goal could not be read: ${error}`}
+        {`目标无法读取：${error}`}
       </span>
     );
   }
@@ -43,7 +43,7 @@ export function GoalPill({ goal, error = null }: GoalPillProps) {
     >
       <span className="goal-pill-status">{goal.status}</span>
       <span className="goal-pill-round">
-        {`round ${String(currentRound(goal))} of ${String(goal.maxRounds)}`}
+        {`第 ${String(currentRound(goal))} 轮，共 ${String(goal.maxRounds)} 轮`}
       </span>
       {/* The text stays a text node so the chip is still labelled when the
           stylesheet truncates it; colour alone is not a label. */}

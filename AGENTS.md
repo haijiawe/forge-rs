@@ -1,177 +1,162 @@
-# AGENTS.md — read this before you touch a file
+# AGENTS.md —— 改任何文件之前先读这一页
 
-This tree is a Rust rewrite of a Go implementation that was **deleted on
-2026-11-17**. Comments below that cite `forge-go/...` name files in that retired
-tree; they no longer resolve here, and that is expected. What the Go tree
-defined is now frozen in `docs/contracts/` and in the corpora under `tests/`,
-and those are what the tests compare against.
+这棵树是某个 Go 实现的 Rust 重写版，那个实现**已于 2026-11-17 删除**。下文注释里
+出现的 `forge-go/...` 指的是那棵已退役树里的文件；它们在这里解析不到，这是预期的。
+Go 树定义过的东西现在冻结在 `docs/contracts/` 与 `tests/` 下的语料里，测试比对的就是
+它们。
 
-## Three laws
+## 三条法则
 
-1. **The event log is the only truth.** Every fact about a session is one line in
-   `<dataDir>/sessions/<id>.jsonl`, appended in order, never rewritten. If a
-   behaviour is not in the log, a restart loses it — and a user is allowed to
-   restart.
-2. **A reader must be able to read a log it has never seen.** Unknown event types
-   are data (skip and count them). Unknown *versions* are errors (refuse the
-   file, do not touch it). Payload members are described by the contract, never
-   enforced by the reader.
-3. **Fail closed where it matters, and say what you did not do.** A sandbox that
-   cannot confine must refuse to start, not start quietly unconfined. A check
-   that cannot run is `SKIP`, never `OK`. A wave that is not finished is not
-   marked done.
+1. **事件日志是唯一的真相。** 关于一个会话的每一个事实，都是
+   `<dataDir>/sessions/<id>.jsonl` 里按顺序追加的一行，永不重写。如果某个行为不在
+   日志里，重启就会丢掉它——而用户有权重启。
+2. **读者必须能读懂一份从没见过的日志。** 未知的事件类型是数据（跳过并计数）。
+   未知的**版本**是错误（拒绝这个文件，不要碰它）。payload 里的成员由契约描述，
+   从不由读者强制。
+3. **该 fail closed 的地方就 fail closed，并且说清你没做什么。** 一个无法约束的
+   沙箱必须拒绝启动，而不是安静地不受约束地启动。一个跑不了的检查是 `SKIP`，
+   永远不是 `OK`。一波没做完就不许标成做完。
 
-## Where things live
+## 东西都在哪
 
-Twenty-four crates, four layers. `architecture.yaml` is the authority; this table
-is the same information with a purpose attached to each crate, because a layer
-number does not tell you where a new file belongs.
+二十四个 crate，四层。`architecture.yaml` 是权威；下面这张表是同一份信息，外加
+每个 crate 的用途——因为层号不能告诉你一个新文件该放哪一格。
 
-| Layer | Crate | What it owns |
+| 层 | Crate | 它拥有什么 |
 | --- | --- | --- |
-| L0 | `crates/core` | event envelope, ids, canonical JSON, error kinds, digests |
-| L0 | `crates/config` | config file, home dir, defaults, validation |
-| L1 | `crates/exec` | spawn, tree kill, the sandbox hook |
-| L1 | `crates/sandbox` | job objects / Landlock / sandbox-exec / AppContainer |
-| L1 | `crates/mcp` | MCP client: stdio and HTTP transports |
-| L1 | `crates/skill` | skill discovery, frontmatter, scanning |
-| L1 | `crates/net` | HTTP GET/POST, TLS roots, HTML→text |
-| L1 | `crates/experts` | the Markdown expert/team roster |
-| L2 | `crates/session` | log store, projection, compaction, fork, blobs |
-| L2 | `crates/llm` | provider contract, SSE client, content parts |
-| L2 | `crates/tool` | registry, executor, policy, approvals, builtins |
-| L2 | `crates/protocol` | wire types shared with the UI |
-| L2 | `crates/agent` | the turn loop, history, hooks, inbox |
-| L2 | `crates/store` | the SQLite index and its search |
-| L2 | `crates/import` | importing foreign session logs |
-| L2 | `crates/subagent` | catalog, descriptors, backends, archive, authority |
-| L2 | `crates/goal` | goal domain, events, fold, runtime claim |
-| L2 | `crates/schedule` | the rrule subset and the instant table |
-| L2 | `crates/market` | index, digest-verified install, tamper-aware removal |
-| L2 | `crates/plugin` | the plugin host over stdio JSON-RPC |
-| L2 | `crates/team` | shared board, parallel workers, task graph |
-| L2 | `crates/context` | compaction blocks, pruning, the ledger |
-| L3 | `crates/server` | HTTP/1.1 + WebSocket, all routes |
-| L3 | `crates/cli` | the `hearth` binary and its subcommands |
+| L0 | `crates/core` | 事件信封、id、规范 JSON、错误种类、摘要 |
+| L0 | `crates/config` | 配置文件、home 目录、默认值、校验 |
+| L1 | `crates/exec` | 起进程、杀进程树、沙箱钩子 |
+| L1 | `crates/sandbox` | job object / Landlock / sandbox-exec / AppContainer |
+| L1 | `crates/mcp` | MCP 客户端：stdio 与 HTTP 两种传输 |
+| L1 | `crates/skill` | 技能发现、frontmatter、扫描 |
+| L1 | `crates/net` | HTTP GET/POST、TLS 根证书、HTML→文本 |
+| L1 | `crates/experts` | Markdown 写的专家/团队名册 |
+| L2 | `crates/session` | 日志存储、投影、压缩、fork、二进制块 |
+| L2 | `crates/llm` | provider 契约、SSE 客户端、内容分段 |
+| L2 | `crates/tool` | 注册表、执行器、策略、审批、内置工具 |
+| L2 | `crates/protocol` | 与界面共享的 wire 类型 |
+| L2 | `crates/agent` | 轮次循环、历史、钩子、收件箱 |
+| L2 | `crates/store` | SQLite 索引与它的检索 |
+| L2 | `crates/import` | 导入外来的会话日志 |
+| L2 | `crates/subagent` | 目录、描述符、后端、归档、权限 |
+| L2 | `crates/goal` | 目标的领域模型、事件、折叠、运行时认领 |
+| L2 | `crates/schedule` | rrule 子集与时刻表 |
+| L2 | `crates/market` | 索引、摘要校验的安装、能发现篡改的卸载 |
+| L2 | `crates/plugin` | 讲 stdio JSON-RPC 的插件宿主 |
+| L2 | `crates/team` | 共享工作板、并行 worker、任务图 |
+| L2 | `crates/context` | 压缩块、裁剪、账本 |
+| L3 | `crates/server` | HTTP/1.1 + WebSocket，全部路由 |
+| L3 | `crates/cli` | `hearth` 二进制与它的子命令 |
 
-Not crates, and equally part of the map:
+不是 crate、但同样是这张地图一部分的东西：
 
-| Path | What it is | Rule |
+| 路径 | 是什么 | 规矩 |
 | --- | --- | --- |
-| `web/` | the React UI, built by Vite into `web/dist` | zero UI dependencies by decision; `web/src/api/protocol.ts` must change in the same commit as `crates/protocol` |
-| `apps/desktop` | the Tauri 2 window, its own cargo workspace | may not be imported by anything; must not enter `check.ps1` (Linux CI would need webkit2gtk) |
-| `tests/` | the language-neutral oracle: conformance cases, fixtures, goldens | read-only by law — never edit a case to make a reader pass |
-| `skills/` | skills shipped with the tree | a skill is data, not code; it may not import a crate |
-| `examples/` | runnable samples (currently a plugin) | must keep working, or be deleted |
-| `tools/` | `archcheck`, `bench` | build-time only; nothing here ships in the binary |
-| `scripts/` | `sync.cjs`, the installers | may not be required at runtime |
-| `docs/` | decisions, records, comparisons, operations | see `docs/README.md` for which is which |
-| `bin/` | the release binary, rebuilt by hand | not a cargo artifact — see `docs/13-handover.md` |
+| `web/` | React 界面，由 Vite 构建进 `web/dist` | 按决定，界面依赖为零；`web/src/api/protocol.ts` 必须与 `crates/protocol` 在同一次提交里改 |
+| `apps/desktop` | Tauri 2 窗口，自己的 cargo workspace | 谁都不许 import 它；不许进 `check.ps1`（否则 Linux CI 要装 webkit2gtk） |
+| `tests/` | 语言中立的判据：一致性用例、fixture、golden | 按法则只读——永远不要改用例去让某个 reader 通过 |
+| `skills/` | 随树一起发布的技能 | 技能是数据不是代码；不许 import 任何 crate |
+| `examples/` | 能跑的样例（目前是一个插件） | 要么一直能跑，要么删掉 |
+| `tools/` | `archcheck`、`bench` | 只在构建期用；这里的东西不进二进制 |
+| `scripts/` | `sync.cjs`、安装脚本 | 运行时不许依赖它们 |
+| `docs/` | 决策、记录、对比、运维 | 哪份是哪类见 `docs/README.md` |
+| `bin/` | 发布用的二进制，手工重建 | 不是 cargo 产物——见 `docs/13-handover.md` |
 
-### Where do I add things
+### 我要加东西，该放哪
 
-| You want to | It goes | Because |
+| 你想 | 放这 | 因为 |
 | --- | --- | --- |
-| a new agent tool | `crates/tool/src/builtin/`, then name it in `policy.rs` | an unnamed tool is silently denied by the fallback |
-| a new HTTP route | `crates/server/src/<x>_route.rs` + an arm in `handle_api` | the route table is one function on purpose |
-| a new wire type | `crates/protocol/src/protocol.rs` **and** `web/src/api/protocol.ts` | there is no generator; drift is silent |
-| a new event type | `EventType::ALL`, a `docs/contracts` line, a conformance case | law 2 makes types additive, and the case is what proves it |
-| a new platform integration | a new L1 or L2 crate | a crate is a boundary; a module is not |
-| a capability the operator turns on | a `Config` section + `wiring.rs`, never a default-on | absence of a tool is discoverable; a tool that always fails is not |
-| a UI panel | `web/src/components/`, no new npm dependency without asking | the budget is a decision record |
+| 加一个 agent 工具 | `crates/tool/src/builtin/`，然后在 `policy.rs` 里点名 | 没被点名的工具会被兜底规则静默拒绝 |
+| 加一个 HTTP 路由 | `crates/server/src/<x>_route.rs` + `handle_api` 里一个分支 | 路由表刻意就是一个函数 |
+| 加一个 wire 类型 | `crates/protocol/src/protocol.rs` **和** `web/src/api/protocol.ts` | 没有生成器；漂移是静默的 |
+| 加一个事件类型 | `EventType::ALL`、`docs/contracts` 里一行、一个一致性用例 | 法则 2 让类型可加，而用例才是证明 |
+| 加一个平台集成 | 新的 L1 或 L2 crate | crate 才是边界；模块不是 |
+| 加一个由操作者打开的能力 | 一个 `Config` 段 + `wiring.rs`，绝不默认开启 | 缺一个工具是可发现的；一个永远失败的工具不是 |
+| 加一个界面面板 | `web/src/components/`，不先问就不加 npm 依赖 | 那份预算是一份决策记录 |
 
-The layer map is not advice. `architecture.yaml` states it and `make arch`
-fails the build when an edge points up. A crate equals a boundary: if you are
-tempted to add a module that imports "just one thing" from a higher layer, the
-answer is a trait in the lower crate, not an import.
+分层图不是建议。`architecture.yaml` 声明它，边指向上层时 `make arch` 会让构建失败。
+一个 crate 就是一个边界：如果你动了「只 import 上层一样东西」的念头，答案是下层
+crate 里的一个 trait，不是一句 import。
 
-## Build and verify
+## 构建与验证
 
 ```powershell
-cargo test --offline          # unit + conformance tests
-cargo run -q -p archcheck --  # the dependency gate
+cargo test --offline          # 单测 + 一致性测试
+cargo run -q -p archcheck --  # 依赖门禁
 cargo clippy -- -D warnings
-make check                    # all of the above, in the order CI uses
+make check                    # 以上全部，顺序与 CI 一致
 ```
 
-Two environment facts, both measured, both non-negotiable:
+两条环境事实，都实测过，都不可商量：
 
-- **The build path must be ASCII.** This checkout is `D:\hearth`, so the
-  default in-tree `target/` is fine and nothing needs to be set. If you move
-  the tree somewhere with a non-ASCII character in the path, point
-  `CARGO_TARGET_DIR` at an ASCII directory first — otherwise every crate that
-  compiles C (rusqlite bundled, ring) fails with
-  `cl: D8050 ... 未能将命令行放入调试记录中`. `.cargo/config.toml` explains why
-  that setting does not live in the file.
-- **MSVC only, offline.** The GNU toolchain is installed but broken
-  (`dlltool.exe: program not found`), and crates.io is unreachable; the rsproxy
-  mirror in `D:\Rust\.cargo\config.toml` is what `--offline` reads.
+- **构建路径必须是 ASCII。** 这份检出在 `D:\hearth`，所以树内的默认 `target/` 就行，
+  什么都不用设。如果你把树搬到路径里带非 ASCII 字符的地方，先把
+  `CARGO_TARGET_DIR` 指到一个 ASCII 目录——否则每个编 C 的 crate（bundled 的
+  rusqlite、ring）都会以 `cl: D8050 ... 未能将命令行放入调试记录中` 失败。
+  `.cargo/config.toml` 解释了为什么这个设置不写在文件里。
+- **只用 MSVC，且离线。** GNU 工具链装了但是坏的（`dlltool.exe: program not
+  found`），而且 crates.io 不可达；`--offline` 读的是
+  `D:\Rust\.cargo\config.toml` 里的 rsproxy 镜像。
 
-## Pushing
+## 推送
 
-`git push` and `git fetch` both die against github.com:443 on this network
-(connection reset), so `origin/master` is maintained through the REST API
-instead. One command does the whole loop:
+在这张网络上 `git push` 和 `git fetch` 打 github.com:443 都会死（连接被重置），
+所以 `origin/master` 是靠 REST API 维护的。一条命令做完整个循环：
 
 ```powershell
-node scripts/sync.cjs "commit message"            # commit, push, align
-node scripts/sync.cjs --message-file note.txt     # commit a multi-paragraph message
-node scripts/sync.cjs --no-commit                 # push and align the current HEAD
-node scripts/sync.cjs --dry "message"             # say what would happen, write nothing
+node scripts/sync.cjs "提交信息"                      # 提交、推送、对齐
+node scripts/sync.cjs --message-file note.txt        # 提交多段式信息
+node scripts/sync.cjs --no-commit                    # 只推送并对齐当前 HEAD
+node scripts/sync.cjs --dry "信息"                   # 说会发生什么，什么都不写
 ```
 
-Use `--message-file` for anything longer than a subject line: backticks, quotes
-and blank lines survive a file, and none of them survive every shell on the way
-here.
+比一行标题长的东西就用 `--message-file`：反引号、引号和空行在文件里能活下来，
+而在通到这里之前的每一个 shell 里都活不下来。
 
-The third step matters: a commit created through the API is a new object, so its
-SHA differs from the local one even though the tree is identical. `sync.cjs`
-rebuilds that object locally (the API normalises timestamps to `Z`, so it tries
-the plausible offsets) and refuses to move the branch unless the rebuilt object
-hashes to the SHA GitHub reported. After it runs, `git status` says
-`master...origin/master` with nothing ahead and nothing behind.
+第三步很重要：经 API 创建的提交是一个新对象，所以即使树完全一样，它的 SHA 也与本地
+不同。`sync.cjs` 会在本地重建那个对象（API 会把时间戳归一到 `Z`，所以它会试几个可能
+的时区偏移），并且除非重建出来的对象哈希等于 GitHub 报的那个 SHA，否则拒绝移动分支。
+它跑完之后，`git status` 会显示 `master...origin/master`，前不领先、后不落后。
 
-The token comes from `$GITHUB_PAT`, or from `GITHUB_PAT:` in
-`$HEARTH_CREDENTIALS` (default `D:\dsh\.credentials.yaml`). It is never printed.
+token 来自 `$GITHUB_PAT`，或者 `$HEARTH_CREDENTIALS`（默认
+`D:\dsh\.credentials.yaml`）里的 `GITHUB_PAT:`。它永远不会被打印出来。
 
-## Task card
+## 任务卡
 
-Before you write code, write four lines in your head (or in the task):
+写代码之前，先在脑子里（或任务里）写下四行：
 
 ```
-goal:      what becomes true when this is done
-scope:     which files may change
-accept:    the command and its expected output
-unknowns:  what you will report instead of inventing
+goal:      这件事做完时什么叫成真
+scope:     哪些文件允许改
+accept:    哪条命令、期望什么输出
+unknowns:  哪些东西你会如实报告而不是编出来
 ```
 
-## Definition of done, by change type
+## 按改动类型定义的「完成」
 
-| Change | Done means |
+| 改动 | 完成的含义 |
 | --- | --- |
-| A new crate | README with frontmatter + four sections; `make arch` green |
-| A new event type | added to `EventType::ALL`, `docs/contracts` equivalent here, and a conformance case |
-| A bug fix | a test that fails on the old code and passes on the new |
-| A perf claim | a measured number on this box, with the command that produced it |
-| A platform claim | either measured here, or labelled `unverified on this host` |
+| 新 crate | 带 frontmatter 与四个小节的 README；`make arch` 绿 |
+| 新事件类型 | 进了 `EventType::ALL`、`docs/contracts` 里有对应行、有一个一致性用例 |
+| 修 bug | 一个在旧代码上失败、在新代码上通过的测试 |
+| 性能声明 | 这台机器上测出来的数字，以及产生它的那条命令 |
+| 平台声明 | 要么在这台机器上测过，要么标成 `本机未验证` |
 
-## Handoff shape
+## 交接的形状
 
-Report in this order: `done` (files + line counts), `evidence` (command + output
-tail), `open` (what is not done and why), `risk` (what could bite the next
-person). Never report a passing gate you did not run.
+按这个顺序报告：`done`（文件 + 行数）、`evidence`（命令 + 输出尾部）、`open`
+（什么没做、为什么）、`risk`（什么会咬到下一个接手的人）。永远不要报告一个你没跑过的
+门禁。
 
-## Six anti-patterns
+## 六条反模式
 
-1. Do not edit `tests/conformance/cases/**` to make a reader pass. The case is
-   the contract; if it is wrong, both implementations are wrong.
-2. Do not add a dependency before asking. The budget in `Cargo.toml` is a
-   decision record; every line answers "why can the standard library not do
-   this".
-3. Do not add `tokio` (or any async runtime) "for later". The server is
-   thread-per-connection because the workload is one process per project.
-4. Do not write `unwrap()` on I/O or parse results in library code. Tests may.
-5. Do not claim a sandbox is enforcing something it does not enforce. Report
-   `filesystem=false` and say what is missing.
-6. Do not let `help` list a command that does not work. A missing line costs a
-   question; a lying line costs an afternoon.
+1. 不要为了某个 reader 通过去改 `tests/conformance/cases/**`。用例就是契约；
+   如果它错了，那两边的实现都错了。
+2. 不要不问就加依赖。`Cargo.toml` 里的预算是一份决策记录；每一行都在回答
+   「标准库为什么做不到这件事」。
+3. 不要「为了以后」加 `tokio`（或任何异步运行时）。服务器是每连接一个线程，
+   因为负载是一个项目一个进程。
+4. 不要在库代码里对 I/O 或解析结果写 `unwrap()`。测试可以。
+5. 不要声称一个沙箱在约束它并没有约束的东西。报告 `filesystem=false`，并说清缺什么。
+6. 不要让 `help` 列出跑不通的命令。少一行代价是一个问题，骗人的一行代价是一个下午。

@@ -1,97 +1,107 @@
 # hearth
 
-A Rust rewrite of a Go implementation (`forge-go`) that was **deleted on
-2026-11-17**, after the port passed W6 and the five capability crates were wired
-into the CLI. That tree was the reference: its tests were the oracle, and ported
-behaviour is expected to match them rather than to improve on them. Removing it
-changed no test — the conformance cases, fixtures and goldens were copied into
-`tests/`, and nothing here read the Go tree at build or test time. Where a
-comment cites `forge-go/internal/...` it names a file of that retired tree, kept
-as provenance for the behaviour in question; the frozen contracts in
-`docs/contracts/` and the corpora under `tests/` are what `cargo test` checks
-against.
+`hearth` 是一个本地编程 Agent 宿主：一个可执行文件、一条只追加的事件日志、一个 loopback 上的
+HTTP/WebSocket 服务，以及可选的一层图形外壳。工具跑在沙箱里，每个动作先过策略与审批，
+会话可以中断、恢复、分叉、压缩。
 
-The workspace is arranged as twenty-four product crates, one per boundary that should be
-violated loudly, plus `tools/archcheck` and `tools/bench` gates. `architecture.yaml`
-states the layer map, and `tools/archcheck` fails the build when a `Cargo.toml`
-dependency points to a higher layer or a crate has no boundary README. Cargo
-already enforces that the graph compiles; these gates enforce that it points the
-right way and is written down.
+它是**一棵 Go 实现（`forge-go`）的 Rust 重写**，那棵 Go 树已于 **2026-11-17 删除**——
+在移植通过 W6、五个能力 crate 接进 CLI 之后。那棵树是参照物：它的测试就是判据，
+移植过来的行为要求**与它一致**，而不是比它更好。删掉它没有改变任何一个测试：
+一致性用例、fixture 与 golden 都复制进了 `tests/`，构建与测试期间没有任何东西读那棵 Go 树。
+代码注释里出现的 `forge-go/internal/...` 指的是那棵已退役树里的文件，留着是为了说明某段行为的出处；
+`cargo test` 真正比对的是 `docs/contracts/` 里的冻结契约与 `tests/` 下的语料。
 
-CI runs on GitHub Actions: `ci.yml` on every push (test on Windows and Ubuntu at
-the 1.89 floor, lint and web on current stable), `bench.yml` on demand, and
-`release.yml` on tags or as a dry run — the dry run was rehearsed on 2026-11-20
-and produced all three native artifacts. `docs/ci.md` records what each run
-caught, including the defects that only a second machine could see.
+工作区由**二十四个产品 crate**组成，一个 crate 对应一条「越界时应该大声报错」的边界，
+外加 `tools/archcheck` 与 `tools/bench` 两个门禁。`architecture.yaml` 写明分层图，
+`tools/archcheck` 在一个 `Cargo.toml` 的依赖指向上层、或某个 crate 没有边界说明书时让构建失败。
+Cargo 已经保证了图能编译；这些门禁保证它**指对了方向**、并且被写下来了。
 
-## Crate map
+CI 跑在 GitHub Actions 上：`ci.yml` 每次推送都跑（Windows 与 Ubuntu 上跑 1.89 这个下限，
+lint 与 web 跑当前 stable），`bench.yml` 手动触发，`release.yml` 打 tag 时跑或做一次 dry run——
+dry run 于 2026-11-20 演练过，产出了三个平台的原生产物。`docs/ci.md` 记录了每次运行抓到了什么，
+包括那些只有第二台机器才看得见的缺陷。
 
-| Crate | Layer | Holds | Must not |
+## 先看这一页：每个目录是干什么的
+
+`ls` 只能给出名字。名字表达「类别」，表达不了「这里放什么、不放什么、下一个东西该放哪一格」。
+所以每一个装着东西的目录都有一份说明书，而**这件事是被检查的**（`architecture.yaml` 的
+`documented_dirs`，规则见 `tools/archcheck`）——一条只写在文档里的规矩会在赶时间时消失。
+
+| 目录 | 放什么 | 说明书 |
+| --- | --- | --- |
+| `crates/` | 二十四个产品 crate，按 L0–L3 分层；每个 crate 一份边界说明书 | [crates/README.md](crates/README.md) |
+| `tests/` | 判据：一致性用例、fixture、golden、端到端与 WebSocket 语料 | [tests/README.md](tests/README.md) |
+| `tools/` | 两个不产出功能、只负责「不许退步」的 crate | [tools/README.md](tools/README.md) |
+| `docs/` | 决策、执行记录、对比、运维四类文档 + 七份冻结契约 | [docs/README.md](docs/README.md) |
+| `web/` | 浏览器界面（React + TypeScript + Vite），编译期嵌进二进制 | [web/README.md](web/README.md) |
+| `apps/` | 站在核心外面的图形外壳 | [apps/README.md](apps/README.md) |
+| `scripts/` | 安装、发布、基准记录 | [scripts/README.md](scripts/README.md) |
+| `skills/` | 给模型看的技能说明书（Markdown），不是代码 | [skills/README.md](skills/README.md) |
+| `examples/` | 可以照抄的最小样本（插件） | [examples/README.md](examples/README.md) |
+| `bin/` | 手工重建的 release 二进制（内嵌了 `web/dist`） | [bin/README.md](bin/README.md) |
+
+`skills/`、`examples/`、`crates/tool/src/builtin/` 是三套不同的扩展入口；`web/` 与
+`apps/desktop/` 是两个不同的前端构建入口。想知道「新东西该放哪」，看
+[crates/README.md](crates/README.md) 里那张「我想做 X，去哪」表。
+
+## crate 地图
+
+| Crate | 层 | 放什么 | 不许做什么 |
 | --- | --- | --- | --- |
-| `hearth-core` | L0 | the frozen vocabulary — event envelope, ids, canonical JSON, typed errors | import any other hearth crate |
-| `hearth-config` | L0 | config file, home directory, defaults, MCP entry warnings | know about sessions |
-| `hearth-exec` | L1 | spawn, stdio, timeouts, process-tree kill, sandbox hook | know about tools or sessions |
-| `hearth-sandbox` | L1 | containment: job objects and AppContainers, Landlock, `sandbox-exec` | know about the model |
-| `hearth-mcp` | L1 | external MCP client — stdio and Streamable HTTP | import any hearth crate |
-| `hearth-skill` | L1 | skill discovery, and loading a `SKILL.md` body only when asked | recurse into a skill directory |
-| `hearth-net` | L1 | blocking HTTP(S) client, redirects, HTML to text | know about tools or the model |
-| `hearth-experts` | L1 | expert and team definitions parsed from Markdown frontmatter | reach into skills or sessions |
-| `hearth-session` | L2 | append-only log, projection, compaction, fork | perform I/O outside its log |
-| `hearth-llm` | L2 | provider contract, OpenAI-compatible SSE client | know about sessions |
-| `hearth-tool` | L2 | registry, executor, policy, approvals, builtin tools | write events, or decide policy itself |
-| `hearth-protocol` | L2 | wire types shared by server and UI | depend on the server |
-| `hearth-agent` | L2 | one-turn loop, event ordering, summarizer, hook seams | keep a history of its own between turns |
-| `hearth-store` | L2 | rebuildable index — SQLite rows, FTS5 over boundary messages | write to a session log |
-| `hearth-import` | L2 | read-only import of old session trees | overwrite an existing session |
-| `hearth-subagent` | L2 | bounded-pool delegation on fresh child logs | run without a depth limit |
-| `hearth-goal` | L2 | goal state folded from the log, and the continuation decision | write events itself |
-| `hearth-schedule` | L2 | recurrence rules, the scheduled-task registry, due times | run a turn |
-| `hearth-market` | L2 | market index, checksummed install, tamper-aware uninstall | trust a tarball before it is digested |
-| `hearth-plugin` | L2 | plugin host — child processes speaking JSON-RPC over stdio | spawn anything from a listing |
-| `hearth-team` | L2 | parallel workers over a shared board with per-worker mailboxes | depend on a provider or an async runtime |
-| `hearth-context` | L2 | compressed blocks that can be named, restored and searched | hide a range no block names |
-| `hearth-server` | L3 | HTTP/1.1 + WebSocket over the log | contain agent logic |
-| `hearth-cli` | L3 | the `hearth` binary | hold logic that belongs in a crate |
+| `hearth-core` | L0 | 冻结的词汇——事件 envelope、id、规范化 JSON、带类型的错误 | 依赖任何其它 hearth crate |
+| `hearth-config` | L0 | 配置文件、home 目录、默认值、MCP 条目的告警 | 知道会话的存在 |
+| `hearth-exec` | L1 | 起进程、stdio、超时、杀进程树、沙箱挂点 | 知道工具或会话 |
+| `hearth-sandbox` | L1 | 遏制：job object 与 AppContainer、Landlock、`sandbox-exec` | 知道模型 |
+| `hearth-mcp` | L1 | 外部 MCP 客户端——stdio 与 Streamable HTTP | 依赖任何 hearth crate |
+| `hearth-skill` | L1 | 技能发现，且只在被要时才加载 `SKILL.md` 正文 | 递归进技能目录 |
+| `hearth-net` | L1 | 阻塞式 HTTP(S) 客户端、重定向、HTML 转文本 | 知道工具或模型 |
+| `hearth-experts` | L1 | 从 Markdown frontmatter 解析出的专家与团队定义 | 伸手进技能或会话 |
+| `hearth-session` | L2 | 只追加日志、投影、压缩、分叉 | 在自己的日志之外做 I/O |
+| `hearth-llm` | L2 | provider 契约、OpenAI 兼容的 SSE 客户端 | 知道会话 |
+| `hearth-tool` | L2 | 注册表、执行器、策略、审批、内置工具 | 写事件，或自己决定策略 |
+| `hearth-protocol` | L2 | 服务端与界面共享的 wire 类型 | 依赖服务端 |
+| `hearth-agent` | L2 | 单轮循环、事件顺序、摘要器、两个改写 seam | 在轮与轮之间留一份自己的历史 |
+| `hearth-store` | L2 | 可重建的索引——SQLite 行、边界消息的 FTS5 | 往会话日志里写 |
+| `hearth-import` | L2 | 对旧会话树的只读导入 | 覆盖已存在的会话 |
+| `hearth-subagent` | L2 | 有界池委派，跑在全新的子日志上 | 无深度上限地跑 |
+| `hearth-goal` | L2 | 从日志折叠出的目标状态，以及续跑判定 | 自己写事件 |
+| `hearth-schedule` | L2 | 重复规则、定时任务注册表、到期时刻 | 跑一轮 |
+| `hearth-market` | L2 | 市场索引、校验摘要的安装、能识别篡改的卸载 | 在摘要核对前相信一个 tarball |
+| `hearth-plugin` | L2 | 插件宿主——用 stdio JSON-RPC 说话的子进程 | 从一份列表里 spawn 任何东西 |
+| `hearth-team` | L2 | 共享任务板上的并行 worker，每个 worker 一个信箱 | 依赖某个 provider 或异步运行时 |
+| `hearth-context` | L2 | 可命名、可还原、可搜索的压缩块 | 藏起一段没有任何块命名的区间 |
+| `hearth-server` | L3 | 日志之上的 HTTP/1.1 + WebSocket | 装 agent 逻辑 |
+| `hearth-cli` | L3 | `hearth` 这个二进制 | 留住该属于某个 crate 的逻辑 |
 
-## Toolchain constraints
+## 工具链约束
 
-These were measured on this host, not chosen:
+这些是在本机**测出来**的，不是选出来的：
 
-- **Minimum rustc is 1.89**, set in `Cargo.toml`'s `rust-version` and enforced by
-  the dependency tree rather than by taste: `rusqlite 0.43` requires 1.89 and
-  `libsqlite3-sys 0.40` requires 1.88. The earlier `1.85` in this file was wrong
-  for months of the port's planning; `cargo +1.85 check` fails with
-  `rustc 1.85.1 is not supported by the following packages` before compiling a
-  single line. Verified both ways: the whole suite passes on 1.89
-  (`cargo +1.89.0 test --workspace --offline`, 64 suites) and on 1.96.
-- **The target directory must be all-ASCII, and it is set per environment, not
-  in the tree.** With the target inside `D:\魔改版Agent框架\...`, every crate that
-  compiles C dies in `cl.exe` with `D8050 ... 未能将命令行放入调试记录中`. A
-  committed `target-dir = "D:/hearth-target/hearth"` looked like the fix and
-  broke the first Linux CI job instead, because there `D:/...` is one path
-  segment containing a colon. `.cargo/config.toml` therefore pins nothing:
-  `check.ps1` derives `CARGO_TARGET_DIR` when this checkout's path is not
-  all-ASCII, CI sets `target` per job, and a bare `cargo build` from a shell
-  must export it yourself. It has to be an environment variable and not only
-  `build.target-dir`, because the e2e harness spawns a real `hearth` binary and
-  finds it through `CARGO_TARGET_DIR`.
-- **MSVC only.** The GNU toolchain is installed but broken:
-  `error calling dlltool 'dlltool.exe': program not found`. A build failure must
-  not be "fixed" by switching to GNU.
-- **Offline only.** Crates come from the rsproxy mirror in
-  `D:\Rust\.cargo\config.toml`; `crates.io` is unreachable here. Use
-  `--offline`. Adding a dependency that is not in the local cache will fail with
-  what looks like a certificate error.
-- **Cross targets are compile checks only.** `x86_64-unknown-linux-gnu` and
-  `aarch64-apple-darwin` are installed; no linker for either triple exists on
-  this host. `aarch64-unknown-linux-gnu` and `aarch64-pc-windows-msvc` are not
-  installed. `make release` checks every crate except `hearth-cli`; that one is
-  excluded because `rustls`/`ring` needs a target C compiler (`cc`) this host
-  does not have. The native CLI is covered by `cargo build --release --offline`.
+- **最低 rustc 是 1.89**，写在 `Cargo.toml` 的 `rust-version` 里，由依赖树决定而不是口味决定：
+  `rusqlite 0.43` 要 1.89、`libsqlite3-sys 0.40` 要 1.88。这文件里早先写的 `1.85` 在移植计划里
+  错了几个月；`cargo +1.85 check` 会在一行代码都没编之前报
+  `rustc 1.85.1 is not supported by the following packages`。两头都验过：整套测试在 1.89 上通过
+  （`cargo +1.89.0 test --workspace --offline`，64 个 suite），在 1.96 上也通过。
+- **target 目录必须是全 ASCII 路径，而且它由环境决定，不写在树里。** 当 target 落在
+  `D:\魔改版Agent框架\...` 这类路径里时，每个要编 C 的 crate 都会死在 `cl.exe` 的
+  `D8050 ... 未能将命令行放入调试记录中`。曾经提交过一个
+  `target-dir = "D:/hearth-target/hearth"`，看起来是修法，结果弄坏了第一个 Linux CI job——
+  在那台机器上 `D:/...` 是一个**含冒号的路径段**。所以 `.cargo/config.toml` 什么都不钉：
+  `check.ps1` 在发现本 checkout 路径不是全 ASCII 时会推导 `CARGO_TARGET_DIR`，CI 每个 job 自己设，
+  而裸 `cargo build` 需要你自己 export。它必须是环境变量而不能只是 `build.target-dir`，
+  因为 e2e 会 spawn 真的 `hearth` 二进制、并通过 `CARGO_TARGET_DIR` 找到它。
+- **只能用 MSVC。** GNU 工具链装了但是坏的：
+  `error calling dlltool 'dlltool.exe': program not found`。构建失败不许靠「换成 GNU」来「修」。
+- **只能离线。** crate 来自 `D:\Rust\.cargo\config.toml` 里的 rsproxy 镜像，本机连不上 `crates.io`。
+  用 `--offline`。加一个不在本地缓存里的依赖会报一个看起来像证书错误的失败。
+- **交叉目标是编译检查，仅此而已。** 装了 `x86_64-unknown-linux-gnu` 与 `aarch64-apple-darwin`，
+  本机没有这两个 triple 的链接器。`aarch64-unknown-linux-gnu` 与 `aarch64-pc-windows-msvc` 没装。
+  `make release` 检查除 `hearth-cli` 之外的每个 crate；排除它是因为 `rustls`/`ring` 需要本机没有的
+  目标 C 编译器（`cc`）。原生 CLI 由 `cargo build --release --offline` 覆盖。
 
-## Quick start
+## 快速开始
 
-From a fresh shell:
+在新开的 shell 里：
 
 ```powershell
 cargo build --release --offline
@@ -99,66 +109,57 @@ cargo test --offline
 cargo run -q -p archcheck --offline
 ```
 
-The checkout this was developed in is `D:\hearth`, which is ASCII, so the
-in-tree `target/` works. If you move it somewhere with a non-ASCII character in
-the path, set an ASCII target directory first (`$env:CARGO_TARGET_DIR`) or every
-crate that compiles C fails with `cl: D8050`; `check.ps1` does that for you when
-it notices.
+这个项目开发时的 checkout 是 `D:\hearth`，全 ASCII，所以树内 `target/` 可用。若把它移到路径里
+带非 ASCII 字符的地方，先设一个 ASCII 的 target 目录（`$env:CARGO_TARGET_DIR`），否则每个要编 C 的
+crate 都会报 `cl: D8050`；`check.ps1` 发现这种情况时会替你做。
 
-`cargo run -q -p archcheck --offline -- -json` emits the CI form; `-root <path>`
-checks a tree other than the one above the working directory.
+`cargo run -q -p archcheck --offline -- -json` 输出给 CI 的机器可读形式；`-root <路径>`
+检查工作目录之上的另一棵树。
 
-## Commands
+## 命令
 
-Seventeen spellings; the first nine are the ones the Go oracle froze in
-`docs/contracts/cli.md`, `goal`/`schedule` are the P2 additions, and
-`plugin`/`market`/`skill`/`subagent`/`expert`/`team` came later:
+十七种拼法。前九个是 Go 判据在 `docs/contracts/cli.md` 里冻结的，`goal`/`schedule` 是 P2 加的，
+`plugin`/`market`/`skill`/`subagent`/`expert`/`team` 更晚：
 
-| Command | What it does |
+| 命令 | 干什么 |
 | --- | --- |
-| `hearth --version` | prints the version without reading config |
-| `hearth help` | the usage block |
-| `hearth doctor [--json]` | eleven read-only checks, in a fixed order |
-| `hearth chat [flags] [prompt]` | one turn against the model, streaming to stdout |
-| `hearth web [flags]` | the local browser UI on loopback |
-| `hearth index [--rebuild] [--stats] [--search TEXT]` | query or rebuild the SQLite index |
-| `hearth import <old-dir> [--dry-run]` | read-only import of an old-format session tree |
-| `hearth session fork <id> [--at N] [--id NAME]` | open a new session at a given seq |
-| `hearth session archive <id> [--reason TEXT]` | record that a session starts no new work |
-| `hearth goal start\|status\|end` | record, inspect or close a goal |
-| `hearth schedule add\|list\|remove\|next\|run` | recurring prompts, and the tick that opens them |
-| `hearth plugin list\|start\|stop\|call\|doctor` | inspect and drive out-of-process plugins |
-| `hearth expert list\|show` | the Markdown expert and team roster |
-| `hearth skill list\|show` | list or show the skills the model was offered |
-| `hearth subagent list\|tree\|resolve\|timing` | the children below a session: names, the tree, resolution, timing |
-| `hearth subagent prompt\|interrupt\|providers\|worker` | resume a continuable child, stop one, list backends, run the worker |
-| `hearth team list\|run` | run a roster team over a shared task board |
-| `hearth market list\|search\|install\|remove\|verify` | install plugin bundles, verified by SHA-256 |
-| `hearth "<prompt>"` | a bare prompt is shorthand for `hearth chat "<prompt>"` |
+| `hearth --version` | 打印版本，不读配置 |
+| `hearth help` | 用法块 |
+| `hearth doctor [--json]` | 十一项只读检查，顺序固定 |
+| `hearth chat [flags] [prompt]` | 对着模型跑一轮，流式输出到 stdout |
+| `hearth web [flags]` | loopback 上的本地浏览器界面 |
+| `hearth index [--rebuild] [--stats] [--search TEXT]` | 查询或重建 SQLite 索引 |
+| `hearth import <old-dir> [--dry-run]` | 只读导入旧格式的会话树 |
+| `hearth session fork <id> [--at N] [--id NAME]` | 在指定 seq 处开一个新会话 |
+| `hearth session archive <id> [--reason TEXT]` | 记录「这个会话不再开始新工作」 |
+| `hearth goal start\|status\|end` | 记录、查看或关闭一个目标 |
+| `hearth schedule add\|list\|remove\|next\|run` | 重复提示，以及打开它们的那个 tick |
+| `hearth plugin list\|start\|stop\|call\|doctor` | 查看并驱动进程外插件 |
+| `hearth expert list\|show` | Markdown 的专家与团队名册 |
+| `hearth skill list\|show` | 列出或显示模型被提供过的技能 |
+| `hearth subagent list\|tree\|resolve\|timing` | 一个会话下面的子代理：名字、树、解析、耗时 |
+| `hearth subagent prompt\|interrupt\|providers\|worker` | 续跑一个可续子代理、停一个、列后端、跑 worker |
+| `hearth team list\|run` | 让名册里的一个团队跑在共享任务板上 |
+| `hearth market list\|search\|install\|remove\|verify` | 安装插件包，用 SHA-256 校验 |
+| `hearth "<prompt>"` | 裸提示是 `hearth chat "<prompt>"` 的简写 |
 
-`chat` and `web` both build their tool set through one place (`crates/cli/src/wiring.rs`):
-the ten always-present tools (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`,
-`read_image`, `shell`, `todo_write`, `worktree`, `present`) and the two network tools
-`web_fetch` and `web_search` (absent when the capability cannot be built — an absent tool is
-discoverable, one that always fails is not), every tool a configured MCP server advertises
-(each one with its own `ask` rule, because it runs outside hearth), one `<plugin>.<tool>` per
-tool a loaded plugin advertises (also `ask`: it leaves this process), an `expert` tool when
-the roster has a summonable expert, a `team` tool when `team.maxParallel > 0` and the roster
-has a team (`ask`, because every worker spends money), a `skill` tool when at least one skill
-is found, and a `subagent` tool when `subagent.maxDepth > 0`. A `goal_end` tool joins them only
-inside a goal loop (`hearth chat --goal`), because a verdict nobody reads is not a tool. A
-broken MCP entry or a plugin that fails to load is reported and skipped rather than stopping
-the runtime.
+`chat` 与 `web` 都从**同一个地方**（`crates/cli/src/wiring.rs`）构建工具集：
+十个常驻工具（`fs_read`、`fs_write`、`fs_edit`、`fs_glob`、`fs_grep`、`read_image`、`shell`、
+`todo_write`、`worktree`、`present`）与两个网络工具 `web_fetch`、`web_search`（构建不出来时**缺席**——
+缺席的工具能被发现，永远失败的工具不能）；每个已配置 MCP 服务声明的工具（各自一条 `ask` 规则，
+因为它跑在 hearth 外面）；每个已加载插件声明的工具加 `<插件>.<工具>` 前缀（也是 `ask`：调用离开了本进程）；
+名册里有可召唤专家时的一个 `expert` 工具；`team.maxParallel > 0` 且名册里有团队时的一个 `team` 工具
+（`ask`，因为每个 worker 都花钱）；至少找到一个技能时的 `skill` 工具；`subagent.maxDepth > 0` 时的
+`subagent` 工具。`goal_end` 只在目标循环里（`hearth chat --goal`）加入，因为没人读的裁决不算工具。
+一条坏掉的 MCP 条目、或一个加载失败的插件，是报告并跳过，而不是让运行时停下。
 
-`read_image` shows the model a file that happens to be a picture. The bytes never enter the
-event log: the tool returns them once, the loop forwards them as a follow-up user message, and
-the log keeps only `meta.imagePath` / `meta.mediaType` / `meta.bytes` — so a later turn re-reads
-the file from the workspace instead of the whole session carrying a base64 copy. That is also
-why deleting the file makes the model forget the picture. An image attached in the browser takes
-the same road from the other side: `<dataDir>/blobs/` holds the body, the log holds the reference.
+`read_image` 给模型看一个恰好是图片的文件。字节**不**进事件日志：工具回一次字节，循环把它作为
+一条后续 user 消息转发，日志里只留 `meta.imagePath` / `meta.mediaType` / `meta.bytes`——
+于是后续轮次从工作区重读这个文件，而不是让整个会话背着一份 base64。这也是为什么删掉那个文件，
+模型就忘了那张图。浏览器里附加的图片从另一头走同一条路：正文在 `<dataDir>/blobs/`，
+日志里只有引用。
 
-`web_search` needs an endpoint, because there is no search provider that works without
-one. `config.json`:
+`web_search` 需要一个 endpoint，因为没有 endpoint 的搜索提供商不存在。`config.json`：
 
 ```json
 {
@@ -166,77 +167,66 @@ one. `config.json`:
 }
 ```
 
-The request is `POST {"query": "...", "count": n}` with `Authorization: Bearer <key>` when
-a key is set; the reply may hold its hits under `results`, `data`, `items`, `hits`, `web`
-or `web.results`, and each hit may spell its fields `url|link|href`,
-`title|name|heading`, `snippet|description|content|text`. Anything else is reported as
-`bad_content` with the first 400 bytes of the reply, rather than being silently read as
-"no results".
+请求是 `POST {"query": "...", "count": n}`，设了 key 时带 `Authorization: Bearer <key>`；
+回复里的命中可以放在 `results`、`data`、`items`、`hits`、`web` 或 `web.results` 下，
+每条命中的字段可以写成 `url|link|href`、`title|name|heading`、`snippet|description|content|text`。
+别的一律报 `bad_content` 并附上回复前 400 字节，而不是被静默读成「没有结果」。
 
-Both network tools are `ask` in `read-only` and `workspace-write`: they run inside the
-harness, not inside the sandbox, so the approval prompt is the only gate.
+两个网络工具在 `read-only` 与 `workspace-write` 下都是 `ask`：它们跑在 harness 里、不在沙箱里，
+所以审批提示是唯一的闸门。
 
-## The desktop shell
+## 桌面外壳
 
-`apps/desktop` is a Tauri 2 window around the same web UI: it starts `hearth web` as a
-child process, waits for the server to print the URL it is serving, and opens a window at
-that URL. It is a **separate cargo workspace**, so `cargo test --workspace` and CI never
-need a GUI toolkit to compile a window border; build it on its own:
+`apps/desktop` 是同一套 web 界面外面的一扇 Tauri 2 窗：它把 `hearth web` 当子进程起起来，
+等服务器打印它正在服务的 URL，再在那个 URL 上开窗。它是一个**独立的 cargo workspace**，
+所以 `cargo test --workspace` 与 CI 永远不需要为编一个窗口边框而装 GUI 工具链；单独构建它：
 
 ```powershell
 cd apps\desktop
 cargo build --offline --release
 ```
 
-Its arguments are forwarded to `hearth web` (`hearth-desktop --model deepseek-chat`), and
-`HEARTH_BIN` says which binary to start. Closing the window kills the child server, so no
-listener is left behind. Details, including the two window-creation defects this cost, are
-in [apps/desktop/README.md](apps/desktop/README.md).
+它自己的参数会转发给 `hearth web`（`hearth-desktop --model deepseek-chat`），
+`HEARTH_BIN` 指定要起哪个二进制。关窗会杀掉子服务器，所以不会留下监听端口。
+细节——包括为此付出的两个开窗缺陷——在 [apps/desktop/README.md](apps/desktop/README.md)。
 
-The web UI itself is a three-column workbench: the file tree, a Monaco editor, and the
-agent panel. The editor reads through `GET /api/sessions/{id}/files|file|diff` and saves
-through `PUT /api/sessions/{id}/file`; when the buffer on screen is not what the digest in
-the tab was taken from, the save is refused as a conflict and the draft stays on screen.
-A save appends one `file/write` event naming the path, the byte count and the SHA-256 of
-what was written — not a `tool/call`, because no model was involved and the transcript
-must not claim one was. Saving is refused outright when the session's sandbox mode is
-`read-only`, so the tools and the editor never describe the same session differently.
-Everything the model does still shows up in the transcript and in the event log.
+界面本身是一个三栏工作台：文件树、Monaco 编辑器、agent 面板。编辑器通过
+`GET /api/sessions/{id}/files|file|diff` 读，通过 `PUT /api/sessions/{id}/file` 存；
+屏幕上的缓冲区不是标签页里那个摘要取自的内容时，保存会被当作冲突拒绝，草稿留在屏幕上。
+一次保存追加一条 `file/write` 事件，写明路径、字节数与写入内容的 SHA-256——**不是**
+`tool/call`，因为这里没有模型参与，转录不许声称有。会话的沙箱模式是 `read-only` 时保存直接拒绝，
+这样工具与编辑器永远不会用两种说法描述同一个会话。模型做过的事仍然全部出现在转录与事件日志里。
 
-## Documentation map
+## 文档地图
 
-Four places, each with one job. Reading them in this order is the shortest path
-from "what is this" to "what may I change".
+四个地方，各干一件事。按这个顺序读，是从「这是什么」到「我能改什么」的最短路径。
 
-| Where | Answers | Open it |
+| 在哪 | 回答什么 | 什么时候打开 |
 | --- | --- | --- |
-| [README.md](README.md) — this file | what the tree is, how to build it, what each crate owns and must not own | first |
-| [AGENTS.md](AGENTS.md) | the rules a change must obey: the three laws, the six anti-patterns, the dependency budget | before writing code |
-| [docs/README.md](docs/README.md) | the index of every design and execution document, grouped by purpose, each marked as a record or a plan | when the question is *why*, or you need the evidence |
-| [docs/contracts/](docs/contracts/README.md) | the seven frozen contracts — event format, CLI text, HTTP/WS, M4–M6 crate surfaces | before changing anything another implementation is held to |
+| [README.md](README.md) — 本文件 | 这棵树是什么、怎么构建、每个 crate 管什么、不许管什么 | 第一个 |
+| [AGENTS.md](AGENTS.md) | 一次改动必须遵守的规则：三法则、六反模式、依赖预算、推送方式 | 写代码之前 |
+| [docs/README.md](docs/README.md) | 全部设计与执行文档的索引，按用途分组，每篇标明是记录还是计划 | 问「为什么」、或需要证据时 |
+| [docs/contracts/](docs/contracts/README.md) | 七份冻结契约——事件格式、CLI 文本、HTTP/WS、M4–M6 的 crate 表面 | 改动别的实现也要对齐的东西之前 |
 
-`docs/` holds four kinds of document and the index says which is which:
-**decisions** ([08](docs/08-rust-port.md) why Rust and which crate sits where,
-[09](docs/09-platform-tier.md) what the platform tier is missing,
-[11](docs/11-adr-agent-hooks.md) the two rewrite seams), **execution records**
-([10](docs/10-agent-parity.md) the wave plan, [12](docs/12-subagent-port.md) the
-subagent port, [agent-gaps](docs/agent-gaps.md) the gap ledger),
-**comparisons** ([dsh-vs-hearth](docs/dsh-vs-hearth.md) layer by layer from source,
-[dsh-comparison](docs/dsh-comparison.md) measured on this host,
-[agent-comparison](docs/agent-comparison.md) the agent loops), and
-**operations** ([bench](docs/bench.md), [ci](docs/ci.md),
-[release](docs/release.md), [web-ui](docs/web-ui.md),
-[office](docs/office-run.md)).
+`docs/` 里有四类文档，索引会说明哪篇是哪类：**决策**（[08](docs/08-rust-port.md) 为什么是 Rust、
+哪个 crate 在哪一层；[09](docs/09-platform-tier.md) 平台层缺什么；
+[11](docs/11-adr-agent-hooks.md) 两个改写 seam）、**执行记录**（[10](docs/10-agent-parity.md) 波次计划、
+[12](docs/12-subagent-port.md) 子代理移植、[agent-gaps](docs/agent-gaps.md) 差距台账）、
+**对比**（[dsh-vs-hearth](docs/dsh-vs-hearth.md) 逐层读源码、
+[dsh-comparison](docs/dsh-comparison.md) 在本机实测、
+[agent-comparison](docs/agent-comparison.md) 两条 agent 循环）、以及
+**运维**（[bench](docs/bench.md)、[ci](docs/ci.md)、[release](docs/release.md)、
+[web-ui](docs/web-ui.md)、[office](docs/office-run.md)）。
 
-## Verify
+## 验证
 
-The full gate is one command:
+完整的门禁是一条命令：
 
 ```powershell
 make check
 ```
 
-which is equivalent to running these five in order:
+等价于按顺序跑这五条：
 
 ```powershell
 cargo fmt --check
@@ -246,175 +236,119 @@ cargo test --offline
 cargo run --release -q -p hearth-bench --offline -- -strict
 ```
 
-A clean architecture run ends with `archcheck: ok (.)`; on a complete tree the
-test run ends with `test result: ok`. `make release` compile-checks the
-installed cross targets only — it does not link, because this host has no linker
-for them.
+架构检查干净时以 `archcheck: ok (.)` 结束；在完整的树上测试以 `test result: ok` 结束。
+`make release` 只对已安装的交叉目标做编译检查——它不链接，因为本机没有它们的链接器。
 
-`.github/workflows/ci.yml` runs four jobs on every push and pull request: `test`
-on ubuntu and windows against the **minimum** rustc (1.89), `sandbox macos-latest`
-(the `sandbox-exec` evidence, on a real macOS kernel), `lint` on current stable
-(`fmt --check`, `clippy --all-targets -D warnings`), and `web` (`npm ci`,
-`tsc --noEmit`, `vitest run`, `npm run build`, then `scripts/bundle-budget.cjs`,
-which holds the eager payload to 600 KiB gzip and the lazily-loaded set — Monaco
-and its grammars — to its own ceiling). Two
-toolchains because clippy grows lints in new releases: a developer on stable can
-otherwise write code that a pinned-toolchain lint job never sees — `% 2 != 0`
-becoming `is_multiple_of` was exactly that. CI deliberately does **not** pass
-`--offline` (a cold runner has an empty registry); the local `Makefile` and
-`check.ps1` do, because this host cannot reach crates.io. `.github/workflows/release.yml`
-builds and checksums the artifacts on version tags.
+`.github/workflows/ci.yml` 每次推送与 PR 跑四个 job：`test` 在 ubuntu 与 windows 上对着**最低**
+rustc（1.89）跑，`sandbox macos-latest`（`sandbox-exec` 的证据，真 macOS 内核），`lint` 在当前 stable 上
+（`fmt --check`、`clippy --all-targets -D warnings`），以及 `web`（`npm ci`、`tsc --noEmit`、
+`vitest run`、`npm run build`，然后 `scripts/bundle-budget.cjs`——它把首屏压在 600 KiB gzip、
+把懒加载那一堆（Monaco 与它的语法）压在自己的上限内）。用两套工具链是因为 clippy 会在新版本里长出新
+lint：否则在 stable 上开发的人可以写出一个钉死版本的工具链永远看不见的问题——`% 2 != 0` 变成
+`is_multiple_of` 就正是这件事。CI **刻意不**传 `--offline`（冷 runner 的 registry 是空的）；
+本地的 `Makefile` 与 `check.ps1` 传，因为本机连不上 crates.io。
+`.github/workflows/release.yml` 在版本 tag 上构建并算摘要。
 
-Both workflows have run on GitHub runners. The runs, what each one caught, and
-the eleven real defects CI found that the local gate could not are recorded in
-`docs/ci.md`.
+两个 workflow 都真的在 GitHub runner 上跑过。每一次运行、各自抓到了什么、以及 CI 找到的
+十一个本地门禁看不见的真缺陷，都记在 `docs/ci.md`。
 
+下面的小节刻意把证据与限制分开：在本机做出的测量不是对另一台机器的承诺，
+一件从未跑过的事不是一件能工作的事。
 
-The sections below separate evidence from limits on purpose: a measurement
-made on this host is not a promise about another machine, and a thing that
-was never run is not a thing that works.
+## 在本机验证过的，以及方法
 
-## Verified here, with the method
+下面每一条都由本机或 hosted runner 上的某条命令产出，段落里点名的那份文档写着数字与取数方式。
 
-Each of these was produced by a command on this host or on a hosted runner,
-and the document named in the paragraph holds the numbers and the way they
-were taken.
+- 压缩在两条表面上都接了线（`hearth chat` 每轮之前、`hearth web` 在轮次的顶部，都沿用 Go 原版的
+  200 条底线）。web 表面只折叠已经关闭的轮次，所以摘要覆盖的是用户已经看不见的历史、
+  并且落在触发它的那一轮之内——待处理的提示在摘要之后被投影，和 CLI 上的顺序完全一致。
+  回来的摘要是空的会被拒绝而不是追加（`crates/cli/src/web.rs` 的
+  `web_compaction_refuses_an_empty_summary`）：一次空的折叠会删掉历史，却不在原地记录任何东西。
 
-- Compaction is wired on both surfaces (`hearth chat` before each turn, `hearth web`
-  at the top of a turn, both at the Go original's 200-record floor). The web
-  surface folds only turns that are already closed, so the summary covers history
-  the user can no longer see and lands inside the turn that triggered it — the
-  open prompt is projected after the summary, exactly as on the CLI. A summary
-  that comes back empty is refused rather than appended (`web_compaction_refuses_an_empty_summary`
-  in `crates/cli/src/web.rs`): an empty fold would delete history and record
-  nothing in its place.
+- 附件正文既被**存下**也被**看懂**。POST /messages 把上传写进 `<dataDir>/blobs/`，事件里留一个引用
+  （从不留字节：日志只追加，分叉会逐字复制它），而 `crates/cli/src/attachments.rs` 在构造一轮时
+  把一个 `image` 引用变回 `ContentPart::Image`，于是模型收到 `data:` URI、能看见这张图。
+  字节每轮都从 blob 存储重读，而不是缓存进历史，所以日志里没有 base64、图片在整个会话里都可见。
+  `read_image` 对工作区里的文件做同一件事。没有任何东西会把 `diff` 或 `file` 变成像素——
+  它们保持为工具可以打开的引用。
 
-- Attachment bodies are stored *and* understood. POST /messages writes an upload
-  to `<dataDir>/blobs/` and the event keeps a reference (never the bytes: the log
-  is append-only and a fork copies it), and `crates/cli/src/attachments.rs`
-  turns an `image` reference back into a `ContentPart::Image` when a turn is
-  built, so the model receives a `data:` URI and can see the picture. The bytes
-  are re-read from the blob store on every turn rather than cached in history,
-  so the log stays free of base64 and the picture stays visible for the whole
-  session. `read_image` does the same for a file in the workspace. Nothing turns
-  a `diff` or a `file` into pixels — those stay references a tool can open.
+- 基准移植在 `tools/bench`，记录了三份基线：本机 settled 树上的 windows/amd64，
+  以及 GitHub runner 上的 linux/amd64 与 darwin/arm64。没有记录的平台打印一行 skip，
+  而不是拿别的平台的数字来比。hosted 的 Windows 数字**不是**基线，因为它的 `fsync` 比本机慢 16 倍——
+  一台 runner 是另一台机器，不是同一天的另一次测量。
 
-- Benchmarks are ported in `tools/bench` and three baselines are recorded:
-  windows/amd64 from a settled tree on this host, linux/amd64 and darwin/arm64
-  from `bench.yml` on GitHub runners. A platform with no record prints a skip
-  line rather than comparing against another platform's numbers. The hosted
-  Windows numbers are *not* the baseline, because its `fsync` runs 16× slower
-  than this host's — a runner is a different machine, not a different day.
+- 语言中立的 HTTP、事件与 WebSocket 黄金语料与 Go 判据共享，在两棵树里都跑。
+  WS 抓到过三个真的 Rust 服务端缺陷（增量 seq、控制 ping 的成帧、关闭码 1000），已修。
 
-- Language-neutral HTTP, event and WebSocket golden corpora are shared with the
-  Go oracle and run in both trees. WS caught three real Rust server bugs (delta
-  seq, control-ping framing, close code 1000) which are fixed.
+- Linux 的遏制（Landlock）每次推送都在运行时验证：Ubuntu 的 CI job 跑
+  `crates/sandbox/tests/linux.rs`，它在工作区内写成功、在外被拒、在 `read-only` 下写被拒、
+  按名字授权的 `extra_write` 路径可用、`allow_net = false` 时被内核拒绝（`allow_net = true` 时 `connected`）。
+  macOS 的 `sandbox-exec` 受同样待遇：`sandbox macos-latest` job 跑 `crates/sandbox/tests/macos.rs`，
+  在真 macOS 内核上断言模式矩阵、工作区写范围、`read-only`、`extra_write` 与两个方向的网络。
 
-- Linux containment (Landlock) is verified at runtime on every push: the Ubuntu CI
-  job runs `crates/sandbox/tests/linux.rs`, which writes inside the workspace, is
-  refused outside it, is refused a write in `read-only`, is granted an `extra_write`
-  path by name, and gets `permission denied` from the kernel with `allow_net = false`
-  (and `connected` with it). macOS `sandbox-exec` gets the same treatment: the
-  `sandbox macos-latest` CI job runs `crates/sandbox/tests/macos.rs`, which asserts
-  the mode matrix, workspace write scope, `read-only`, `extra_write` and both
-  network directions on a real macOS kernel.
+- **在 Windows 上遏制是两个环，第二个环真的收窄了工具能做的事。** Job Object 给进程树、
+  单进程/整作业内存与进程数封顶；AppContainer 决定子进程能碰哪些文件与网络
+  （对工作区的写权限，只有当 `allow_net` 时才有 `internetClient`）。本机实测：容器里的命令能写自己的
+  工作区、写同级目录被操作系统拒绝、loopback 连接被拒。代价是真的——容器里的进程可能读不到它被启动时
+  所在的构建目录，而且启动时**别的什么都不许读**，于是那些依赖 home 目录的工具（git、npm、pip）
+  会在原本能用的地方失败。修法是一张清单而不是一个洞：`crates/cli/src/grants.rs` 授予机器上真的存在的、
+  属于工具的路径的读权限（`~/.gitconfig`、`~/.cargo`、`~/.npmrc`、`%APPDATA%\npm`、`%APPDATA%\pip`、
+  `~/.config`）与 `%TEMP%` 的读写，`config.json` 里的 `sandboxAccess.read` / `sandboxAccess.write`
+  替换这张清单（显式空数表示「不额外授予任何东西」），而 `sandboxAccess.network: true` 是第二个开关：
+  没有它，容器里的子进程根本没有 socket。本机验证方式：在容器里读 `~/.gitconfig` 成功、读它旁边一个
+  未授权的文件失败（`windows_reads_are_granted_only_where_asked`），以及在容器里跑真的
+  `git config --global --get user.name`——只有在授权存在之后才打印出配置里的名字。工作区之外的被授权路径
+  还需要它上面每一层目录的 `FILE_TRAVERSE`，否则工具在打开任何东西之前就死在
+  `failed to stat '...AppData\Local': Permission denied`——所以授权会走祖先目录，跳过盘根
+  （改写 `E:\` 的 DACL 实测 160 s），并在被拒处停下。那次写入不是免费的：Windows 会重算整棵子树的继承，
+  实测 `%TEMP%` 9 s、`AppData\Local` 11 s、`AppData` 20 s、用户目录根 25 s。每个目录每个身份只付一次——
+  重复授权靠先问 ACL 来跳过，超过两秒的停顿会打印它在做什么。每个 workspace 路径会在
+  `%LOCALAPPDATA%\Packages` 留下一个 profile（永久，按路径键）；`hearth doctor --prune-profiles` 删掉它们——
+  这台机器上删了 106 个，之后计数读回 0。那个服务是这段故事里唯一不可靠的部分：
+  在一台攒够这些 profile 的机器上，它会连续几分钟干脆拒绝**新**名字，所以已存在的 profile 靠 lookup 采纳、
+  永不重建；一次抖动会重试约八秒；如果新身份仍然造不出来，遏制退回到该用户的一个共享身份——
+  它仍然把命令关在授予它的目录里，但不再把两个 workspace 彼此隔开。最后这一手是**说出来**的，
+  不是静默跳过的。删也撞同一堵墙：106 个删掉半小时后，同一条命令答
+  `57 found, 0 removed, 57 failed`，每个名字都是 `0x80070005`，而那时新建也在失败——
+  服务是整体拒绝，不是一个固执的 profile。所以 prune 只把重试预算花一次当探针，如果第一个名字被拒且一个都没删掉，
+  它就停下并说「服务现在在拒绝，过几分钟再试」（3.9 s），而不是磨三分钟再报同一个数字。
+  造不出包身份的主机（或没有 AppContainer 的 Windows 版本）会拿到 `filesystem=false` 的 WARN，
+  并且 `read-only` 被拒绝而不是降级。这样一台主机比看上去更容易造出来：
+  **一个进程以它自己镜像的完整性级别运行，当那个标签低于它的父进程时**，于是一个标了 `Low` 的目录下
+  （浏览器解压出来的下载就是这个标记）的每个二进制都以 `Low` 运行，而 Low 进程写不了 profile 服务建 profile 的
+  `%LOCALAPPDATA%`。症状是从那些与沙箱命令毫无关系的调用里返回 `ERROR_ACCESS_DENIED`，
+  它让这个项目花了一个下午去追「非 ASCII 路径」——因为每个失败的测试都从带标签的树里跑，
+  每个通过的都从 `%TEMP%` 跑。现在的拒绝会点名这个条件并打印补救办法
+  （`icacls <dir> /setintegritylevel (OI)(CI)M /T /C`），而 `available()` 会把机制报成缺席，
+  而不是让严格模式声称它交付不了的遏制。
 
-- **On Windows containment is two rings, and the second one narrows what tools can
-  do.** A Job Object caps the process tree, per-process/job memory and process
-  count; an AppContainer decides which files and networks the child can reach
-  (write access to the workspace, plus `internetClient` only when `allow_net`).
-  Measured on this host: a command inside the container writes its workspace, a
-  write to a sibling directory is denied by the OS, and a loopback connect is
-  refused. The cost is real — a contained process may not read the build directory
-  it was started from, and it starts with *nothing* else readable either, so tools
-  that expect a home directory (git, npm, pip) fail where they used to work. The
-  fix is a list, not a hole: `crates/cli/src/grants.rs` grants read on the
-  tool-owned paths a machine actually has (`~/.gitconfig`, `~/.cargo`, `~/.npmrc`,
-  `%APPDATA%\npm`, `%APPDATA%\pip`, `~/.config`) and read-write on `%TEMP%`, and
-  `sandboxAccess.read` / `sandboxAccess.write` in `config.json` replaces that list
-  (an explicit empty list means "grant nothing extra"), and
-  `sandboxAccess.network: true` is the second switch: without it a contained child
-  has no socket at all. Verified on this host by
-  reading `~/.gitconfig` from inside a container and failing to read an ungranted
-  file next to it (`windows_reads_are_granted_only_where_asked`), and by running a
-  real `git config --global --get user.name` inside the container, which printed the
-  configured name only after the grants existed. A granted path outside the
-  workspace also needs `FILE_TRAVERSE` on every directory above it, or the tool dies
-  on `failed to stat '...AppData\Local': Permission denied` before it opens anything
-  — so the grant walks the ancestors, skipping volume roots (rewriting `E:\`'s DACL
-  measured 160 s) and stopping where it is refused. That write is not free: Windows
-  re-evaluates inheritance for the whole subtree, measured 9 s for `%TEMP%`, 11 s for
-  `AppData\Local`, 20 s for `AppData` and 25 s for the profile root. It is paid once
-  per directory per identity — repeat grants are skipped by asking the ACL, and a
-  pause over two seconds prints what it is doing. One profile per
-  workspace path is left behind in `%LOCALAPPDATA%\Packages` (permanent, keyed by
-  the path); `hearth doctor --prune-profiles` deletes them — 106 were removed on this
-  machine, after which the count read back as 0. That service is the one unreliable
-  part of this story: on a host where enough of those
-  profiles have accumulated it starts refusing *new* names outright for minutes at a
-  time, so an existing profile is adopted by lookup and never re-created, a hiccup is
-  retried for about eight seconds, and if a new identity still cannot be minted the
-  containment falls back to one shared identity for the user — which still confines a
-  command to the directories granted to it, but no longer separates two workspaces
-  from each other. The last resort is said out loud rather than silently skipped.
-  Deleting hits the same wall: half an hour after the 106 went away, the same command
-  answered `57 found, 0 removed, 57 failed` with `0x80070005` on every name, while
-  creating was failing too — the service refuses wholesale, it is not one stubborn
-  profile. So pruning spends its retry budget once as a probe, and if the first name
-  is refused with nothing removed it stops and says "the service is refusing right
-  now, retry in a few minutes" (3.9 s) instead of grinding through the list for three
-  minutes to report the same number.
-  A host that cannot create a
-  package identity (or a Windows version without AppContainers) gets
-  `filesystem=false` as a WARN and `read-only` is refused rather than downgraded.
-  One such host is easier to create than it looks: **a process runs at the integrity
-  level of its own image when that label is lower than its parent's**, so every
-  binary under a directory labelled `Low` — which is what a browser-extracted
-  download produces — runs `Low`, and a Low process cannot write `%LOCALAPPDATA%`
-  where the profile service creates profiles. The symptom is `ERROR_ACCESS_DENIED`
-  from calls that have nothing to do with the sandboxed command, and it cost this
-  project an afternoon of chasing "non-ASCII paths", because every failing test ran
-  from inside the labelled tree and every passing one ran from `%TEMP%`. The refusal
-  now names the condition and prints the remedy (`icacls <dir> /setintegritylevel
-  (OI)(CI)M /T /C`), and `available()` reports the mechanism as absent instead of
-  letting the strict modes claim containment they cannot deliver.
+- web 转录在真浏览器里量过：5,000 条消息（10,001 个事件、480,130 px 滚动高度）在挂载 27 行的状态下
+  平稳 **60 fps** 滚动，加载约 650 ms，堆约 18 MB。数字、方法与这次测量暴露的三个只属于浏览器的缺陷
+  在 `docs/web-ui.md`。那是 Windows/amd64 上的一个无头 Edge；别的浏览器或 GPU 没有量过。
 
-- The web transcript was measured in a real browser: 5,000 messages (10,001
-  events, 480,130 px of scrollback) scroll at a flat **60 fps** while mounting 27
-  rows, load in ~650 ms, and hold ~18 MB of heap. Numbers, method and the three
-  browser-only defects the measurement exposed are in `docs/web-ui.md`. It is one
-  headless Edge on Windows/amd64; no other browser or GPU was measured.
+- `LICENSE` 是 MIT。`Cargo.toml` 在它是私有移植期间带的 `UNLICENSED` 已经没有了；
+  这棵树可以按 `LICENSE` 的条款再分发。
 
-- `LICENSE` is MIT. The `UNLICENSED` that `Cargo.toml` carried while this was a
-  private port is gone; the tree is redistributable under the terms in `LICENSE`.
+## 真正的限制
 
+这些是这个构建的性质，不是待办清单。关掉任何一条都意味着改变这个产物所声称的东西，
+所以没有一条是「悄悄修掉」的 bug。
 
-## Real limits
+- Rust 的 provider 通过钉死的 `webpki-roots` 包接受 `https://`，另外可以用一个可选的 `ca_file` PEM
+  （见 `crates/llm/README.md`）配私有 CA。移植期间没有对示例端点发过真实请求。
 
-These are properties of this build, not backlog items. Closing one means
-changing what the artifact claims, so none of them is a bug to be fixed
-quietly.
+- 从本机做交叉目标 release 构建只是编译检查；见工具链一节与 `docs/release.md`。
+  CI 用它声称的产物的原生 runner。
 
-- The Rust provider accepts `https://` through the pinned `webpki-roots` bundle,
-  plus an optional `ca_file` PEM (see `crates/llm/README.md`) for a private CA.
-  No live request was made to the example endpoint during the port.
+- `archcheck` 只检查层方向、README 契约、帮助文本指向的路径、以及容器目录有没有说明书。
+  它不读 Rust 源码，不强制依赖预算，也不检查一个 crate 的公开 API 与它的 README 是否一致；
+  那些是评审与 `Cargo.toml` 的事。
 
-- Cross-target release builds from this host are compile checks only; see the
-  toolchain section and `docs/release.md`. CI uses native runners for the
-  artifacts it claims.
+- `make check` 在作者机器上跑不了，因为没装 GNU make。它的分步命令被直接跑过，并且就是上面那些
+  预期输出的来源；`check.ps1` 在 Windows 上跑同样的五步。
 
-- `archcheck` checks layer direction and the README contract only. It does not
-  inspect Rust source, enforce the dependency budget, or check that a crate's
-  public API matches its README; those are review and `Cargo.toml` concerns.
+## 关于参照文档的说明
 
-- `make check` could not be executed on the authoring host because GNU make is
-  not installed. Its component commands were run directly and are the source
-  of the expected output above; `check.ps1` runs the same five steps on Windows.
-
-
-## Caveats about the reference documents
-
-- The frozen contracts (`docs/contracts/`) were written while Go was the
-  reference, so their code samples are Go; the behaviour they pin is what the
-  Rust crates implement, and the corpora under `tests/conformance/cases/` are the
-  proof. `src/` has no `unsafe` (every crate denies it).
+- 冻结契约（`docs/contracts/`）是在 Go 还是参照物的时候写的，所以里面的代码样例是 Go；
+  它们钉住的行为才是 Rust crate 实现的东西，证据是 `tests/conformance/cases/` 下的语料。
+  `src/` 里没有 `unsafe`（每个 crate 都 deny 它）。

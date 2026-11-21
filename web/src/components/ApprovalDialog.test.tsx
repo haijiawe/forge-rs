@@ -45,11 +45,11 @@ describe('ApprovalDialog', () => {
     };
 
     const view = mount(<ApprovalDialog pending={pending} onDecide={onDecide} />);
-    click(view.container, 'Allow');
+    click(view.container, '允许');
     expect(decided).toEqual(['allow']);
 
     // Buttons are disabled while the request is in flight, and their label says so.
-    expect(view.container.textContent).toContain('submitting…');
+    expect(view.container.textContent).toContain('正在提交…');
     const buttons = Array.from(view.container.querySelectorAll('button'));
     expect(buttons.length).toBeGreaterThan(0);
     expect(buttons.every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
@@ -82,7 +82,7 @@ describe('ApprovalDialog', () => {
     const textarea = view.container.querySelector('textarea');
     if (textarea === null) throw new Error('no note textarea');
     typeInto(textarea, 'only inside build/');
-    click(view.container, 'Deny');
+    click(view.container, '拒绝');
     await flush();
     expect(calls).toEqual([{ decision: 'deny', note: 'only inside build/' }]);
     view.unmount();
@@ -91,7 +91,7 @@ describe('ApprovalDialog', () => {
   it('surfaces a failed decision and re-enables the buttons', async () => {
     const onDecide = vi.fn(() => Promise.reject(new Error('conflict: already decided')));
     const view = mount(<ApprovalDialog pending={pending} onDecide={onDecide} />);
-    click(view.container, 'Allow');
+    click(view.container, '允许');
     await flush();
     expect(view.container.textContent).toContain('conflict: already decided');
     const buttons = Array.from(view.container.querySelectorAll('button'));

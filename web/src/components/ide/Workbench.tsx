@@ -72,16 +72,16 @@ function editorNotice(tab: FileTab): string | null {
     // `conflict` is the one the operator can fix, and the fix is not obvious
     // from the word: it means the file moved under the buffer.
     return tab.saveError.startsWith('conflict:')
-      ? `${tab.saveError} — the file changed on disk since this tab was read. Close the tab and open it again to see what is there now.`
+      ? `${tab.saveError} — 这个标签页读取之后，文件在磁盘上被改动过。关闭该标签页再重新打开，就能看到当前的内容。`
       : tab.saveError;
   }
   if (tab.file === null) return null;
-  if (tab.file.binary) return 'this file is not text — the server sent no characters for it';
+  if (tab.file.binary) return '这个文件不是文本 — 服务端没有为它返回任何字符';
   if (tab.file.truncated) {
-    return 'the server truncated this file; only its first 1 MiB is shown, and reading a file back is required before saving';
+    return '服务端截断了这个文件；这里只显示前 1 MiB，保存前必须先把文件重新读取一遍';
   }
-  if (tab.saving) return 'saving…';
-  if (tab.draft !== null) return 'unsaved changes — Ctrl+S saves (Cmd+S on macOS)';
+  if (tab.saving) return '正在保存…';
+  if (tab.draft !== null) return '有未保存的改动 — Ctrl+S 保存（macOS 上是 Cmd+S）';
   return null;
 }
 
@@ -168,28 +168,28 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
             type="button"
             className="button button-ghost"
             aria-expanded={treeOpen}
-            title={treeOpen ? 'hide the file tree' : 'show the file tree'}
+            title={treeOpen ? '隐藏文件树' : '显示文件树'}
             onClick={() => {
               setTreeOpen((open) => !open);
             }}
           >
-            {treeOpen ? '◀ files' : '▶ files'}
+            {treeOpen ? '◀ 文件' : '▶ 文件'}
           </button>
           <button
             type="button"
             className={state.showDiff ? 'button button-primary' : 'button button-ghost'}
             aria-pressed={state.showDiff}
-            title="show the working tree instead of the editor"
+            title="显示工作区改动，而不是编辑器"
             onClick={() => {
               store.toggleDiff();
             }}
           >
-            diff
+            改动
           </button>
-          <span className="wb-link-state" title="the session event stream">
-            {connecting ? 'connecting' : 'live'}
+          <span className="wb-link-state" title="会话事件流">
+            {connecting ? '连接中' : '在线'}
           </span>
-          {needsResync && <span className="wb-link-state wb-warn">resyncing</span>}
+          {needsResync && <span className="wb-link-state wb-warn">重新同步中</span>}
         </div>
       </div>
 
@@ -210,17 +210,27 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
           </aside>
         )}
 
-        <section className="wb-pane wb-centre" aria-label="editor">
+        <section className="wb-pane wb-centre" aria-label="编辑器">
           {state.showDiff ? (
             <DiffList
               files={state.diff}
               loading={state.diffLoading}
               error={state.diffError}
+              fileDiff={state.fileDiff}
               onOpenFile={(path) => {
                 store.openFromDiff(path);
               }}
               onRetry={() => {
                 store.refreshDiff();
+              }}
+              onToggleLines={(path) => {
+                store.toggleFileDiff(path);
+              }}
+              onHideLines={() => {
+                store.hideFileDiff();
+              }}
+              onRetryLines={(path) => {
+                store.retryFileDiff(path);
               }}
             />
           ) : (
@@ -236,15 +246,43 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
                 }}
               />
               <div className="wb-editor-slot">
+                {state.pendingClose !== null && (
+                  <div className="wb-confirm" role="alert">
+                    <p>
+                      <span className="mono">{state.pendingClose}</span> 有未保存的改动。关掉就会丢掉它们，
+                      磁盘上的文件保持原样，日志里也不会留下任何记录。
+                    </p>
+                    <div className="wb-confirm-actions">
+                      <button
+                        type="button"
+                        className="button button-ghost"
+                        onClick={() => {
+                          store.cancelClose();
+                        }}
+                      >
+                        继续编辑
+                      </button>
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={() => {
+                          store.confirmClose();
+                        }}
+                      >
+                        丢弃并关闭
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {tab === null && (
                   <p className="wb-empty">
-                    no file is open. Pick one in the files pane: the centre column shows a single
-                    file at a time. Edits are saved with Ctrl+S (Cmd+S on macOS) and are recorded in
-                    the session log as `file/write`, separately from anything the agent does. The
-                    diff button above swaps the editor for the list of changed files.
+                    还没有打开任何文件。在文件面板里挑一个：中间这一栏一次只显示一个
+                    文件。改动用 Ctrl+S 保存（macOS 上是 Cmd+S），并会作为 `file/write`
+                    单独记录在会话日志里，与代理做的事互不相干。上面的“改动”按钮会把编辑器
+                    换成已改动文件的列表。
                   </p>
                 )}
-                {tab !== null && tab.loading && <p className="wb-empty">reading {tab.path}…</p>}
+                {tab !== null && tab.loading && <p className="wb-empty">正在读取 {tab.path}…</p>}
                 {tab !== null && tab.error !== null && (
                   <div className="wb-empty wb-error">
                     <p>{tab.error}</p>
@@ -255,7 +293,7 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
                         store.openFile(tab.path);
                       }}
                     >
-                      try again
+                      重试
                     </button>
                   </div>
                 )}
@@ -282,7 +320,7 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
           className="wb-grip"
           role="separator"
           aria-orientation="vertical"
-          aria-label="resize the agent pane"
+          aria-label="调整代理面板宽度"
           tabIndex={0}
           onPointerDown={grab}
           onKeyDown={nudge}

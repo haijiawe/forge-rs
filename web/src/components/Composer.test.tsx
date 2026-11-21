@@ -79,7 +79,7 @@ describe('Composer', () => {
 
     release();
     await waitFor(() => textarea.value === '');
-    expect(buttonByText(view.container, 'Send')).toBeDefined();
+    expect(buttonByText(view.container, '发送')).toBeDefined();
     view.unmount();
   });
 
@@ -93,8 +93,8 @@ describe('Composer', () => {
     );
     const textarea = textareaOf(view.container);
     // The surface says what Enter will do before anything is typed.
-    expect(buttonByText(view.container, 'Steer')).toBeDefined();
-    expect(textarea.placeholder).toContain('Steer the running turn');
+    expect(buttonByText(view.container, '引导')).toBeDefined();
+    expect(textarea.placeholder).toContain('引导正在运行的回合');
 
     typeInto(textarea, 'also check the retry path');
     keydown(textarea);
@@ -125,10 +125,10 @@ describe('Composer', () => {
       return button as HTMLButtonElement;
     };
 
-    click(view.container, 'Stop');
+    click(view.container, '停止');
     expect(onStop).toHaveBeenCalledTimes(1);
     // In flight: the label says so and the button is disabled.
-    expect(stopButton().textContent).toBe('stopping…');
+    expect(stopButton().textContent).toBe('正在停止…');
     expect(stopButton().disabled).toBe(true);
 
     // A second click already queued in the same tick (dispatched past the
@@ -140,7 +140,7 @@ describe('Composer', () => {
     expect(onStop).toHaveBeenCalledTimes(1);
 
     release();
-    await waitFor(() => stopButton().textContent === 'Stop');
+    await waitFor(() => stopButton().textContent === '停止');
     expect(stopButton().disabled).toBe(false);
     // Stopping is not sending and not steering.
     expect(onSend).not.toHaveBeenCalled();
@@ -155,10 +155,10 @@ describe('Composer', () => {
     const idle = mount(<Composer disabled={false} onSend={onSend} />);
     const idleInput = textareaOf(idle.container);
     // Empty draft: the submit button is disabled and Enter is a no-op.
-    expect(buttonByText(idle.container, 'Send').disabled).toBe(true);
+    expect(buttonByText(idle.container, '发送').disabled).toBe(true);
     keydown(idleInput);
     typeInto(idleInput, '  \n\t  ');
-    expect(buttonByText(idle.container, 'Send').disabled).toBe(true);
+    expect(buttonByText(idle.container, '发送').disabled).toBe(true);
     keydown(idleInput);
     expect(onSend).not.toHaveBeenCalled();
     expect(idleInput.value).toBe('  \n\t  '); // the draft is not swallowed
@@ -220,7 +220,7 @@ describe('Composer', () => {
       if (!(button instanceof HTMLButtonElement)) throw new Error('no submit button');
       return button;
     };
-    await waitFor(() => submitButton().textContent === 'Steer');
+    await waitFor(() => submitButton().textContent === '引导');
     expect(submitButton().disabled).toBe(false);
     expect(onSteer).toHaveBeenCalledWith('retry with backoff');
     expect(onSend).not.toHaveBeenCalled();
@@ -283,7 +283,7 @@ describe('Composer attachments', () => {
     const view = mount(<Composer disabled={false} onSend={vi.fn(async () => true)} />);
 
     const input = fileInputOf(view.container);
-    expect(input.getAttribute('aria-label')).toBe('Attach images or .diff/.patch files');
+    expect(input.getAttribute('aria-label')).toBe('添加图片或 .diff/.patch 文件');
     expect(input.multiple).toBe(true);
     expect(input.accept).toBe('image/*,.diff,.patch');
     // Not display:none and not `hidden`: an invisible input cannot be reached
@@ -333,9 +333,9 @@ describe('Composer attachments', () => {
     // removes, because "remove" alone is ambiguous with several attached.
     expect(remove.tagName).toBe('BUTTON');
     expect(remove.getAttribute('type')).toBe('button');
-    expect(remove.getAttribute('aria-label')).toBe('Remove a.png');
+    expect(remove.getAttribute('aria-label')).toBe('移除 a.png');
 
-    click(view.container, 'remove');
+    click(view.container, '移除');
     await waitFor(() => chips(view.container).length === 1);
     expect(chips(view.container)[0]?.textContent).toContain('b.png');
     expect(onSend).not.toHaveBeenCalled();
@@ -360,7 +360,7 @@ describe('Composer attachments', () => {
     expect(textarea.value).toBe('look at this');
     expect(chips(view.container).length).toBe(1);
     // And the box is usable again, so the retry is possible.
-    expect(buttonByText(view.container, 'Send').disabled).toBe(false);
+    expect(buttonByText(view.container, '发送').disabled).toBe(false);
     view.unmount();
   });
 
@@ -376,11 +376,11 @@ describe('Composer attachments', () => {
     const alert = refusalsOf(view.container);
     // role="alert" is what makes a screen reader say it without focus moving.
     expect(alert?.getAttribute('role')).toBe('alert');
-    expect(alert?.textContent).toContain('Unsupported file: "notes.txt" is type text/plain.');
-    expect(alert?.textContent).toContain('path inside the workspace');
+    expect(alert?.textContent).toContain('不支持的文件："notes.txt" 类型 text/plain。');
+    expect(alert?.textContent).toContain('工作区内的路径');
     expect(chips(view.container).length).toBe(0);
 
-    click(view.container, 'dismiss');
+    click(view.container, '关闭');
     await waitFor(() => refusalsOf(view.container) === null);
     view.unmount();
   });
@@ -404,7 +404,7 @@ describe('Composer attachments', () => {
     expect(onSteer).not.toHaveBeenCalled();
     expect(onSend).not.toHaveBeenCalled();
     expect(refusalsOf(view.container)?.textContent).toContain(
-      'A file cannot ride along with a steer',
+      '转交时不能附带文件',
     );
     expect(chips(view.container).length).toBe(1);
     expect(textarea.value).toBe('and this too');

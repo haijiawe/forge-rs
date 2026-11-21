@@ -4,7 +4,7 @@ import { interact, mount, waitFor } from '../test/render';
 
 async function renderLoad(load: () => Promise<unknown>) {
   const view = mount(<Presents load={load} />);
-  await waitFor(() => !(view.container.textContent ?? '').includes('reading the manifest'));
+  await waitFor(() => !(view.container.textContent ?? '').includes('正在读取清单…'));
   return view;
 }
 
@@ -37,7 +37,7 @@ describe('Presents', () => {
     expect(text).toContain('the numbers you asked for');
     // Second row: no description, no recorded time.
     expect(text).toContain('older.md');
-    expect(text).toContain('time not recorded');
+    expect(text).toContain('时间未记录');
     const names = [...view.container.querySelectorAll('.present-name')].map(
       (node) => node.textContent,
     );
@@ -58,7 +58,7 @@ describe('Presents', () => {
   it('says the list is partial when lines were skipped', async () => {
     const view = await renderLoad(() => Promise.resolve(ROWS));
     const partial = view.container.querySelector('.presents-partial');
-    expect(partial?.textContent).toContain('1 line could not be read');
+    expect(partial?.textContent).toContain('1 行无法读取');
     view.unmount();
   });
 
@@ -67,8 +67,8 @@ describe('Presents', () => {
       Promise.resolve({ ...ROWS, skipped: 0, truncated: true, note: 'the manifest was cut' }),
     );
     const partial = view.container.querySelector('.presents-partial');
-    expect(partial?.textContent).toContain('cut short');
-    expect(partial?.textContent).toContain('the manifest was cut');
+    expect(partial?.textContent).toContain('列表被截断了');
+    expect(partial?.textContent).toContain('清单里还有更多内容');
     view.unmount();
   });
 
@@ -86,7 +86,7 @@ describe('Presents', () => {
     expect(broken.container.querySelector('.presents-empty')).toBeNull();
     const banner = broken.container.querySelector('.banner-error');
     expect(banner?.textContent).toContain('boom');
-    expect(banner?.textContent).toContain('nothing is shown');
+    expect(banner?.textContent).toContain('这里没有显示任何内容');
     broken.unmount();
   });
 

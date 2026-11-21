@@ -161,7 +161,7 @@ describe('context/compressed rows', () => {
     expect(row.problem).toBeUndefined();
 
     const view = mount(<TranscriptRow row={row} />);
-    expect(view.container.textContent).toContain('summary replaced seq 12..40 (29 records)');
+    expect(view.container.textContent).toContain('摘要已替换 序号 12..40（29 条记录）');
     expect(view.container.querySelector('.row-compressed')).not.toBeNull();
     expect(view.container.querySelector('.row-compressed-incomplete')).toBeNull();
     view.unmount();
@@ -172,7 +172,7 @@ describe('context/compressed rows', () => {
     if (row === null || row.kind !== 'compressed') throw new Error('expected a compressed row');
     expect(row.messages).toBeUndefined();
     const view = mount(<TranscriptRow row={row} />);
-    expect(view.container.textContent).toContain('summary replaced seq 12..40 (29 records)');
+    expect(view.container.textContent).toContain('摘要已替换 序号 12..40（29 条记录）');
     view.unmount();
   });
 
@@ -183,8 +183,8 @@ describe('context/compressed rows', () => {
     expect(row.problem).toContain('no summary');
 
     const view = mount(<TranscriptRow row={row} />);
-    expect(view.container.textContent).toContain('summary missing for seq 12..40 (29 records)');
-    expect(view.container.textContent).toContain('incomplete');
+    expect(view.container.textContent).toContain('缺少摘要 序号 12..40（29 条记录）');
+    expect(view.container.textContent).toContain('不完整');
     expect(view.container.querySelector('.row-compressed-incomplete')).not.toBeNull();
     view.unmount();
   });

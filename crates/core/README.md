@@ -23,35 +23,20 @@ gate: cargo test -p hearth-core --offline
 
 ## 做什么
 
-Everything that more than one crate must agree on: the event envelope (15 event
-types), the id format, the canonical JSON encoding, and the error vocabulary.
-It has no I/O. `parse_log` takes a `&str` and returns `Vec<Event>` — it never
-opens a file, because a reader that opens files cannot be used by the HTTP layer
-that already has the bytes in hand.
+所有「必须由不止一个 crate 达成一致」的东西：事件信封（33 种事件类型）、id 格式、规范 JSON 编码，以及错误词汇表。它没有任何 I/O。`parse_log` 接收一个 `&str` 并返回 `Vec<Event>`——它从不打开文件，因为一个会打开文件的读者，没法给「字节早已在手里」的 HTTP 层使用。
 
 ## 公开面
 
-`Event` (v/seq/id/ts/session/turn/step/type/payload) with `parse_line`,
-`from_value`, `validate`, `canonical`; `EventType` with its `ALL` list; `new_id`
-and `SessionId`; `canonical`/`canonical_line`; `Error`+`ErrorKind`+`Result`;
-`parse_log`, which enforces the two cross-record rules a single line cannot show
-(dense sequence numbers, unique ids).
+`Event`（v/seq/id/ts/session/turn/step/type/payload），带 `parse_line`、`from_value`、`validate`、`canonical`；`EventType` 及其 `ALL` 列表；`new_id` 与 `SessionId`；`canonical`/`canonical_line`；`Error`+`ErrorKind`+`Result`；`parse_log`，它执行单行记录看不出来的两条跨记录规则（序号连续、id 唯一）。
 
 ## 依赖与边界
 
-Depends on nothing inside this workspace. Outside it: `serde`/`serde_json` for
-JSON and `getrandom` for ids — both in the workspace budget for reasons stated
-in `Cargo.toml`.
+工作区内不依赖任何 crate。工作区外：JSON 用 `serde`/`serde_json`，id 用 `getrandom`——两者都在工作区预算里，理由写在 `Cargo.toml`。
 
-The boundary is "vocabulary, not policy". A rule that needs to know what a
-session is, or what a tool is, belongs one layer up.
+边界是「词汇，不是策略」。一条需要知道「会话是什么」或「工具是什么」的规则，属于上一层。
 
 ## 不要做
 
-- Do not add payload validation here. The contract describes payloads; readers
-  must survive members they have never seen, or every upgrade invalidates every
-  history.
-- Do not make `v` optional or defaulted. A record without a version is a record
-  whose meaning cannot be checked, and guessing is worse than refusing.
-- Do not add file or network access. `hearth-session` owns the file; this crate
-  owns the bytes.
+- 不要在这里加 payload 校验。契约负责描述 payload；读者必须能挺过它从没见过的成员，否则每次升级都会让全部历史失效。
+- 不要把 `v` 改成可选或带默认值。没有版本号的记录，其含义无法校验，而猜测比拒绝更糟。
+- 不要加文件访问或网络访问。文件归 `hearth-session` 所有，本 crate 只拥有字节。

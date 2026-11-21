@@ -57,6 +57,8 @@ function workspace(overrides: Partial<WorkbenchApi> = {}): WorkbenchApi {
         : Promise.resolve(file);
     },
     listDiff: () => Promise.resolve([]),
+    readDiff: (_sessionId, path) =>
+      Promise.resolve({ path, status: 'modified', text: '', truncated: false }),
     saveFile: (_sessionId, path, text) =>
       Promise.resolve({ path, bytes: text.length, sha256: digestOf(text) }),
     ...overrides,
@@ -91,8 +93,8 @@ describe('Workbench', () => {
       />,
     );
 
-    await waitFor(() => (view.container.textContent ?? '').includes('listed no entries'));
-    expect(view.container.textContent).toContain('an empty directory');
+    await waitFor(() => (view.container.textContent ?? '').includes('没有列出任何条目'));
+    expect(view.container.textContent).toContain('目录确实是空的');
     view.unmount();
   });
 
@@ -145,7 +147,7 @@ describe('Workbench', () => {
       />,
     );
     await waitFor(() => view.container.querySelector('.wb-row-file') !== null);
-    expect(view.container.textContent).toContain('no file is open');
+    expect(view.container.textContent).toContain('还没有打开任何文件');
     expect(view.container.querySelector('.wb-textarea')).toBeNull();
 
     const file = view.container.querySelector<HTMLButtonElement>('.wb-row-file[title^="readme.md"]');
@@ -191,7 +193,7 @@ describe('Workbench', () => {
       editor.dispatchEvent(new Event('input', { bubbles: true }));
     });
 
-    await waitFor(() => (view.container.textContent ?? '').includes('unsaved changes'));
+    await waitFor(() => (view.container.textContent ?? '').includes('有未保存的改动'));
 
     interact(() => {
       editor.dispatchEvent(
@@ -200,7 +202,7 @@ describe('Workbench', () => {
     });
     await waitFor(() => saveFile.mock.calls.length === 1);
     expect(saveFile).toHaveBeenCalledWith(SESSION, 'readme.md', '# hearth, edited\n', digestOf('# hearth\n'));
-    await waitFor(() => !(view.container.textContent ?? '').includes('unsaved changes'));
+    await waitFor(() => !(view.container.textContent ?? '').includes('有未保存的改动'));
     view.unmount();
   });
 
@@ -246,9 +248,9 @@ describe('Workbench', () => {
     );
     await waitFor(() => view.container.querySelector('.wb-row-file') !== null);
 
-    click(buttonByText(view.container, 'diff'));
-    await waitFor(() => (view.container.textContent ?? '').includes('reported no changed files'));
-    expect(view.container.textContent).toContain('not a git repository');
+    click(buttonByText(view.container, '改动'));
+    await waitFor(() => (view.container.textContent ?? '').includes('没有改动的文件'));
+    expect(view.container.textContent).toContain('工作区不是 git');
     // The editor is replaced, not stacked behind the list.
     expect(view.container.querySelector('.wb-tabs')).toBeNull();
     view.unmount();
@@ -269,7 +271,7 @@ describe('Workbench', () => {
       />,
     );
     await waitFor(() => view.container.querySelector('.wb-row-file') !== null);
-    click(buttonByText(view.container, 'diff'));
+    click(buttonByText(view.container, '改动'));
 
     await waitFor(() => view.container.querySelector('.wb-diff-row') !== null);
     expect(view.container.textContent).toContain('+3');
@@ -304,7 +306,7 @@ describe('Workbench', () => {
     // to `minmax(0px,…)`, and the point of the assertion is the lead track.
     expect(body()?.style.gridTemplateColumns.startsWith('240px minmax(')).toBe(true);
 
-    click(buttonByText(view.container, '◀ files'));
+    click(buttonByText(view.container, '◀ 文件'));
     expect(view.container.querySelector('.wb-tree')).toBeNull();
     // Three, once the tree is gone: a collapsed tree is an absent column, not a
     // 0px track that would swallow the flexible one.
@@ -349,7 +351,7 @@ describe('Workbench', () => {
     click(file);
 
     await waitFor(() => view.container.querySelector('.wb-editor-notice') !== null);
-    expect(view.container.querySelector('.wb-editor-notice')?.textContent).toContain('truncated');
+    expect(view.container.querySelector('.wb-editor-notice')?.textContent).toContain('截断');
 
     // A binary file's notice replaces nothing: the same pane says there is no
     // text, because showing an empty box would look like an empty file.
@@ -357,7 +359,7 @@ describe('Workbench', () => {
     if (readme === null) throw new Error('the readme row was not drawn');
     click(readme);
     await waitFor(() =>
-      (view.container.querySelector('.wb-editor-notice')?.textContent ?? '').includes('not text'),
+      (view.container.querySelector('.wb-editor-notice')?.textContent ?? '').includes('不是文本'),
     );
     view.unmount();
   });
@@ -376,10 +378,99 @@ describe('Workbench', () => {
       />,
     );
     await waitFor(() => view.container.querySelector('.wb-row-file') !== null);
-    click(buttonByText(view.container, 'diff'));
+    click(buttonByText(view.container, '改动'));
 
     await waitFor(() => (view.container.textContent ?? '').includes('git unavailable'));
-    expect(buttonByText(view.container, 'try again')).toBeDefined();
+    expect(buttonByText(view.container, '重试')).toBeDefined();
+    view.unmount();
+  });
+
+  it('expands a row into its lines and colours them by first character', async () => {
+    const changed: DiffEntry[] = [
+      { path: 'src/main.ts', status: 'modified', additions: 1, deletions: 1 },
+    ];
+    const diffText = '@@ -1 +1 @@\n-export const x = 1;\n+export const x = 2;\n';
+    const view = mount(
+      <Workbench
+        sessionId={SESSION}
+        head={<span>head</span>}
+        agent={<span>agent</span>}
+        connecting={false}
+        needsResync={false}
+        api={workspace({
+          listDiff: () => Promise.resolve(changed),
+          readDiff: () => Promise.resolve({ path: 'src/main.ts', status: 'modified', text: diffText, truncated: false }),
+        })}
+      />,
+    );
+    await waitFor(() => view.container.querySelector('.wb-row-file') !== null);
+    click(buttonByText(view.container, '改动'));
+
+    await waitFor(() => view.container.querySelector('.wb-diff-toggle') !== null);
+    const toggle = view.container.querySelector<HTMLButtonElement>('.wb-diff-toggle');
+    if (toggle === null) throw new Error('the diff row has no caret');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    click(toggle);
+
+    await waitFor(() => view.container.querySelector('.wb-diff-line') !== null);
+    // The row stays on screen: judging a change must not cost the list.
+    expect(view.container.querySelector('.wb-diff-row')).not.toBeNull();
+    expect(view.container.querySelector('.wb-diff-toggle')?.getAttribute('aria-expanded')).toBe('true');
+
+    // Every line is drawn, and each is classified by its own first character
+    // rather than by position, so a hunk that starts with `-` stays a deletion.
+    const classes = Array.from(view.container.querySelectorAll('.wb-diff-line')).map(
+      (line) => line.className,
+    );
+    expect(classes.some((name) => name.includes('wb-diff-hunk'))).toBe(true);
+    expect(classes.some((name) => name.includes('wb-diff-del'))).toBe(true);
+    expect(classes.some((name) => name.includes('wb-diff-add'))).toBe(true);
+    expect(view.container.textContent).toContain('export const x = 2;');
+    view.unmount();
+  });
+
+  it('asks before a tab with unsaved changes is closed', async () => {
+    const view = mount(
+      <Workbench
+        sessionId={SESSION}
+        head={<span>head</span>}
+        agent={<span>agent</span>}
+        connecting={false}
+        needsResync={false}
+        api={workspace()}
+      />,
+    );
+    await waitFor(() => view.container.querySelector('.wb-row-file') !== null);
+    const file = view.container.querySelector<HTMLButtonElement>('.wb-row-file');
+    if (file === null) throw new Error('no file row');
+    click(file);
+    await waitFor(() => view.container.querySelector('.wb-textarea') !== null);
+
+    const editor = view.container.querySelector<HTMLTextAreaElement>('.wb-textarea');
+    if (editor === null) throw new Error('no editor');
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    await interact(() => {
+      setValue?.call(editor, '# edited\n');
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await waitFor(() => (view.container.textContent ?? '').includes('未保存'));
+
+    const close = view.container.querySelector<HTMLButtonElement>('.wb-tab-close');
+    if (close === null) throw new Error('no close button');
+    await interact(() => {
+      click(close);
+    });
+
+    // The question is inline and names the file, and the tab is still there.
+    await waitFor(() => view.container.querySelector('.wb-confirm') !== null);
+    expect(view.container.textContent).toContain('有未保存的改动');
+    expect(view.container.querySelector('.wb-tab')).not.toBeNull();
+
+    await interact(() => {
+      click(buttonByText(view.container, '继续编辑'));
+    });
+    expect(view.container.querySelector('.wb-confirm')).toBeNull();
+    expect(view.container.querySelector('.wb-tab')).not.toBeNull();
     view.unmount();
   });
 });

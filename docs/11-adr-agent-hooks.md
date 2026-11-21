@@ -1,84 +1,44 @@
-# ADR-0004 — the agent hook seam: a deliberate, bounded rewrite point
+# ADR-0004 —— agent 钩子缝：一个刻意保留、有边界的重写点
 
-- **Status:** accepted (2026-11-20) by the user ("w5可以搞"). This is a **position
-  change**, not a gap fill: it introduces the one rewrite point the tree
-  deliberately did not have. Implementation was delivered in W5 (`69aa3c9`) and
-  extended with a third, decision-only `request-error` phase in `01fd95b`; see
-  [10-agent-parity.md](10-agent-parity.md) §W5.
-- **Decision owner:** the user.
-- **Supersedes part of** the "no hidden rewriter" claim in
-  [AGENTS.md](../AGENTS.md), [08-rust-port.md](08-rust-port.md) and
-  [agent-gaps.md](agent-gaps.md) §C — **narrowly**, see §2.
+- **状态：** 2026-11-20 由用户接受（"w5可以搞"）。这是一次**立场改变**，不是补缺口：它引入了这棵树原本刻意不拥有的那个重写点。实现在 W5 交付（`69aa3c9`），并在 `01fd95b` 里扩展出第三个只做决策的 `request-error` 阶段；见 [10-agent-parity.md](10-agent-parity.md) §W5。
+- **决策人：** 用户。
+- **部分取代** [AGENTS.md](../AGENTS.md)、[08-rust-port.md](08-rust-port.md) 与 [agent-gaps.md](agent-gaps.md) §C 里"没有隐藏的重写器"这一声明——**范围很窄**，见 §2。
 
-## 1. The claim this ADR changes, and the claim that stays
+## 1. 本 ADR 改变了哪条承诺，哪条仍然成立
 
-Until now the tree made one promise about the loop: *the same log always yields
-the same request, because there is no layer that can rewrite it.* That promise is
-why `waterfall` had 0 hits in `crates/agent`, and why
-[agent-gaps.md](agent-gaps.md) listed it as **deliberately not built**.
+到目前为止，这棵树对循环只做过一个承诺：*同一条日志永远产出同一个请求，因为没有任何一层能重写它。* 正是这个承诺让 `waterfall` 在 `crates/agent` 里的命中数为 0，也正是它让 [agent-gaps.md](agent-gaps.md) 把它列为**刻意不造**。
 
-The user has decided to buy back the capability, because a harness whose loop
-cannot be extended by a plugin is a harness a plugin cannot reach into. This ADR
-records the change and the fence around it.
+用户已决定把这个能力买回来，因为一个循环无法被插件扩展的 harness，是插件伸不进去的 harness。本 ADR 记录这次改变，以及围在它外面的那道栅栏。
 
-**What changes:** the loop gains *two* named hook points, and only these two, and
-only when a hook is installed.
+**改变的部分：** 循环多出*两个*具名钩子点，只有这两个，而且只有装了钩子时才生效。
 
-**What stays true:** with no hook installed, the loop is byte-for-byte the loop it
-was — same events, same request, same ordering. Determinism is preserved as the
-*default*; rewrites are opt-in and always logged. "No hidden rewriter" becomes
-"no *unlogged* rewriter".
+**仍然成立的部分：** 没装钩子时，循环逐字节还是原来那个循环——同样的事件、同样的请求、同样的顺序。确定性作为*默认*被保留；重写是 opt-in 且永远记日志。"没有隐藏的重写器"变成"没有*不记日志的*重写器"。
 
-## 2. The three seams (two rewrite, one decision)
+## 2. 三个缝（两个重写，一个决策）
 
-| Seam | When | What a hook may change | What it may not change |
+| 缝 | 时机 | 钩子可以改什么 | 不许改什么 |
 |---|---|---|---|
-| `pre-step` | before each provider call, after the inbox/steering is folded into history | the message list handed to the provider | the model id, the session, the tool specs, or any already-written event |
-| `request` | immediately after `Request` is built, before it is sent | the request's messages and tool descriptions | the model id (selecting a model is its own operation, not a rewrite), and nothing that would hearth a `llm/call` counter |
-| `request-error` | after a request attempt fails and the transport policy would give up | nothing durable — it answers only "retry or not" (`HookOutcome::Retry`) | anything on the log; it writes no `hook/rewrite` line because it rewrites nothing |
+| `pre-step` | 每次调用 provider 之前，在 inbox/steering 已折进历史之后 | 交给 provider 的消息列表 | 模型 id、会话、工具规格，或任何已经写出的事件 |
+| `request` | `Request` 构建完成之后、发出之前 | 请求里的消息与工具描述 | 模型 id（选模型是独立操作，不是重写），以及任何会让 `llm/call` 计数失真的东西 |
+| `request-error` | 一次请求尝试失败、且传输策略本要放弃之后 | 没有持久化的东西——它只回答"要不要重试"（`HookOutcome::Retry`） | 日志上的任何东西；它不写 `hook/rewrite` 行，因为它什么都没重写 |
 
-The two rewrite seams are the useful subset; `request-error` is the one case where
-the transport policy cannot know better than a caller — a hook may know an error is
-transient when its code does not say so. It is a decision, not a rewrite, so it is
-deliberately not logged as one; the retry it forces shows up as the next request.
+两个重写缝是有用的子集；`request-error` 是那种"传输策略不可能比调用者更清楚"的情况——钩子可能知道某个错误是暂时的，而错误码本身没这么说。这是决策、不是重写，所以刻意不按重写记日志；它促成的重试会以"下一次请求"的形式出现在日志里。
 
-No other phase is added. The closed set lives in one place
-(`crates/agent`'s hook module) and a phase outside it is refused by name, the way
-`crates/plugin/src/protocol.rs` already refuses `"during_breakfast"`.
+不加别的阶段。这个封闭集合只住在一个地方（`crates/agent` 的 hook 模块），集合之外的阶段会按名字被拒，就像 `crates/plugin/src/protocol.rs` 已经在拒绝 `"during_breakfast"` 那样。
 
-## 3. Why Rust, inside `hearth-agent`, not a new crate
+## 3. 为什么用 Rust 写、放在 `hearth-agent` 里而不是新开 crate
 
-The seam is ~two `Option<Arc<dyn Fn>>` fields and two call sites. A crate for it
-would be a boundary with one interior edge and no second implementer. It lives in
-`hearth-agent`, the crate that owns the loop. The plugin bridge that *fills* the
-seam lives in `crates/cli` (it needs `hearth-plugin`), exactly as the MCP bridge
-does — `hearth-agent` must not learn that plugins or Cordis exist.
+这个缝大约是两个 `Option<Arc<dyn Fn>>` 字段加两个调用点。为它开一个 crate，会得到一个只有一条内部边、没有第二个实现者的边界。它住在 `hearth-agent`——拥有循环的那个 crate 里。*填充*这个缝的插件桥住在 `crates/cli`（它需要 `hearth-plugin`），跟 MCP 桥完全一样——`hearth-agent` 不该知道插件或 Cordis 的存在。
 
-## 4. Why this is safe to ship
+## 4. 为什么这东西发得出去
 
-- **Opt-in and inert by default.** `Options.hooks` is `None` unless a caller sets
-  it. The four existing call sites (`chat.rs`, `web.rs`, worker runner, tests) set
-  nothing, so they behave identically; a golden test pins that.
-- **Logged, not silent.** Every rewrite that changes the message list writes a
-  `hook/rewrite` event (a new type; see 10-agent-parity §W5) naming the phase, the
-  plugin, and how many messages changed. A log with no such event proves the loop
-  did not rewrite anything — that is the auditable replacement for "there is no
-  rewriter".
-- **Bounded.** A hook sees messages and tool descriptions, never the log, never
-  the model id, never the ability to append events. It cannot fake a `llm/call`,
-  cannot select a model, cannot write.
-- **Failure is loud.** A hook that errors, or returns a non-object, aborts the
-  step with `hook_failed` rather than silently sending the un-rewritten request —
-  a rewrite that half-happened is worse than one that did not.
+- **opt-in，默认惰性。** 除非调用方设置，`Options.hooks` 是 `None`。现有四个调用点（`chat.rs`、`web.rs`、worker runner、测试）什么都不设，所以行为完全一致；有一个 golden 测试钉住这一点。
+- **记日志，不静默。** 每一次改变了消息列表的重写都写一条 `hook/rewrite` 事件（新类型；见 10-agent-parity §W5），写明阶段、插件、改了几条消息。一条没有这种事件的日志就证明循环没有重写任何东西——这就是"没有重写器"的可审计替代品。
+- **有边界。** 钩子看得到消息和工具描述，永远看不到日志、看不到模型 id、也不能追加事件。它无法伪造一条 `llm/call`，无法选择模型，无法写。
+- **失败很响。** 钩子报错、或返回的不是对象，这一步会以 `hook_failed` 中止，而不是静默地把未重写的请求发出去——一次只做了一半的重写比没做更糟。
 
-## 5. What this does not buy
+## 5. 这个不买到什么
 
-- **Not full Cordis parity.** DSH's `agent/turn-stopping` (serial) is not added;
-  the three phases above are the useful subset, and the generic `emit`/`serial`
-  dispatch is not built (a phase outside the closed set is refused by name). More
-  can be argued for separately, each as its own ADR line.
-- **Not determinism loss by default.** The default loop is unchanged. The cost is
-  paid only by sessions whose operator enables a plugin that claims a hook.
-- **Not a security boundary.** A hook runs in-process with the operator's trust,
-  like an approver. It is not sandboxed; the plugin *process* is, but the decision
-  it returns is trusted, exactly as an MCP tool's output is.
+- **不是完整的 Cordis 对齐。** DSH 的 `agent/turn-stopping`（串行）没有加；上面三个阶段是有用的子集，通用的 `emit`/`serial` 派发没有造（封闭集合之外的阶段按名字拒绝）。更多的东西可以另行论证，每条作为自己的一行 ADR。
+- **不是默认失去确定性。** 默认循环没变。代价只由那些操作者启用了声明钩子的插件的会话支付。
+- **不是安全边界。** 钩子带着操作者的信任在进程内运行，和审批者一样。它不被沙箱住；插件的*进程*被沙箱住，但它返回的决策是被信任的，跟 MCP 工具的输出完全一样。

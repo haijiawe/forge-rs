@@ -50,11 +50,11 @@ export function ApprovalDialog({ pending, busy = false, onDecide }: ApprovalDial
   return (
     <div className="approval-backdrop" role="presentation">
       <div className="approval-dialog" role="dialog" aria-modal="true" aria-labelledby="approval-title">
-        <h2 id="approval-title">Approval required</h2>
-        <p className="approval-reason">{pending.reason ?? 'A tool wants to run.'}</p>
+        <h2 id="approval-title">需要审批</h2>
+        <p className="approval-reason">{pending.reason ?? '有工具请求执行。'}</p>
 
         <dl className="approval-meta">
-          <dt>tool</dt>
+          <dt>工具</dt>
           <dd className="mono">{pending.tool}</dd>
           <dt>callId</dt>
           <dd className="mono">{pending.callId}</dd>
@@ -64,13 +64,13 @@ export function ApprovalDialog({ pending, busy = false, onDecide }: ApprovalDial
 
         {args !== '' && (
           <details className="tool-section" open>
-            <summary>args</summary>
+            <summary>参数</summary>
             <pre className="mono tool-args">{args}</pre>
           </details>
         )}
 
         <label className="approval-note">
-          <span>note (optional)</span>
+          <span>备注（可选）</span>
           <textarea
             className="mono"
             value={note}
@@ -84,10 +84,10 @@ export function ApprovalDialog({ pending, busy = false, onDecide }: ApprovalDial
 
         <div className="approval-actions">
           <button type="button" className="button button-danger" disabled={disabled} onClick={() => void submit('deny')}>
-            {submitting ? 'submitting…' : 'Deny'}
+            {submitting ? '正在提交…' : '拒绝'}
           </button>
           <button type="button" className="button button-primary" disabled={disabled} onClick={() => void submit('allow')}>
-            {submitting ? 'submitting…' : 'Allow'}
+            {submitting ? '正在提交…' : '允许'}
           </button>
         </div>
       </div>

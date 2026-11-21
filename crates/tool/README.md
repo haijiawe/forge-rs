@@ -13,22 +13,21 @@ gate: cargo run -q -p archcheck --offline
 
 ## 做什么
 
-The tool system: a `Tool` trait, a registry, an executor that enforces policy and approvals before anything runs, and the builtin tools. Ten are always registered (`fs_read`, `fs_write`, `fs_edit`, `fs_glob`, `fs_grep`, `read_image`, `shell`, `todo_write`, `worktree`, `present`); the platform tools appear only when their capability is configured — `web_fetch` needs a network client, `web_search` additionally needs an endpoint. `goal_end` is registered only when `Options.goal` is set, because its only reader is the loop that opened the round. The executor never writes events; the loop records the call and result from the `Call` and `Result` values. `Result.parts` is the one field that does not reach the log: a tool result is a text message on every wire, so a tool that produced pixels (`read_image`) returns them there and the loop forwards them as a follow-up user message.
+工具系统：`Tool` trait、注册表、一个在真正执行之前先落实策略与审批的执行器，以及内建工具。有十个永远注册（`fs_read`、`fs_write`、`fs_edit`、`fs_glob`、`fs_grep`、`read_image`、`shell`、`todo_write`、`worktree`、`present`）；平台工具只在对应能力被配置时才出现——`web_fetch` 需要一个网络客户端，`web_search` 还要再加一个端点。`goal_end` 只在设置了 `Options.goal` 时注册，因为它的唯一读者就是开启这一轮的那个循环。执行器从不写事件；循环从 `Call` 和 `Result` 值里记录这次调用与结果。`Result.parts` 是唯一不进日志的字段：在每一种线格式上，工具结果都是一条文本消息，所以产出像素的工具（`read_image`）把像素放在这里返回，由循环把它们作为后续的 user 消息转发出去。
 
 ## 公开面
 
-`Tool`, `Call`, `Result`, `Limits`, `DefaultLimits`, `Registry`, `Executor`, `ExecutorOptions`, `Policy`, `PolicyFunc`, `Rule`, `Rules`, `Decision`, `Approver`, `ApprovalRequest`, `AllowAll`, path helpers, truncation helpers, `Dangerous`, and the `builtin` module with `all(&Options)`, `names(&Options)`, `Options`, the four platform tools and `SearchConfig`.
+`Tool`、`Call`、`Result`、`Limits`、`DefaultLimits`、`Registry`、`Executor`、`ExecutorOptions`、`Policy`、`PolicyFunc`、`Rule`、`Rules`、`Decision`、`Approver`、`ApprovalRequest`、`AllowAll`、路径助手、截断助手、`Dangerous`，以及 `builtin` 模块的 `all(&Options)`、`names(&Options)`、`Options`、四个平台工具和 `SearchConfig`。
 
 ## 依赖与边界
 
-Do not let the executor decide policy. Policy is data (`Rule`s) merged by the caller; an executor that hard-codes `ask` for shell cannot be tested without a shell. Shell and worktree commands use `hearth-exec` only. Filesystem paths are resolved under the caller-supplied workspace and are never inferred from the process CWD.
+不要让执行器自己决定策略。策略是数据（`Rule`），由调用方合并进来；一个把 shell 硬编码成 `ask` 的执行器，离开 shell 就没法测试。shell 与 worktree 命令只用 `hearth-exec`。文件系统路径一律在调用方给出的 workspace 下解析，绝不从进程 CWD 推断。
 
-Network access is `hearth-net`'s job, not this crate's: a tool that reached the web by hand would be a second TLS stack with its own idea of trust roots, deadlines and redirects. A tool that needs the network takes an `Arc<hearth_net::Client>` and is not registered when the caller has none, so "no network" is visible in the tool list instead of failing one call at a time.
+网络访问是 `hearth-net` 的职责，不是本 crate 的：一个自己伸手够网的工具，等于第二套 TLS 栈，还自带一套关于信任根、deadline 和重定向的看法。需要网络的工具接收一个 `Arc<hearth_net::Client>`，调用方没有它时这个工具就不注册，于是「没有网络」在工具列表里就能看见，而不是一次一次调用地失败。
 
 ## 不要做
 
-- Do not import `hearth-session`, `hearth-agent`, `hearth-server`, or any higher layer.
-- Do not add a dependency outside the workspace budget in the workspace `Cargo.toml`.
-- Do not run a tool before policy allowance and, when required, approver consent.
-- Do not emit unbounded output; every tool result passes through `truncate`.
-- Do not register a platform tool without its capability; a tool that always fails is worse than an absent one, because the model will keep trying it.
+- 不要导入 `hearth-session`、`hearth-agent`、`hearth-server` 或任何更高层。
+- 不要在工具真正允许执行之前先跑它；需要审批时，也要先拿到审批人的同意。
+- 不要产出无界输出；每个工具结果都要经过 `truncate`。
+- 不要在没有对应能力时注册平台工具。一个总是失败的工具比一个不存在的工具更糟，因为模型会一直去试它。

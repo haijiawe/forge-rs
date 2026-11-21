@@ -327,7 +327,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
  */
 export function decodeSeq(value: unknown): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-    throw new ProtocolError(`seq is not a non-negative integer: ${String(value)}`);
+    throw new ProtocolError(`序号不是非负整数：${String(value)}`);
   }
   if (!Number.isSafeInteger(value)) {
     throw new ProtocolError(
@@ -344,22 +344,22 @@ export function decodeSeq(value: unknown): number {
  */
 export function decodeEvent(raw: unknown): Event {
   const obj = asRecord(raw);
-  if (obj === null) throw new ProtocolError('event is not a JSON object');
+  if (obj === null) throw new ProtocolError('事件不是 JSON 对象');
   const version = obj['v'];
   if (version !== 1) {
-    throw new ProtocolError(`unsupported event version ${String(version)} (want 1)`);
+    throw new ProtocolError(`不支持的事件版本 ${String(version)}（需要 1）`);
   }
   const id = obj['id'];
   const session = obj['session'];
   const type = obj['type'];
   const ts = obj['ts'];
-  if (typeof id !== 'string' || id === '') throw new ProtocolError('event has empty id');
+  if (typeof id !== 'string' || id === '') throw new ProtocolError('事件的 id 为空');
   if (typeof session !== 'string' || session === '') {
-    throw new ProtocolError('event has empty session');
+    throw new ProtocolError('事件的 session 为空');
   }
-  if (typeof type !== 'string' || type === '') throw new ProtocolError('event has empty type');
+  if (typeof type !== 'string' || type === '') throw new ProtocolError('事件的 type 为空');
   if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) {
-    throw new ProtocolError('event has empty ts');
+    throw new ProtocolError('事件的 ts 为空');
   }
   const seq = decodeSeq(obj['seq']);
   const event: EventEnvelope = {

@@ -56,7 +56,7 @@ export class SessionStream {
     if (this.socket !== null) return;
     const Impl = this.options.webSocketImpl ?? globalThis.WebSocket;
     if (Impl === undefined) {
-      this.options.onEvent({ type: 'parse-error', message: 'WebSocket is not available' });
+      this.options.onEvent({ type: 'parse-error', message: 'WebSocket 不可用' });
       return;
     }
     const url = streamUrl(this.options.baseUrl ?? '', this.options.sessionId, this.options.after());

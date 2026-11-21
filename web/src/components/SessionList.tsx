@@ -59,10 +59,10 @@ export function SessionList({ api, onOpen }: SessionListProps) {
   return (
     <main className="screen screen-list">
       <header className="screen-head">
-        <h1>sessions</h1>
+        <h1>会话</h1>
         <div className="head-actions">
           <button type="button" className="button" onClick={() => void load()} disabled={loading}>
-            {loading ? 'loading…' : 'refresh'}
+            {loading ? '正在加载…' : '刷新'}
           </button>
         </div>
       </header>
@@ -74,18 +74,18 @@ export function SessionList({ api, onOpen }: SessionListProps) {
       )}
 
       {sessions.length === 0 && !loading && error === null && (
-        <p className="empty">no sessions in this data directory yet</p>
+        <p className="empty">这个数据目录里还没有会话</p>
       )}
 
       {sessions.length > 0 && (
         <table className="session-table">
           <thead>
             <tr>
-              <th>id</th>
-              <th>workspace</th>
-              <th>model</th>
-              <th>status</th>
-              <th>updated</th>
+              <th>标识</th>
+              <th>工作区</th>
+              <th>模型</th>
+              <th>状态</th>
+              <th>更新时间</th>
             </tr>
           </thead>
           <tbody>
@@ -118,7 +118,7 @@ export function SessionList({ api, onOpen }: SessionListProps) {
 
       {cursor !== undefined && cursor !== '' && (
         <button type="button" className="button" onClick={() => void load(cursor)} disabled={loading}>
-          load more
+          加载更多
         </button>
       )}
 

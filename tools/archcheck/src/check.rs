@@ -1,12 +1,14 @@
 //! Applies the judgements Cargo cannot make:
 //!   1. every dependency edge points to a lower or equal layer;
 //!   2. every crate has a README that states the boundary the edge crosses;
-//!   3. every path the help text promises exists (see `docs`).
+//!   3. every path the help text promises exists (see `docs`);
+//!   4. every container directory carries the page that explains it (see `dirs`).
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
 use crate::arch::Architecture;
+use crate::dirs;
 use crate::docs;
 use crate::manifest::Crate;
 use crate::readme;
@@ -120,6 +122,10 @@ pub fn run(root: &Path, architecture: &Architecture, crates: &[Crate]) -> Vec<Fi
     // tree does not have is the same broken promise as a README that does not
     // describe its crate.
     findings.extend(docs::check(root));
+
+    // A directory with no page of its own is the same broken promise one level
+    // up: the names inside it are visible and their purpose is not.
+    findings.extend(dirs::check(root, &architecture.documented_dirs));
 
     findings
 }

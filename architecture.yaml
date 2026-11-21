@@ -24,3 +24,30 @@ forbidden_edges:
 
 # Tooling artifacts, never crates.
 ignore_dirs: [.git, target, node_modules]
+
+# Directories that hold tracked content and must therefore carry a README.
+#
+# A directory name says "category"; it cannot say "what goes here, what does
+# not, and where the next thing belongs". That page is the difference between a
+# tree an agent can walk unaided and one it has to guess at, so it is checked
+# rather than promised. Nested entries are listed explicitly — this is a list of
+# decisions, not a glob.
+documented_dirs:
+  - crates
+  - tests
+  - tests/conformance
+  - tests/fixtures
+  - tests/golden
+  - tests/e2e
+  - tests/ws
+  - tools
+  - tools/archcheck
+  - tools/bench
+  - scripts
+  - apps
+  - apps/desktop
+  - skills
+  - examples
+  - bin
+  - web
+  - docs

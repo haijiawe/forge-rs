@@ -1,57 +1,40 @@
-# hearth-bench — performance harness and baseline gate
+# hearth-bench —— 性能测试台与基线门禁
 
-Rust port of the retired Go tree's `scripts/bench`. That tree was deleted on
-2026-11-17, but its decisions stayed: metric names, units, tolerances, document
-shape and gate policy are preserved, with `goVersion` renamed to `rustVersion`.
+已退役 Go 树里 `scripts/bench` 的 Rust 移植。那棵树在 2026-11-17 删掉了，但它的决策留了下来：指标名、单位、容差、文档形状和门禁策略一律照旧，只把 `goVersion` 改名为 `rustVersion`。
 
-## Why a second harness
+## 为什么要有第二个测试台
 
-`cargo bench` measures functions inside one crate. This harness measures the
-user-visible product: the `hearth` executable, the session log on disk, and the
-JSON codec. It writes one language-neutral document so a Rust run and a Go run
-can be compared on the same platform without sharing a schema.
+`cargo bench` 量的是一个 crate 里的函数。这个测试台量的是用户看得见的产品：`hearth` 可执行文件、磁盘上的会话日志、JSON 编解码器。它只写一份语言无关的文档，所以一次 Rust 运行和一次 Go 运行能在同一平台上比较，而不必共用一套 schema。
 
-## Flags
+## 命令行开关
 
-| Flag | Default | Meaning |
+| 开关 | 默认值 | 含义 |
 | --- | --- | --- |
-| `-out <path>` | empty | merge this run into the document at `<path>` (repo-relative) |
-| `-baseline <path>` | `scripts/bench/baseline.json` | compare against this document; `""` records without comparing |
-| `-fail-over <pct>` | `10` | fallback tolerance when a row has no `tolerance` |
-| `-strict` | off | exit 1 when a metric regresses beyond tolerance |
-| `-require-baseline` | off | exit 1 when this platform has no record |
-| `-h`, `-help` | — | print usage and exit 0 |
+| `-out <path>` | 空 | 把这次运行合并进 `<path>` 处的文档（仓库相对路径） |
+| `-baseline <path>` | `scripts/bench/baseline.json` | 与这份文档比较；`""` 表示只记录不比较 |
+| `-fail-over <pct>` | `10` | 某一行没有 `tolerance` 时的兜底容差 |
+| `-strict` | 关 | 指标超出容差回退时退出码 1 |
+| `-require-baseline` | 关 | 本平台没有记录时退出码 1 |
+| `-h`、`-help` | — | 打印用法并退出 0 |
 
-`-flag value`, `-flag=value`, `--flag value` and `--flag=value` all work, as in
-Go's `flag` package. Parsing stops at the first positional argument.
+`-flag value`、`-flag=value`、`--flag value` 和 `--flag=value` 都能用，和 Go 的 `flag` 包一样。解析在第一个位置参数处停止。
 
-## Metrics
+## 指标
 
-| Name | Unit | Better | Workload |
+| 名称 | 单位 | 越大越好还是越小越好 | 负载 |
 | --- | --- | --- | --- |
-| `version_startup` | ms | lower | 20 cold `hearth --version` launches, one per phase |
-| `session_append_fsync` | events/sec | higher | 200 appends, one fsync per event, 20 phases |
-| `session_append_batch` | events/sec | higher | 2,000 appends, `sync_every=100`, 20 phases |
-| `session_replay_10k` | events/sec | higher | one 10,000 × 3,800-byte log; reopen and read back, 20 phases |
-| `session_projection_10k` | events/sec | higher | the same log folded with `Projection::fold`, 20 phases |
-| `event_roundtrip` | ns/op | lower | 5 phases × 1,000 canonical marshal + parse of one 4KB event |
+| `version_startup` | ms | 越小越好 | 20 次冷启动 `hearth --version`，每个阶段一次 |
+| `session_append_fsync` | events/sec | 越大越好 | 200 次追加，每条事件一次 fsync，20 个阶段 |
+| `session_append_batch` | events/sec | 越大越好 | 2,000 次追加，`sync_every=100`，20 个阶段 |
+| `session_replay_10k` | events/sec | 越大越好 | 一份 10,000 × 3,800 字节的日志；重新打开并读回，20 个阶段 |
+| `session_projection_10k` | events/sec | 越大越好 | 同一份日志用 `Projection::fold` 折叠，20 个阶段 |
+| `event_roundtrip` | ns/op | 越小越好 | 5 个阶段 × 1,000 次对一条 4KB 事件的规范编组加解析 |
 
-Each phase produces one sample. `value` is the fastest phase (minimum for
-latencies, maximum for throughput); `p50`/`p95` are nearest-rank percentiles.
-Samples below half the median are dropped before summarising, but only while at
-least two samples remain. Values are rounded to four decimals. A phase whose
-clock does not advance is retried up to six times; a failed phase is an error,
-not a zero. The whole run has a 60-second budget and skips later metrics with
-an explicit line rather than publishing a partial number as complete.
+每个阶段产出一个样本。`value` 取最快的那个阶段（延迟类取最小值，吞吐类取最大值）；`p50`/`p95` 是最近秩百分位。低于中位数一半的样本在汇总前被丢弃，但只在还剩至少两个样本时才丢。数值保留四位小数。时钟没有前进的阶段最多重试六次；失败的阶段是错误，不是零。整轮运行有 60 秒预算，超时就跳过后续指标并写明一行，而不是把半个数字当成完整结果发出去。
 
-Tolerances are stored **per row**: `0.35` (35%) for `session_append_fsync` and
-`session_append_batch`, `0.10` (10%) for the other four. `-fail-over` is used
-only when a baseline row has `tolerance == 0`.
+容差**按行**存储：`session_append_fsync` 和 `session_append_batch` 是 `0.35`（35%），其余四个是 `0.10`（10%）。只有在基线行写着 `tolerance == 0` 时才用 `-fail-over`。
 
-The numbers below are placeholders for the field shape, not recordings.
-`scripts/bench/baseline.json` holds the real ones: windows/amd64 from this
-machine, linux/amd64 from a hosted runner, and darwin/arm64 from the macOS one.
-Record a new row only from a settled build.
+下面这段数字是字段形状的占位符，不是实测记录。真实的记录在 `scripts/bench/baseline.json` 里：windows/amd64 来自本机，linux/amd64 来自托管 runner，darwin/arm64 来自 macOS runner。只从稳定的构建里记录新行。
 
 ```json
 {
@@ -78,99 +61,59 @@ Record a new row only from a settled build.
 }
 ```
 
-Rules, all unit-tested in `tools/bench/src/baseline.rs`:
+规则，全部在 `tools/bench/src/baseline.rs` 里有单元测试：
 
-- version must be 1; the set must be non-empty; every record needs `os`,
-  `arch` and at least one result. A legacy top-level single report is accepted
-  and wrapped in a one-record set.
-- selection matches `os` **and** `arch`; the newest RFC 3339 timestamp wins,
-  with offset-aware instant comparison. A parseable timestamp beats an
-  unparseable one; a tie keeps the first record.
-- upsert replaces the first matching record in place, drops later duplicates
-  and appends a new record when the platform was absent. The writer refuses
-  to overwrite an unparseable file.
-- marshalling is two-space indent, LF only, stable field order, exactly one
-  trailing newline.
+- version 必须是 1；集合必须非空；每条记录都要有 `os`、`arch` 和至少一个结果。顶层的旧的单份报告会被接受，并包成一个单记录集合。
+- 选择同时匹配 `os` **和** `arch`；最新的 RFC 3339 时间戳获胜，比较时考虑时区偏移。可解析的时间戳胜过不可解析的；并列时保留第一条记录。
+- upsert 就地替换第一条匹配的记录，丢弃后面的重复项，平台不存在时追加一条新记录。写入器拒绝覆盖一份无法解析的文件。
+- 编组用两空格缩进、只用 LF、字段顺序稳定、恰好一个结尾换行。
 
-Rust arch names are mapped to Go names in the document (`x86_64` → `amd64`,
-`aarch64` → `arm64`, `x86` → `386`) so both implementations share one key space.
+Rust 的架构名在文档里映射成 Go 的名字（`x86_64` → `amd64`、`aarch64` → `arm64`、`x86` → `386`），这样两个实现共用一套键空间。
 
-## Gate policy
+## 门禁策略
 
-1. `-baseline ""` → recording notice, no comparison, exit 0.
-2. No document at `-baseline` → `No baseline file at …`, nothing to compare;
-   exit 0 even with `-strict`, exit 1 only with `-require-baseline`.
-3. Document exists but has no record for this platform → print the honest skip
-   line plus the platforms it does record; same exit rule as (2). `-strict`
-   adds a note explaining that nothing was gated and why exit is still 0.
-4. Record found → compare rows by `name`. `"events/sec"` and `"MB/s"` are
-   higher-is-better; every other unit is lower-is-better. `pct =
-   (current - baseline) / baseline * 100`, inverted for higher-is-better;
-   `REGRESSED` when worse exceeds the baseline row's tolerance. A zero baseline
-   value is `SKIP`, never `REGRESSED`. New and removed rows are reported but
-   never fail.
-5. Regressions exit 0 in report mode. Only `-strict` exits 1, with a count.
-6. A differing `rustVersion` is noted; the gate still applies.
+1. `-baseline ""` → 只打印记录说明，不比较，退出 0。
+2. `-baseline` 处没有文档 → 打印 `No baseline file at …`，没有可比较的东西；即使带 `-strict` 也退出 0，只有带 `-require-baseline` 才退出 1。
+3. 文档存在但本平台没有记录 → 打印一行诚实的跳过说明，外加它确实记录了的那些平台；退出规则同 (2)。`-strict` 会追加一句说明：什么都没被门禁约束，以及为什么仍然退出 0。
+4. 找到记录 → 按 `name` 比较行。`"events/sec"` 和 `"MB/s"` 是越大越好，其余单位都是越小越好。`pct = (current - baseline) / baseline * 100`，越大越好的指标反过来算；变差超过基线行容差就是 `REGRESSED`。基线值为零是 `SKIP`，永远不会是 `REGRESSED`。新增的行和被删掉的行会被报告，但永远不会导致失败。
+5. 报告模式下回退也退出 0。只有 `-strict` 退出 1，并给出计数。
+6. `rustVersion` 不同会被记录下来；门禁照常适用。
 
-## The Windows record, and why it was refreshed
+## Windows 记录，以及为什么要重测
 
-`scripts/bench/baseline.json` originally held one record, taken on 2026-11-16
-against the M7 tree (7.5 MB binary, ten crates). The current tree is 8.5 MB and
-has six more crates by design. The record was re-taken on 2026-11-19 after the
-machine had settled; the deltas are written down here rather than absorbed
-silently into a tolerance:
+`scripts/bench/baseline.json` 原本只有一条记录，2026-11-16 对着 M7 那棵树测的（7.5 MB 二进制、十个 crate）。现在这棵树是 8.5 MB，按设计多了六个 crate。记录在机器稳定下来之后于 2026-11-19 重测；这些差值写在这里，而不是悄悄吸收进容差里：
 
-| metric | 2026-11-16 | 2026-11-19 | delta |
+| 指标 | 2026-11-16 | 2026-11-19 | 差值 |
 | --- | --- | --- | --- |
-| version_startup | 5.14 ms | 6.37 ms | +24% slower |
+| version_startup | 5.14 ms | 6.37 ms | 慢了 24% |
 | session_append_fsync | 4,501 /s | 4,354 /s | −3% |
-| session_append_batch | 76,942 /s | 89,477 /s | +16% faster |
+| session_append_batch | 76,942 /s | 89,477 /s | 快了 16% |
 | session_replay_10k | 159,766 /s | 148,230 /s | −7% |
 | session_projection_10k | 92,313 /s | 84,630 /s | −8% |
 | event_roundtrip | 2,843 ns/op | 2,849 ns/op | +0.2% |
 
-`event_roundtrip` matching within 0.2% says the machine and the release profile
-are the same ones that produced the old record; it does not explain the
-startup row. The six added crates are the obvious candidate, but that has not
-been isolated, and the honest statement is that it has not. Startup at 6.4 ms
-is still below the retired Go tree's 7.2 ms and far below a JS harness.
-The record's job is to catch regressions from *today's* tree; keeping a stale
-record produces a gate that is red for reasons nobody intends to fix.
+`event_roundtrip` 相差在 0.2% 以内，说明机器和 release profile 就是当初产出旧记录的那一套；这并不能解释启动那一行的变化。新增的六个 crate 是最明显的候选，但这一点没有被隔离验证，而诚实的说法就是：没有验证。6.4 ms 的启动仍然低于已退役 Go 树的 7.2 ms，也远低于任何 JS harness。记录的作用是抓**今天**这棵树的回退；留一份过期记录，只会得到一个谁都不打算去修的红门禁。
 
-## The Linux record, and why hosted numbers are informational
+## Linux 记录，以及为什么托管机器的数字只作参考
 
-`linux/amd64` was recorded on 2026-11-19 by `bench.yml` on `ubuntu-latest`
-(rustc 1.100.0). Two runs of the same job on the same runner label, an hour
-apart, disagreed by more than a factor of two on the I/O metrics:
+`linux/amd64` 于 2026-11-19 由 `bench.yml` 在 `ubuntu-latest` 上记录（rustc 1.100.0）。同一个 runner 标签上的同一个作业，隔一小时跑两次，I/O 指标差了不止两倍：
 
-| metric | run A | run B |
+| 指标 | 运行 A | 运行 B |
 | --- | --- | --- |
 | session_append_batch | 77,828 /s | 37,756 /s |
 | session_replay_10k | 77,310 /s | 135,271 /s |
 
-The committed record is run B, taken with the single-build harness. Shared
-runners tell you the shape of a platform, not a metronome; the workflow's
-`-strict` step is `continue-on-error` for this reason, and a Linux record from a
-machine you control is what should gate Linux work.
+提交进去的记录是运行 B，用单次构建的测试台测的。共享 runner 告诉你的是平台的形状，不是节拍器；正因为如此，工作流里的 `-strict` 那一步是 `continue-on-error`，而真正应该给 Linux 工作设门禁的，是你自己控制的机器上测出的 Linux 记录。
 
-The `windows-latest` artifact from the same workflow is not committed: its
-`session_append_fsync` was 368/s against 4,354/s on the machine that produced
-the Windows record, and a later dispatch measured 274/s. Hosted Windows disks
-are that much slower, and putting two machines under one `windows/amd64` key
-would make the gate meaningless.
+同一工作流产出的 `windows-latest` 产物没有提交：它的 `session_append_fsync` 是 368/s，而产出 Windows 记录的那台机器上是 4,354/s，后来一次手动触发测到 274/s。托管 Windows 的磁盘就是慢这么多，把两台机器塞进同一个 `windows/amd64` 键下，门禁就毫无意义了。
 
-A third dispatch (2026-11-20, run 44621655899) produced yet another Linux
-record — `session_append_batch` 35,322/s, `session_replay_10k` 125,059/s. It was
-not adopted: swapping a hosted record for another hosted record every dispatch
-turns the file into a changelog of runner noise. Run B stays, because it is the
-one described in the table above.
+第三次触发（2026-11-20，run 44621655899）又产出了一份 Linux 记录——`session_append_batch` 35,322/s、`session_replay_10k` 125,059/s。它没有被采纳：每次触发都拿一份托管记录换掉另一份托管记录，只会把这个文件变成 runner 噪声的变更日志。运行 B 留着，因为上表描述的就是它。
 
-## The macOS record, and why it exists at all
+## macOS 记录，以及它为什么存在
 
-`macos/arm64` was recorded on 2026-11-20 by `bench.yml` on `macos-latest`
-(rustc 1.100.0, Apple Silicon):
+`macos/arm64` 于 2026-11-20 由 `bench.yml` 在 `macos-latest` 上记录（rustc 1.100.0，Apple Silicon）：
 
-| metric | value |
+| 指标 | 数值 |
 | --- | --- |
 | version_startup | 4.79 ms |
 | session_append_fsync | 1,715 /s |
@@ -179,18 +122,11 @@ one described in the table above.
 | session_projection_10k | 123,629 /s |
 | event_roundtrip | 3,775 ns/op |
 
-This is a hosted number and inherits every caveat above — but it is the *only*
-macOS record there is, so the choice was between a wobbly reference and no gate
-at all on that platform. It is committed for the second reason, and the
-tolerance on the I/O rows (35%) is wide enough to absorb the wobble the Linux
-runs demonstrated.
+这是一个托管数字，上面每一条告诫它都继承——但它是**唯一**一份 macOS 记录，所以选择只有两个：要么拿一份摇摆的参考，要么在那个平台上完全没有门禁。它是因为第二个理由才被提交的，而 I/O 那几行的容差（35%）宽到足以吸收 Linux 那几次运行展示出来的摆动。
 
-Getting it required changing the matrix from `macos-14` to `macos-latest`: the
-first dispatch asked for `macos-14` and the job was cancelled with no runner
-assigned (`runner_id: 0`, empty steps), while `release.yml`'s `macos-latest`
-job had run fine the day before. The two labels are not interchangeable.
+拿到它还要求把矩阵从 `macos-14` 改成 `macos-latest`：第一次触发要的是 `macos-14`，作业被取消且没有分配 runner（`runner_id: 0`、步骤为空），而前一天 `release.yml` 的 `macos-latest` 作业跑得好好的。这两个标签不能互换。
 
-## Running and integrating
+## 运行与集成
 
 ```powershell
 $env:CARGO_TARGET_DIR = "D:\hearth-target\hearth"
@@ -199,29 +135,16 @@ cargo clippy -p hearth-bench --all-targets --offline -- -D warnings
 cargo test -p hearth-bench --offline
 cargo run -q -p archcheck --offline
 
-# report / gate / deliberate recording (never record from a noisy build)
+# 报告 / 门禁 / 有意记录（永远不要从吵闹的构建里记录）
 cargo run --release -q -p hearth-bench --offline --
 cargo run --release -q -p hearth-bench --offline -- -strict
 cargo run --release -q -p hearth-bench --offline -- -out scripts/bench/baseline.json -baseline ""
 ```
 
-`--release` is not an optimisation hint, it is part of the unit. Four of the six
-metrics are measured inside this process; a debug build measures the debug
-profile and lands 4–15× below every recorded number (`event_roundtrip` was
-91,792 ns/op in debug against 2,840 ns/op in release on the same machine).
-`Makefile`'s `bench-*` targets and `.github/workflows/bench.yml` both pass it;
-an operator following a command that does not pass it will see a regression for
-every metric and none of them will be real.
+`--release` 不是优化建议，它是计量单位的一部分。六个指标里有四个是在本进程内测的；debug 构建量的是 debug profile，比每条记录都低 4–15×（同一台机器上 `event_roundtrip` 在 debug 里是 91,792 ns/op，在 release 里是 2,840 ns/op）。`Makefile` 的 `bench-*` 目标与 `.github/workflows/bench.yml` 都会带上它；一个照着不加 `--release` 的命令去跑的运维，会看到每个指标都回退，而没有一个是真实的。
 
-Integration is in place: `tools/bench` is a workspace member, the `Makefile`
-has `bench-run` / `bench-record` / `bench-check`, and `bench.yml` records one
-artifact per runner. The workflow is manual (`workflow_dispatch`) so recording
-never rides along with an ordinary push.
+集成已经就位：`tools/bench` 是 workspace 成员，`Makefile` 有 `bench-run` / `bench-record` / `bench-check`，`bench.yml` 给每个 runner 记录一份产物。工作流是手动的（`workflow_dispatch`），所以记录永远不会搭上普通 push 的顺风车。
 
-## Boundaries
+## 边界
 
-The crate may import `hearth-core` and `hearth-session` only. Everything else
-is std plus the workspace's existing `serde`/`serde_json` (baseline document
-and 4KB payload). No CLI framework, no async runtime, no new workspace
-dependency. The tool never edits `crates/**`, the root `Cargo.toml`, the
-`Makefile`, `architecture.yaml` or `docs/08-rust-port.md`.
+这个 crate 只许 import `hearth-core` 和 `hearth-session`。别的都是 std 加上 workspace 已有的 `serde`/`serde_json`（基线文档和 4KB 载荷）。没有 CLI 框架，没有异步运行时，没有新的 workspace 依赖。这个工具从不编辑 `crates/**`、根 `Cargo.toml`、`Makefile`、`architecture.yaml` 或 `docs/08-rust-port.md`。

@@ -105,7 +105,7 @@ export function parseReport(value: unknown): PresentReport {
 
 /** Bytes as the manifest recorded them, in the units a person reads. */
 export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return 'size unknown';
+  if (!Number.isFinite(bytes) || bytes < 0) return '大小未知';
   if (bytes === 0) return '0 B';
   if (bytes < 1024) return `${String(bytes)} B`;
   const kib = bytes / 1024;
@@ -120,9 +120,9 @@ export function formatBytes(bytes: number): string {
  * and not a time; rendering it as 1970 would invent one.
  */
 export function formatWhen(ts: number): string {
-  if (!Number.isFinite(ts) || ts <= 0) return 'time not recorded';
+  if (!Number.isFinite(ts) || ts <= 0) return '时间未记录';
   const when = new Date(ts);
-  if (Number.isNaN(when.getTime())) return 'time not recorded';
+  if (Number.isNaN(when.getTime())) return '时间未记录';
   const iso = when.toISOString();
   return `${iso.slice(0, 10)} ${iso.slice(11, 19)}Z`;
 }

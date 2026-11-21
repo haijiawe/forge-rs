@@ -29,9 +29,9 @@ function title(row: SubagentRow): string {
 export function SubagentPanel({ tree, error }: SubagentPanelProps) {
   if (error !== undefined && error !== null) {
     return (
-      <section className="subagents" aria-label="subagents">
+      <section className="subagents" aria-label="子代理">
         <p className="subagents-empty">
-          the subagent tree could not be read: <code>{error}</code> — try <code>hearth subagent tree</code>
+          无法读取子代理树：<code>{error}</code> — 可以试试 <code>hearth subagent tree</code>
         </p>
       </section>
     );
@@ -40,9 +40,9 @@ export function SubagentPanel({ tree, error }: SubagentPanelProps) {
   const rows = flatten(tree.subagents);
   if (rows.length === 0) return null;
   return (
-    <section className="subagents" aria-label="subagents">
+    <section className="subagents" aria-label="子代理">
       <h3 className="subagents-title">
-        {String(tree.count)} subagent{tree.count === 1 ? '' : 's'} below this session
+        本会话下有 {String(tree.count)} 个子代理
       </h3>
       <ul className="subagent-list">
         {rows.map((row) => (
@@ -52,7 +52,7 @@ export function SubagentPanel({ tree, error }: SubagentPanelProps) {
             style={{ marginLeft: `${String((row.depth - 1) * 12)}px` }}
             title={title(row)}
           >
-            <span className="mono subagent-name">{row.name ?? '(unnamed)'}</span>
+            <span className="mono subagent-name">{row.name ?? '（未命名）'}</span>
             <span className="mono subagent-mode">{row.mode}</span>
             <span
               className={

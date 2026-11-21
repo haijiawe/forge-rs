@@ -103,8 +103,8 @@ describe('formatBytes', () => {
   });
 
   it('refuses a number it cannot stand behind', () => {
-    expect(formatBytes(-1)).toBe('size unknown');
-    expect(formatBytes(Number.NaN)).toBe('size unknown');
+    expect(formatBytes(-1)).toBe('大小未知');
+    expect(formatBytes(Number.NaN)).toBe('大小未知');
   });
 });
 
@@ -115,8 +115,8 @@ describe('formatWhen', () => {
 
   it('says the time was not recorded rather than printing 1970', () => {
     // `0` is a fact about the line, not a moment in time.
-    expect(formatWhen(0)).toBe('time not recorded');
-    expect(formatWhen(-1)).toBe('time not recorded');
+    expect(formatWhen(0)).toBe('时间未记录');
+    expect(formatWhen(-1)).toBe('时间未记录');
   });
 });
 

@@ -145,7 +145,7 @@ All paths are under `{base}`. `{id}` is a session id; an unknown id is
 | 16 | `GET` | `/api/sessions/{id}/subagents` | The children this session delegated to | `200` |
 | 17 | `GET` | `/api/sessions/{id}/files` | One directory of the session's workspace | `200` |
 | 18 | `GET` | `/api/sessions/{id}/file` | One file of that workspace, as text | `200` |
-| 19 | `GET` | `/api/sessions/{id}/diff` | The changes git knows about in that workspace | `200` |
+| 19 | `GET` | `/api/sessions/{id}/diff` | The changes git knows about in that workspace; `?path=` narrows it to one file's lines | `200` |
 | 20 | `PUT` | `/api/sessions/{id}/file` | Save an edited buffer into that workspace | `200` |
 
 ### 4.1 `GET /healthz`
@@ -890,26 +890,46 @@ One file of that workspace, as text.
 
 ### 4.19 `GET /api/sessions/{id}/diff`
 
-The changes git knows about in that workspace: one row per path, with the line
-counts a review pane needs to decide what to open.
+The changes git knows about in that workspace. Without a query it answers one row
+per path, with the line counts a review pane needs to decide what to open; with
+`?path=` it answers that one file's unified diff, because the question "what
+changed" has one more level of detail and splitting it into two routes would let
+the list and the detail disagree about which files changed.
 
 ```
 200 OK
 { "files": [ { "path": "src/main.rs", "status": "modified", "additions": 12, "deletions": 3 } ] }
 ```
 
+```
+200 OK   (GET .../diff?path=src/main.rs)
+{ "path": "src/main.rs", "status": "modified", "text": "--- a/src/main.rs\n+++ b/src/main.rs\n@@ …", "truncated": false }
+```
+
 - `status` is a git word, not a word of this contract's invention: `modified`,
-  `added`, `deleted`, `renamed`, `untracked`, `conflicted`.
+  `added`, `deleted`, `renamed`, `untracked`, `conflicted`. The single-file form
+  adds one more: `unchanged`, for a path whose bytes match what is committed.
 - `additions` and `deletions` come from `git diff --numstat` against `HEAD`,
   falling back to the worktree and then the index for a repository with no
   commit. A file git cannot count (`untracked`) reports `0` and `0`.
+- `text` is `git diff -U3 --no-color --no-ext-diff` against `HEAD`, falling back
+  to `--cached`. Three details are this contract's, and they exist because each
+  is a case where the obvious answer is wrong:
+  - an **untracked** file has no `git diff` output at all, so the answer is
+    synthesised from the file's own bytes with every line prefixed `+`. Without
+    this a reviewer of a brand-new file sees an empty pane and concludes nothing
+    changed;
+  - a **binary** file is described (`Binary file <path> (<n> bytes)`) rather than
+    rendered, because a diff of a PNG is a diff of noise;
+  - `text` is capped at 1 MiB with `truncated: true`, the same cap and the same
+    marker as §4.18.
 - A workspace that is not a git repository, or a machine with no `git`, answers
   `{"files": []}` with `200`: "nothing here is versioned" is a fact about the
-  tree, not a failure of the request.
-- Rows are sorted by path. Line-level hunks are deliberately not part of this
-  answer: that is `git diff`'s own format, and re-encoding it here would make
-  this contract responsible for a format it does not own.
-- Same 404 shapes as §4.17. `GET` only.
+  tree, not a failure of the request. With `?path=` the same workspace answers
+  `{"status": "unchanged", "text": ""}` for an existing file.
+- Rows are sorted by path. Hunks are `git diff`'s own format and this contract
+  only carries the bytes; it does not reinterpret them.
+- Path rules are §4.17's. Same 404 shapes as §4.17. `GET` only.
 
 ### 4.20 `PUT /api/sessions/{id}/file`
 

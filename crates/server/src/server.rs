@@ -1580,7 +1580,9 @@ impl Server {
                 "file" if request.method == "PUT" => {
                     self.handle_workspace_write(request, segments[1])
                 }
-                "diff" if request.method == "GET" => self.handle_workspace_diff(segments[1]),
+                "diff" if request.method == "GET" => {
+                    self.handle_workspace_diff(request, segments[1])
+                }
                 "stream" => Err(method_not_allowed("GET")),
                 "events" => Err(method_not_allowed("GET")),
                 "messages" => Err(method_not_allowed("POST")),
@@ -1765,11 +1767,28 @@ impl Server {
     /// A workspace that is not a repository, or a machine with no `git`, answers
     /// with an empty list: "nothing is versioned here" is a fact about the tree,
     /// not a failure of the request.
-    fn handle_workspace_diff(&self, id: &str) -> ApiResult<Response> {
+    ///
+    /// With `?path=`, the same route answers one file's unified diff instead of
+    /// the list. One route rather than two because the question is the same --
+    /// "what changed" -- and the answer is the same shape with more detail; two
+    /// routes would let the list and the detail disagree about which files are
+    /// changed.
+    fn handle_workspace_diff(&self, request: &Request, id: &str) -> ApiResult<Response> {
         let workspace = self.session_workspace(id)?;
-        let changes = crate::workspace_route::list_diff(&workspace).map_err(workspace_failure)?;
-        let files: Vec<serde_json::Value> = changes.iter().map(|change| change.to_json()).collect();
-        Ok(Response::json(200, &serde_json::json!({ "files": files })))
+        match request.query("path") {
+            Some(path) if !path.trim().is_empty() => {
+                let diff = crate::workspace_route::diff_for(&workspace, path)
+                    .map_err(workspace_failure)?;
+                Ok(Response::json(200, &diff.to_json()))
+            }
+            _ => {
+                let changes =
+                    crate::workspace_route::list_diff(&workspace).map_err(workspace_failure)?;
+                let files: Vec<serde_json::Value> =
+                    changes.iter().map(|change| change.to_json()).collect();
+                Ok(Response::json(200, &serde_json::json!({ "files": files })))
+            }
+        }
     }
 
     /// The subagent tree of one session, joined with each child's timing.

@@ -1,15 +1,11 @@
-# The Office skill, run end to end
+# Office 技能，端到端跑一遍
 
-Date: 2026-11-20. Host: Windows, MSVC build, `python` = 3.14.5
-(`C:\Users\Administrator\AppData\Local\Python\pythoncore-3.14-64\python.exe`).
+日期：2026-11-20。主机：Windows，MSVC 构建，`python` = 3.14.5
+（`C:\Users\Administrator\AppData\Local\Python\pythoncore-3.14-64\python.exe`）。
 
-This is the verification record for `skills/office/SKILL.md`. The probe behind it
-(`hearth doctor`, `crates/cli/src/office.rs`) was already known to work; what had
-never been tested is whether **the instructions themselves** produce a real
-document. They did not, in five places, which are now fixed. Everything below was
-run on this host; nothing here is inferred from the code.
+这是 `skills/office/SKILL.md` 的验证记录。它背后的探针（`hearth doctor`、`crates/cli/src/office.rs`）早就知道是好的；从没被验证过的，是**那些指令本身**能不能产出一份真正的文档。答案是五处不能，而这五处现在都修了。下面每一条都在本机跑过，没有一条是从代码里推的。
 
-## 1. The probe
+## 1. 探针
 
 ```powershell
 & 'D:\hearth-target\hearth\debug\hearth.exe' doctor
@@ -20,16 +16,11 @@ WARN  office     docx=python 3.14 xlsx=python 3.14 pptx=python 3.14 convert=miss
                  -> unavailable on this machine: format conversion (LibreOffice soffice). Install LibreOffice for format conversion; say so instead of writing an empty file.
 ```
 
-The line is `WARN`, not `OK`, and it is followed by a `->` sentence. Native
-writing is available for all three formats; format conversion is not, because
-LibreOffice is absent. That is the correct verdict for this machine.
+那一行是 `WARN` 而不是 `OK`，后面跟着一句 `->` 说明。三种格式的原生写出都可用；格式转换不可用，因为这台机器上没有 LibreOffice。对这台机器来说，这就是正确的结论。
 
-## 2. Following the shipped skill literally
+## 2. 严格照着发出去的技能走
 
-Scratch directory `D:\hearth-target\office-check\`. Per SKILL.md §2 each
-document gets its own `.py` file, written with the file tool and run with the
-interpreter the doctor named (`python`). The scripts were copied from §2
-verbatim, with the §3 read-back appended to the docx one.
+临时目录 `D:\hearth-target\office-check\`。按 SKILL.md §2，每份文档各自一个 `.py` 文件，用 file 工具写出来，用 doctor 点名的解释器（`python`）跑。脚本逐字照抄 §2，只在 docx 那个后面追加了 §3 的读回。
 
 ```powershell
 cd 'D:\hearth-target\office-check'
@@ -38,8 +29,7 @@ python make_xlsx.py    # (no output: the snippet prints nothing)
 python make_pptx.py    # (no output: the snippet prints nothing)
 ```
 
-Three files appeared: `out.docx` 35,488 B, `out.xlsx` 4,900 B, `out.pptx` 28,356 B.
-They open. What they contain is where the skill fell short.
+出现了三个文件：`out.docx` 35,488 B、`out.xlsx` 4,900 B、`out.pptx` 28,356 B。它们能打开。短板在它们的内容里。
 
 ```powershell
 python verify.py
@@ -66,47 +56,30 @@ pptx read-back slide count: 1                       <-- one slide, not two
   slide 1 title='Status' texts=['Status', 'One bullet', 'Another bullet']
 ```
 
-### The five things that were wrong
+### 错的那五处
 
-1. **§1 could not run.** `hearth` is not on `PATH` on this host; the literal
-   command fails with `hearth: 术语 'hearth' 不会被识别为 cmdlet、函数、脚本文件或可执行程序的名称。`
-   and the skill offered no fallback, so a model following it could not obtain
-   the line it is told to read.
-2. **§1 did not describe the answer it would get.** The example shows a single
-   `OK` line; the real output is `WARN` plus a `->` continuation. A model
-   scanning for `OK` can read `WARN` as a failed probe.
-3. **§2 `.xlsx` had no number-format step.** `sheet["B2"]` came back `General`.
-   Setting a value never sets a format, so the format was unreachable from the
-   shipped snippet.
-4. **§2 `.pptx` built one slide.** A two-slide deck needs a second `add_slide`;
-   nothing in the snippet said so, and nothing said whether `\n` in `.text`
-   yields bullets or one long line.
-5. **§Convert said when not to convert, never what to tell the user.** With
-   `convert=missing` a model had no refusal wording, so the honest answer
-   ("LibreOffice is not installed") was not written down anywhere.
+1. **§1 根本跑不起来。** 本机的 `hearth` 不在 `PATH` 上；照抄的那条命令以
+   `hearth: 术语 'hearth' 不会被识别为 cmdlet、函数、脚本文件或可执行程序的名称。`
+   失败，而技能没给任何退路，所以照着做的模型拿不到那段它被告知要读的输出行。
+2. **§1 没有描述它会得到的答案。** 示例给的是一行 `OK`；真实输出是 `WARN` 加一行 `->` 续写。一个专门找 `OK` 的模型，会把 `WARN` 读成探针失败。
+3. **§2 的 `.xlsx` 少了设数字格式这一步。** `sheet["B2"]` 读回来是 `General`。设值从来不设格式，所以照发出去的片段根本够不到格式。
+4. **§2 的 `.pptx` 只造了一页。** 两页的稿子需要第二次 `add_slide`；片段里没提，也没说 `.text` 里的 `\n` 到底出项目符号还是出长长一行。
+5. **§Convert 说了什么时候不该转，但没说要告诉用户什么。** 在 `convert=missing` 时，模型没有拒绝的话术，所以那句诚实的话（"没有装 LibreOffice"）哪儿都没写下来。
 
-## 3. What changed in SKILL.md
+## 3. SKILL.md 改了什么
 
-`+58 −1`, four edits plus the verification examples (the full diff is in the
-working tree). No behavioural rule was weakened; §1's STOP rule, §3's
-"zero means not a deliverable", and the "never claim what you did not run" rule
-are untouched.
+`+58 −1`，四处修改加上验证示例（完整 diff 在工作树里）。没有任何行为规则被放松；§1 的 STOP 规则、§3 的"零字节不算交付物"、以及"永远不要声称你跑过没跑的东西"，都没动。
 
-* §1: how to run the probe when `hearth` is not on `PATH`
-  (`cargo run -q -p hearth-cli -- doctor` — verified below), and that `WARN` is
-  still an answer.
-* §2 `.xlsx`: `sheet["B2"].number_format = "#,##0"` and why the value alone
-  leaves `General`.
-* §2 `.pptx`: a second slide, `\n` vs `\v`, bullets inherited from the master,
-  and that layout/placeholder indices are template facts to print, not guess.
-* §Convert: the refusal to give when `convert=missing` — name LibreOffice, say
-  `python -m pip` cannot install it, never write a 0-byte `.pdf`.
-* §3: read-back snippets for `.xlsx` and `.pptx`, the fact that `openpyxl`
-  returns the formula string, and the cp936 console trap when printing `•`.
+* §1：`hearth` 不在 `PATH` 上时怎么跑探针
+  （`cargo run -q -p hearth-cli -- doctor`——下面验证过），以及 `WARN` 也是一个答案。
+* §2 `.xlsx`：`sheet["B2"].number_format = "#,##0"`，以及为什么只设值会留下 `General`。
+* §2 `.pptx`：第二页、`\n` 与 `\v` 的区别、从母版继承的项目符号，以及布局/占位符索引是模板事实、要打印出来而不是猜。
+* §Convert：`convert=missing` 时该给的拒绝——点名 LibreOffice、说明 `python -m pip` 装不了它、永远不要写一个 0 字节的 `.pdf`。
+* §3：`.xlsx` 和 `.pptx` 的读回片段、`openpyxl` 返回公式字符串这个事实，以及打印 `•` 时的 cp936 控制台陷阱。
 
-## 4. Re-running the fixed instructions
+## 4. 重跑修好的指令
 
-Each snippet from the patched §2 was written to a script and run, unchanged.
+打补丁后 §2 的每个片段都被写成脚本、原样跑了一遍。
 
 ```powershell
 python fixed_docx.py   # paragraphs: 3
@@ -164,12 +137,10 @@ pptx slides: 2
    slide 2: title='Next steps' body_paragraphs=['Ship it', 'Watch it']
 ```
 
-The `.xlsx` number format is visible in the part XML as `s="1"` on `B2`, and
-`xl/styles.xml` resolves cell style 1 to `numFmtId="3"` — the built-in `#,##0`
-format, so no custom `<numFmt>` entry is written. Read-back confirms it
-semantically as `number_format == '#,##0'`.
+`.xlsx` 的数字格式在部件 XML 里看得见：`B2` 上带 `s="1"`，而
+`xl/styles.xml` 把单元格样式 1 解析到 `numFmtId="3"`——也就是内置的 `#,##0` 格式，所以没有写任何自定义 `<numFmt>` 条目。读回在语义上确认了它：`number_format == '#,##0'`。
 
-Two claims added to the skill were tested rather than assumed:
+写进技能里的两条主张是测出来的，不是假定的：
 
 ```powershell
 python -c "from pptx import Presentation; d=Presentation(); s=d.slides.add_slide(d.slide_layouts[1]); s.shapes.title.text='T'; s.placeholders[1].text='A\vB'; print(len(s.placeholders[1].text_frame.paragraphs), [r.text for r in s.placeholders[1].text_frame.paragraphs[0].runs], '<a:br' in s.placeholders[1].text_frame._txBody.xml, [(p.placeholder_format.idx, p.name) for p in s.placeholders])"
@@ -179,10 +150,9 @@ python -c "from pptx import Presentation; d=Presentation(); s=d.slides.add_slide
 1 ['A', 'B'] True [(0, 'Title 1'), (1, 'Content Placeholder 2')]
 ```
 
-One paragraph, two runs, an `<a:br/>` — `\v` is a soft break; and the
-placeholder-index print the skill now recommends works.
+一个段落、两个 run、一个 `<a:br/>`——`\v` 是软换行；而技能现在推荐的占位符索引打印也确实能用。
 
-The probe fallback is real too — the exact command the patched §1 gives:
+探针的退路也是真的——打补丁后 §1 给的那条原命令：
 
 ```powershell
 $env:CARGO_TARGET_DIR='D:\hearth-target\hearth'
@@ -194,19 +164,17 @@ WARN  office     docx=python 3.14 xlsx=python 3.14 pptx=python 3.14 convert=miss
                  -> unavailable on this machine: format conversion (LibreOffice soffice). Install LibreOffice for format conversion; say so instead of writing an empty file.
 ```
 
-(`hearth-cli`, not `hearth`: an earlier draft of the fix said `-p hearth`, and cargo
-refused it — verbatim, with backticks as cargo printed them:
+（是 `hearth-cli` 不是 `hearth`：这个修复的早期草稿写的是 `-p hearth`，cargo 拒绝了它——原样照抄，反引号也照 cargo 打出来的样子留着：
 
 ```
 error: package(s) `hearth` not found in workspace `D:\魔改版Agent框架\hearth`
 ```
 
-exit 101. The skill text carries the verified package name.)
+退出码 101。技能文本里带的是验证过的包名。）
 
-## 5. The refusal path
+## 5. 拒绝的路径
 
-The machine cannot convert, so the honest answer to "give me a PDF" is a refusal.
-Verified that the skill says so and that nothing gets written:
+这台机器转不了，所以对"给我一个 PDF"的诚实答案就是拒绝。验证过技能是这么说的，而且什么都没被写出来：
 
 ```
 soffice found on PATH: False
@@ -216,7 +184,7 @@ pdf files in scratch dir: []
 zero-byte files in scratch dir: []
 ```
 
-The naive command a model would run if it ignored the rule:
+模型如果无视规则，会跑的那条天真命令：
 
 ```powershell
 soffice --headless --convert-to pdf --outdir . out.docx
@@ -227,47 +195,33 @@ soffice: 术语 'soffice' 不会被识别为 cmdlet、函数、脚本文件或�
 请检查名称的拼写或验证路径是否正确(如果包含路径)，然后重试。
 ```
 
-No `.pdf` and no 0-byte file was produced. A model following the patched §Convert
-answers, in words:
+没有 `.pdf`，也没有 0 字节文件被产出。照着打补丁后的 §Convert 做的模型，会用话回答：
 
-> I cannot produce the PDF: LibreOffice (`soffice`) is not installed on this
-> machine, so `hearth doctor` reports `convert=missing`. PDF conversion is done by
-> LibreOffice, which is a separate application and cannot be installed with
-> `python -m pip`. `quarterly-report.pdf` was **not** created. The `.docx` at
-> `D:\hearth-target\office-check\fixed.docx` is the deliverable; install
-> LibreOffice if a PDF is needed.
+> 我出不了这个 PDF：这台机器上没有装 LibreOffice（`soffice`），所以
+> `hearth doctor` 报 `convert=missing`。PDF 转换是 LibreOffice 干的活，
+> 那是一个独立应用，`python -m pip` 装不了它。`quarterly-report.pdf`
+> **没有**被创建。交付物是
+> `D:\hearth-target\office-check\fixed.docx`；需要 PDF 的话请装 LibreOffice。
 
-## 6. Verdict
+## 6. 结论
 
-The skill is **correct after the fix**, and was **incomplete before it**. The
-libraries are not broken: `python-docx` 1.2.0, `openpyxl` 3.1.5 and
-`python-pptx` 1.0.2 all wrote, and all re-opened, their own output. The defects
-were in the instructions — a probe that could not be located, an answer shape
-(`WARN`) it did not describe, a missing number-format line, a one-slide example
-where two slides were asked for, and a refusal with no wording.
+这个技能**修完之后是对的**，**修之前是不完整的**。库没问题：
+`python-docx` 1.2.0、`openpyxl` 3.1.5、`python-pptx` 1.0.2 都写出了各自的产物，也都重新打开了自己写出的产物。毛病在指令里——一个定位不到的探针、一种它没描述的答案形状（`WARN`）、缺一行设数字格式、一个只要一页而实际要两页的示例、以及一句没有话术的拒绝。
 
-What is **not** verified here:
+这里**没有**验证的：
 
-* No document was opened in Word, Excel or PowerPoint; there is no LibreOffice
-  on this host to render one either. "It is a valid OOXML package that its own
-  library re-opens and whose XML contains the requested text" is what was
-  measured — not "it looks right on screen".
-* The `.pptx` bullets are inherited from the slide master's body style (9
-  `buChar` in `slideMaster1.xml`, `•`). That is how the format works, but the
-  bullet was not seen rendered.
-* `=SUM(B2:B3)` is stored as text and `B3` is empty, so nothing computed it. The
-  formula is present and re-reads as `'=SUM(B2:B3)'`; no recalculation was
-  performed, since openpyxl does not do that.
-* `hearth doctor` on a machine that *has* LibreOffice, and the `OK` branch of §1,
-  were not exercised: `convert` is missing here.
+* 没有任何文档在 Word、Excel 或 PowerPoint 里打开过；本机也没有 LibreOffice 能渲染一份。"它是一个合法的 OOXML 包，它自己的库能重新打开，且其中 XML 含有被要求的文字"——这是量到的东西；不是"它在屏幕上看起来对"。
+* `.pptx` 的项目符号是从幻灯片母版的正文样式继承来的（`slideMaster1.xml` 里 9 个 `buChar`，`•`）。格式就是这么工作的，但项目符号的渲染没被看到过。
+* `=SUM(B2:B3)` 存的是文本，且 `B3` 是空的，所以没有任何东西去计算它。公式在场、重读出来是 `'=SUM(B2:B3)'`；没有做重算，因为 openpyxl 不做这个。
+* 在**装了** LibreOffice 的机器上跑 `hearth doctor`、以及 §1 的 `OK` 分支，都没被跑到：这台机器上 `convert` 是缺的。
 
-## Files
+## 文件
 
-| Path | What |
+| 路径 | 是什么 |
 | --- | --- |
-| `skills/office/SKILL.md` | patched, +58 −1 |
-| `docs/office-run.md` | this transcript |
-| `D:\hearth-target\office-check\make_*.py` | the three literal scripts |
-| `D:\hearth-target\office-check\fixed_*.py` | the three scripts from the patched skill |
-| `D:\hearth-target\office-check\verify.py`, `verify_fixed.py` | zip + XML + read-back checks |
-| `D:\hearth-target\office-check\refusal_check.py` | the conversion refusal probe |
+| `skills/office/SKILL.md` | 打过补丁，+58 −1 |
+| `docs/office-run.md` | 这份记录 |
+| `D:\hearth-target\office-check\make_*.py` | 三个照抄的脚本 |
+| `D:\hearth-target\office-check\fixed_*.py` | 三个来自打补丁后技能的脚本 |
+| `D:\hearth-target\office-check\verify.py`、`verify_fixed.py` | zip + XML + 读回检查 |
+| `D:\hearth-target\office-check\refusal_check.py` | 转换拒绝的探针 |

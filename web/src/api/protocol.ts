@@ -426,6 +426,6 @@ export function decodeFrame(raw: string): ServerFrame {
     case "pong":
       return parsed as PongFrame;
     default:
-      throw new Error(`unknown frame kind: ${kind}`);
+      throw new Error(`未知的帧类型：${kind}`);
   }
 }

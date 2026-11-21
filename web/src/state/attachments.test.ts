@@ -223,8 +223,8 @@ describe('addFiles', () => {
 
     expect(result.added).toEqual([]);
     expect(result.refused).toHaveLength(1);
-    expect(result.refused[0]?.reason).toContain('Too large: "video.png" is 2 GiB');
-    expect(result.refused[0]?.reason).toContain('768 KiB per attachment');
+    expect(result.refused[0]?.reason).toContain('太大："video.png" 有 2 GiB');
+    expect(result.refused[0]?.reason).toContain('每个附件的上限是 768 KiB');
     // The point of checking `size` first: nothing was read into memory.
     expect(huge.reads).toBe(0);
   });
@@ -235,7 +235,7 @@ describe('addFiles', () => {
     const result = await addFiles([over]);
 
     expect(result.refused[0]?.reason).toBe(
-      'Too large: "big.png" is 768 KiB; the limit is 768 KiB per attachment.',
+      '太大："big.png" 有 768 KiB；每个附件的上限是 768 KiB。',
     );
     // 768 KiB + 1 byte rounds to 768 KiB at one decimal; the refusal is still
     // correct, and the number the user can act on is the limit.
@@ -251,7 +251,7 @@ describe('addFiles', () => {
 
     expect(result.added.map((draft) => draft.name)).toEqual(['first.png']);
     expect(result.refused[0]?.reason).toBe(
-      'Too much at once: "second.png" would bring the attachments to 5 MiB; the limit is 4 MiB in total.',
+      '合计太大："second.png" 会让附件总量达到 5 MiB；总量上限是 4 MiB。',
     );
     expect(result.totalBytes).toBe(3 * 1024 * 1024);
   });
@@ -263,7 +263,7 @@ describe('addFiles', () => {
     const result = await addFiles([extra], existing, LOOSE);
 
     expect(result.added).toEqual([]);
-    expect(result.refused[0]?.reason).toContain('would bring the attachments to 9 MiB');
+    expect(result.refused[0]?.reason).toContain('会让附件总量达到 9 MiB');
     expect(extra.reads).toBe(0);
   });
 
@@ -274,7 +274,7 @@ describe('addFiles', () => {
 
     expect(result.added.map((draft) => draft.name)).toEqual(['a.png', 'b.png']);
     expect(result.refused[0]?.reason).toBe(
-      'Too many attachments: one message may carry 2; "c.png" would be number 3.',
+      '附件太多：一条消息最多携带 2 个；"c.png" 会是第 3 个。',
     );
   });
 
@@ -286,7 +286,7 @@ describe('addFiles', () => {
     expect(result.added).toEqual([]);
     expect(result.refused[0]?.name).toBe('notes.txt');
     expect(result.refused[0]?.reason).toBe(
-      'Unsupported file: "notes.txt" is type text/plain. Attach an image or a .diff/.patch file; a plain file must be named by a path inside the workspace, which a picked file cannot carry.',
+      '不支持的文件："notes.txt" 类型 text/plain。请附加图片或 .diff/.patch 文件；普通文件必须用工作区内的路径来指名，而用户挑选的文件带不了路径。',
     );
     expect(notes.reads).toBe(0);
   });
@@ -297,14 +297,14 @@ describe('addFiles', () => {
     const result = await addFiles([empty]);
 
     expect(result.added).toEqual([]);
-    expect(result.refused[0]?.reason).toBe('Empty file: "empty.png" has no bytes to attach.');
+    expect(result.refused[0]?.reason).toBe('空文件："empty.png" 里没有任何字节可以附加。');
   });
 
   it('says so when nothing was chosen', async () => {
     const result = await addFiles([]);
 
     expect(result.added).toEqual([]);
-    expect(result.refused[0]?.reason).toBe('No files were chosen, so nothing was attached.');
+    expect(result.refused[0]?.reason).toBe('没有选择任何文件，所以没有附件被添加。');
   });
 
   it('keeps the good files when one of them cannot be read', async () => {
@@ -315,7 +315,7 @@ describe('addFiles', () => {
     expect(result.added.map((draft) => draft.name)).toEqual(['good.png']);
     expect(result.refused[0]?.name).toBe('broken.png');
     expect(result.refused[0]?.reason).toBe(
-      'Could not read "broken.png": the file moved. It was not attached.',
+      '无法读取 "broken.png"：the file moved。它没有被附加。',
     );
   });
 
@@ -326,7 +326,7 @@ describe('addFiles', () => {
     const result = await addFiles([liar]);
 
     expect(result.added).toEqual([]);
-    expect(result.refused[0]?.reason).toContain('Too large');
+    expect(result.refused[0]?.reason).toContain('太大');
     expect(liar.reads).toBe(1);
   });
 });

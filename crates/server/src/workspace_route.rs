@@ -134,6 +134,24 @@ pub struct Change {
     pub deletions: u64,
 }
 
+/// What `GET /diff?path=` answers: one file's unified diff.
+///
+/// The list route says *which* files changed and by how much; a reviewer needs
+/// the lines. Sending the unified diff rather than a parsed hunk structure is a
+/// deliberate choice: `git` already writes that format, every diff reader in the
+/// world parses it, and a server-side parser would be a second implementation of
+/// a format whose edge cases (no newline at end of file, binary markers, rename
+/// headers) are the interesting part.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffBody {
+    pub path: String,
+    /// The same words `Change.status` uses, plus `unchanged` for a file whose
+    /// bytes match what is committed.
+    pub status: &'static str,
+    pub text: String,
+    pub truncated: bool,
+}
+
 /// The workspace a session was started in, read from its own log.
 ///
 /// Read-only in the strict sense: the file is opened for reading and nothing is
@@ -555,6 +573,115 @@ pub fn list_diff(workspace: &str) -> Result<Vec<Change>, Problem> {
     Ok(out)
 }
 
+/// One file's unified diff, for a reviewer who needs the lines.
+///
+/// `git` writes the format and the frontend reads it; this function only decides
+/// *which* diff is the right one to show. That question has three answers:
+///
+/// * an untracked file has no diff — `git diff` prints nothing for it — so the
+///   answer is synthesised from the file's own bytes with every line added. This
+///   is what a reviewer of a new file actually wants to see.
+/// * a tracked file is compared against `HEAD`, which covers staged and unstaged
+///   changes in one answer. Without a commit to compare against (a repository
+///   with no history) the comparison falls back to the index.
+/// * a binary file is named rather than rendered: a diff of a PNG is a diff of
+///   noise, and `git` itself says `Binary files differ`.
+pub fn diff_for(workspace: &str, relative: &str) -> Result<DiffBody, Problem> {
+    let parts = components(relative)?;
+    if parts.is_empty() {
+        return Err(Problem::NotAFile);
+    }
+    let path = parts.join("/");
+
+    let status = match git(workspace, &["status", "--porcelain", "--", &path]) {
+        Some(status) => status
+            .lines()
+            .next()
+            .map(|line| status_word(&line[..2.min(line.len())]))
+            .unwrap_or("unchanged"),
+        // No repository, or git could not answer: the file is not something this
+        // route can describe as a change.
+        None => "unchanged",
+    };
+
+    if status == "untracked" {
+        let body = read_file(workspace, &path)?;
+        let mut text = String::new();
+        text.push_str(&format!("--- /dev/null\n+++ b/{path}\n"));
+        if body.binary {
+            text.push_str(&format!(
+                "Binary file {path} ({} bytes); open it to read the bytes.\n",
+                body.size
+            ));
+        } else {
+            for line in body.text.split_inclusive('\n') {
+                text.push('+');
+                text.push_str(line);
+            }
+            if !body.text.is_empty() && !body.text.ends_with('\n') {
+                text.push_str("\n\\ No newline at end of file\n");
+            }
+        }
+        let (text, truncated) = cut(text, body.truncated);
+        return Ok(DiffBody {
+            path,
+            status,
+            text,
+            truncated,
+        });
+    }
+
+    let diff = git(
+        workspace,
+        &[
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "-U3",
+            "HEAD",
+            "--",
+            &path,
+        ],
+    )
+    .or_else(|| {
+        git(
+            workspace,
+            &[
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                "-U3",
+                "--cached",
+                "--",
+                &path,
+            ],
+        )
+    })
+    .unwrap_or_default();
+
+    // `git` prints the path relative to the repository root, which may sit above
+    // the workspace; leaving its headers alone keeps the output a valid diff.
+    let (text, truncated) = cut(diff, false);
+    Ok(DiffBody {
+        path,
+        status,
+        text,
+        truncated,
+    })
+}
+
+/// Cut a body at the read cap, reporting whether anything was dropped.
+fn cut(text: String, already: bool) -> (String, bool) {
+    if already || text.len() as u64 > MAX_TEXT_BYTES {
+        let mut end = MAX_TEXT_BYTES as usize;
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        return (text[..end].to_string(), true);
+    }
+    (text, false)
+}
+
 fn status_word(code: &str) -> &'static str {
     let mut chars = code.chars();
     let index = chars.next().unwrap_or(' ');
@@ -642,6 +769,17 @@ impl Change {
             "status": self.status,
             "additions": self.additions,
             "deletions": self.deletions,
+        })
+    }
+}
+
+impl DiffBody {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "path": self.path,
+            "status": self.status,
+            "text": self.text,
+            "truncated": self.truncated,
         })
     }
 }
@@ -757,6 +895,131 @@ mod tests {
     fn a_directory_with_no_git_repository_reports_no_changes() {
         let root = scratch("nogit");
         assert_eq!(list_diff(root.to_str().expect("utf8")), Ok(Vec::new()));
+    }
+
+    /// A real repository, or `None` when `git` cannot run here.
+    ///
+    /// Returning `None` rather than panicking keeps the suites below honest on a
+    /// machine without git: they report a skip instead of a failure that names
+    /// the wrong thing.
+    fn repo(name: &str) -> Option<PathBuf> {
+        fn run(dir: &Path, args: &[&str]) -> bool {
+            Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+                .args(args)
+                .env("GIT_OPTIONAL_LOCKS", "0")
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .output()
+                .map(|out| out.status.success())
+                .unwrap_or(false)
+        }
+        let root = scratch(name);
+        if !run(&root, &["init", "--quiet"]) {
+            return None;
+        }
+        Some(root)
+    }
+
+    #[test]
+    fn a_tracked_change_is_shown_as_the_lines_that_moved() {
+        let Some(root) = repo("diff-tracked") else {
+            return;
+        };
+        fs::write(root.join("a.txt"), "one\n").expect("file");
+        // Committed, not merely staged: a staged-but-uncommitted file reads as
+        // "added", and the point of this test is a *modification*.
+        assert!(Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+            .args(["add", "a.txt"])
+            .output()
+            .expect("add")
+            .status
+            .success());
+        assert!(Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+            .args(["commit", "--quiet", "-m", "first"])
+            .output()
+            .expect("commit")
+            .status
+            .success());
+        fs::write(root.join("a.txt"), "one\ntwo\n").expect("file");
+        let workspace = root.to_str().expect("utf8");
+        let diff = diff_for(workspace, "a.txt").expect("diff");
+        assert_eq!(diff.path, "a.txt");
+        assert_eq!(diff.status, "modified");
+        assert!(diff.text.contains("+two"), "text was {:?}", diff.text);
+        assert!(!diff.truncated);
+    }
+
+    #[test]
+    fn an_untracked_file_is_shown_as_every_line_added() {
+        let Some(root) = repo("diff-untracked") else {
+            return;
+        };
+        fs::write(root.join("new.txt"), "alpha\nbeta\n").expect("file");
+        let workspace = root.to_str().expect("utf8");
+        let diff = diff_for(workspace, "new.txt").expect("diff");
+        assert_eq!(diff.status, "untracked");
+        // `git diff` prints nothing for an untracked path, so the answer is
+        // synthesised: without this a reviewer of a brand-new file sees an empty
+        // panel and concludes nothing changed.
+        assert!(
+            diff.text.contains("+++ b/new.txt"),
+            "text was {:?}",
+            diff.text
+        );
+        assert!(diff.text.contains("+alpha"));
+        assert!(diff.text.contains("+beta"));
+    }
+
+    #[test]
+    fn a_file_whose_bytes_are_committed_has_no_lines_to_show() {
+        let Some(root) = repo("diff-clean") else {
+            return;
+        };
+        fs::write(root.join("same.txt"), "steady\n").expect("file");
+        let workspace = root.to_str().expect("utf8");
+        let diff = diff_for(workspace, "same.txt").expect("diff");
+        assert_eq!(diff.status, "untracked");
+        // Once it is committed there is nothing to review, and the empty text is
+        // the honest answer rather than a synthesised "everything is new".
+        assert!(Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+            .args(["add", "same.txt"])
+            .output()
+            .expect("add")
+            .status
+            .success());
+        assert!(Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+            .args(["commit", "--quiet", "-m", "first"])
+            .output()
+            .expect("commit")
+            .status
+            .success());
+        let diff = diff_for(workspace, "same.txt").expect("diff");
+        assert_eq!(diff.status, "unchanged");
+        assert_eq!(diff.text, "");
+    }
+
+    #[test]
+    fn a_diff_may_not_climb_out_of_the_workspace() {
+        let Some(root) = repo("diff-climb") else {
+            return;
+        };
+        let workspace = root.to_str().expect("utf8");
+        assert_eq!(diff_for(workspace, "../outside.txt"), Err(Problem::BadPath));
+        assert_eq!(diff_for(workspace, ""), Err(Problem::NotAFile));
     }
 
     #[test]

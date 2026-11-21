@@ -97,7 +97,7 @@ describe('describeGoal', () => {
     // `nextRound` is the server's own continuation number and is printed as
     // given: deriving one here would be a second opinion on the budget.
     expect(describeGoal(goal({ nextRound: 2 }))).toBe(
-      'keep the smoke test honest — round 1 of 4, active, next round 2',
+      'keep the smoke test honest — 第 1 轮，共 4 轮，active，下一轮 2',
     );
   });
 
@@ -106,11 +106,11 @@ describe('describeGoal', () => {
     // is still active, and no round will run.
     const spent = goal({ rounds: 3 });
     const line = describeGoal({ ...spent, nextRound: undefined });
-    expect(line).toBe('keep the smoke test honest — round 4 of 4, active');
+    expect(line).toBe('keep the smoke test honest — 第 4 轮，共 4 轮，active');
     expect(line).not.toContain('next round');
   });
 
   it('still reads when the goal has no text', () => {
-    expect(describeGoal(goal({ text: '', nextRound: undefined }))).toBe('round 1 of 4, active');
+    expect(describeGoal(goal({ text: '', nextRound: undefined }))).toBe('第 1 轮，共 4 轮，active');
   });
 });

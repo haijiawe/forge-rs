@@ -1,44 +1,42 @@
-# hello — the smallest complete plugin
+# hello —— 最小的完整插件
 
-One tool (`greet`), no dependencies, no build step. This is the file to copy when
-starting a new plugin.
+一个工具（`greet`），没有依赖，没有构建步骤。写新插件时就从这份文件开始抄。
 
-## Try it
+## 试一下
 
 ```text
 hearth plugin call hello greet --args '{"name":"world"}'
 # hello, world
 ```
 
-To make it visible to `plugin list`, put the directory under `<dataDir>/plugins/`:
+想让它出现在 `plugin list` 里，把目录放到 `<dataDir>/plugins/` 下：
 
 ```text
-hearth plugin new ignored-name          # only to show where the root is
-hearth plugin doctor                    # prints root: <dataDir>/plugins
+hearth plugin doctor                    # 打印 root: <dataDir>/plugins
 ```
 
-Or install it from a market, which is what `hearth market pack` produces:
+或者从市场安装，`hearth market pack` 产出的就是这个形状：
 
 ```text
 hearth market pack examples/plugins/hello --out dist --base-url https://example.invalid/p
 # packed hello 1.0.0 (2 file(s)) + dist/index.json
 ```
 
-## Change it
+## 改它
 
-1. Rename the plugin in `plugin.json` and in the `reply(...)` handshake below.
-2. Change `callTool`: one branch per tool. Return `{output, isError: true}` when
-   the tool ran and refused; return `null` for a name you never advertised.
-3. Add a tool by appending to `TOOLS` and adding its branch.
+1. 在 `plugin.json` 和下面 `reply(...)` 握手处把插件改名。
+2. 改 `callTool`：一个工具一个分支。工具跑了但拒绝时返回
+   `{output, isError: true}`；对从没声明过的名字返回 `null`。
+3. 加工具就是往 `TOOLS` 里追加一项，再加一个分支。
 
-## The three rules
+## 三条规矩
 
-These are the only ones that decide whether a plugin works; the rest is style.
+决定一个插件能不能用的只有这三条，其余都是风格。
 
-| Rule | Why |
+| 规矩 | 为什么 |
 | --- | --- |
-| stdout carries protocol frames only | a `console.log` is a malformed frame; diagnostics go to stderr |
-| echo the request `id` exactly | the host rejects a reply whose id differs, so two calls cannot swap answers |
-| `isError: true` is a result, a JSON-RPC error is a non-attempt | the model reads the first, the operator reads the second |
+| stdout 只放协议帧 | 一句 `console.log` 就是一个坏帧；诊断信息走 stderr |
+| 把请求的 `id` 原样回送 | 宿主会拒绝 id 不同的答复，所以两个调用的答案不可能搞混 |
+| `isError: true` 是「有结果」，JSON-RPC error 是「没试成」 | 前者给模型读，后者给操作者读 |
 
-The full contract is [`crates/plugin/PROTOCOL.md`](../../../crates/plugin/PROTOCOL.md).
+完整契约见 [`crates/plugin/PROTOCOL.md`](../../../crates/plugin/PROTOCOL.md)。

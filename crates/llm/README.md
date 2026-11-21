@@ -12,22 +12,22 @@ gate: cargo run -q -p archcheck --offline
 
 ## 做什么
 
-The model adapter: a `Provider` trait that yields deltas, and an OpenAI-compatible SSE implementation that speaks `/chat/completions`, ported from `forge-go/internal/llm/openai`. The provider uses blocking sockets on the calling thread — no async runtime. Plain `http://` uses `std::net::TcpStream`; `https://` uses the workspace rustls stack with the pinned `webpki-roots` CA bundle.
+模型适配层：一个产出 delta 的 `Provider` trait，以及一个讲 `/chat/completions` 的 OpenAI 兼容 SSE 实现（移植自已退役的 `forge-go/internal/llm/openai`）。provider 在调用线程上用阻塞 socket——没有 async 运行时。明文 `http://` 走 `std::net::TcpStream`；`https://` 走工作区的 rustls 栈，配固定的 `webpki-roots` CA 包。
 
-### Private CA
+### 私有 CA
 
-`Options { ca_file: Some(path), .. }` adds the certificates in a PEM file to the pinned bundle, so an endpoint fronted by a private CA verifies without disabling public trust. The private roots are **added on top of** `webpki-roots`; the public bundle is never replaced. A missing, unreadable, or malformed CA file is reported as a typed `ProviderError` whose message names the file but never prints its contents (a bundle can sit beside a private key). The config file exposes the same knob as the optional `caFile` key.
+`Options { ca_file: Some(path), .. }` 把 PEM 文件里的证书加进那份固定包，于是由私有 CA 前置的端点无需关闭公共信任就能通过校验。私有根是**叠加在** `webpki-roots` 之上的；公共包从不被替换。CA 文件缺失、不可读或格式损坏，都会作为一个带类型的 `ProviderError` 报出，其消息点名该文件，但绝不打印文件内容（一个证书包可能和私钥放在一起）。配置文件用可选的 `caFile` 键暴露同一个开关。
 
 ## 公开面
 
-The frozen `contract.rs` surface (`Provider`, `Stream`, `Request`, `Message`, `ToolSpec`, `Delta`, `Usage`, `Aggregator`, `ProviderError`) plus the OpenAI adapter: `openai::Client`, `Options`, `openai::OpenAiStream`, `openai::Canceller`, `openai::provider_error`, and the shared error-code constants. `Client::stream_open` returns the concrete stream so callers can obtain a `Canceller` and close a blocked reader from another thread.
+冻结的 `contract.rs` 面（`Provider`、`Stream`、`Request`、`Message`、`ToolSpec`、`Delta`、`Usage`、`Aggregator`、`ProviderError`），加上 OpenAI 适配器：`openai::Client`、`Options`、`openai::OpenAiStream`、`openai::Canceller`、`openai::provider_error`，以及共享的错误码常量。`Client::stream_open` 返回具体流类型，好让调用方拿到 `Canceller`，从另一个线程关掉一个阻塞的读者。
 
 ## 依赖与边界
 
-Do not import `hearth-session`: the provider must not know that a log exists, or replaying a stream becomes impossible to unit test. Do not add an async runtime; the stream is read on the calling thread.
+不要导入 `hearth-session`：provider 不该知道日志存在，否则「重放一条流」就没法做单元测试。不要加 async 运行时；流在调用线程上读。
 
 ## 不要做
 
-- Do not add a dependency outside the workspace budget in Cargo.toml.
-- Do not silently switch to async or add an SSE/HTTP client crate: the wire code is intentionally std + workspace-TLS only.
-- Do not let an API key reach an error message or a clipped body.
+- 不要在 `Cargo.toml` 的工作区预算之外加依赖。
+- 不要悄悄换成 async，也不要加 SSE/HTTP 客户端 crate：线格式代码故意只用 std + 工作区 TLS。
+- 不要让 API key 出现在错误消息或截断的响应体里。

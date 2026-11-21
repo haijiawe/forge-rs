@@ -7,6 +7,7 @@
 
 mod arch;
 mod check;
+mod dirs;
 mod docs;
 mod manifest;
 mod readme;

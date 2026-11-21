@@ -110,7 +110,7 @@ describe('describeState', () => {
         children: [],
         timing: { settledMs: 0, active: true, turns: 1 },
       }),
-    ).toBe('working');
+    ).toBe('正在工作');
   });
 
   it('reports the settled duration and the turn count', () => {
@@ -123,7 +123,7 @@ describe('describeState', () => {
         children: [],
         timing: { settledMs: 1500, active: false, turns: 2 },
       }),
-    ).toBe('settled in 1.5 s, 2 turns');
+    ).toBe('已在 1.5 s 内结束，共 2 轮');
   });
 
   it('says no log yet rather than settled in 0 ms', () => {
@@ -135,6 +135,6 @@ describe('describeState', () => {
         depth: 1,
         children: [],
       }),
-    ).toBe('no log yet');
+    ).toBe('还没有日志');
   });
 });

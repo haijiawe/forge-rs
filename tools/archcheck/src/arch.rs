@@ -23,6 +23,9 @@ pub struct Architecture {
     /// same-layer edges that are forbidden even though the layer rule allows them
     pub forbidden_edges: Vec<(String, String)>,
     pub ignore_dirs: Vec<String>,
+    /// repository-relative directories that must each carry a README, with the
+    /// line that declared them (so a finding can point at the declaration).
+    pub documented_dirs: Vec<(String, usize)>,
 }
 
 impl Architecture {
@@ -45,6 +48,7 @@ enum Section {
     Layers,
     ForbiddenEdges,
     IgnoreDirs,
+    DocumentedDirs,
 }
 
 pub fn parse(text: &str) -> Result<Architecture, String> {
@@ -56,6 +60,7 @@ pub fn parse(text: &str) -> Result<Architecture, String> {
         "target".to_string(),
         "node_modules".to_string(),
     ];
+    let mut documented_dirs: Vec<(String, usize)> = Vec::new();
     let mut section = Section::None;
 
     for (index, raw) in text.lines().enumerate() {
@@ -114,6 +119,10 @@ pub fn parse(text: &str) -> Result<Architecture, String> {
                         parse_list(&value).map_err(|err| format!("line {line_no}: {err}"))?;
                     section = Section::IgnoreDirs;
                 }
+                "documented_dirs" => {
+                    documented_dirs = parse_dirs(&value, line_no, "documented_dirs")?;
+                    section = Section::DocumentedDirs;
+                }
                 other => return Err(format!("line {line_no}: unknown key {other:?}")),
             }
             continue;
@@ -153,6 +162,18 @@ pub fn parse(text: &str) -> Result<Architecture, String> {
                     format!("line {line_no}: expected a \"- name\" entry under ignore_dirs")
                 })?;
                 ignore_dirs.push(unquote(rest));
+            }
+            Section::DocumentedDirs => {
+                let rest = trimmed.strip_prefix("- ").ok_or_else(|| {
+                    format!("line {line_no}: expected a \"- path\" entry under documented_dirs")
+                })?;
+                let path = unquote(rest);
+                if path.is_empty() {
+                    return Err(format!(
+                        "line {line_no}: documented_dirs contains an empty path"
+                    ));
+                }
+                documented_dirs.push((path, line_no));
             }
             Section::None => {
                 return Err(format!(
@@ -204,7 +225,27 @@ pub fn parse(text: &str) -> Result<Architecture, String> {
         ranks,
         forbidden_edges,
         ignore_dirs,
+        documented_dirs,
     })
+}
+
+/// Reads a directory list that may be written either inline
+/// (`documented_dirs: [docs, crates]`) or as a block of `- path` lines under an
+/// empty key. Both forms exist because the list grows over time: appending one
+/// line is a smaller diff than reflowing a long inline array.
+fn parse_dirs(value: &str, line_no: usize, key: &str) -> Result<Vec<(String, usize)>, String> {
+    if value.is_empty() {
+        return Ok(Vec::new());
+    }
+    let items = parse_list(value).map_err(|err| format!("line {line_no}: {key}: {err}"))?;
+    let mut dirs = Vec::with_capacity(items.len());
+    for item in items {
+        if item.is_empty() {
+            return Err(format!("line {line_no}: {key} contains an empty path"));
+        }
+        dirs.push((item, line_no));
+    }
+    Ok(dirs)
 }
 
 fn parse_layer(name: &str) -> Option<usize> {

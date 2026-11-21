@@ -35,7 +35,7 @@ describe('collapseOutput', () => {
     expect(result.collapsed).toBe(true);
     expect(result.omitted).toBe(100 - COLLAPSED_LINES * 2);
     expect(result.text).toContain('line-1\n');
-    expect(result.text).toContain('… 60 lines hidden …');
+    expect(result.text).toContain('… 已隐藏 60 行 …');
     expect(result.text).toContain('line-100');
     // The middle is gone, not just visually hidden.
     expect(result.text).not.toContain('line-50\n');
@@ -45,7 +45,7 @@ describe('collapseOutput', () => {
 describe('ToolCard', () => {
   it('renders the truncation marker the server set', () => {
     const view = mount(<ToolCard row={toolRow({ output: 'a\nb', truncated: true })} />);
-    expect(view.container.textContent).toContain('truncated at 64 KiB');
+    expect(view.container.textContent).toContain('已在 64 KiB 处截断');
     view.unmount();
   });
 
@@ -57,13 +57,13 @@ describe('ToolCard', () => {
     );
     expect(view.container.textContent).toContain('sandbox_denied');
     expect(view.container.querySelector('.error-code')?.textContent).toBe('sandbox_denied');
-    expect(view.container.textContent).toContain('failed');
+    expect(view.container.textContent).toContain('失败');
     view.unmount();
   });
 
   it('shows a running card before the result arrives', () => {
     const view = mount(<ToolCard row={toolRow({ done: false, output: undefined })} />);
-    expect(view.container.textContent).toContain('running');
+    expect(view.container.textContent).toContain('运行中');
     expect(view.container.querySelector('.tool-output')).toBeNull();
     view.unmount();
   });
@@ -72,9 +72,9 @@ describe('ToolCard', () => {
     const lines = Array.from({ length: 100 }, (_, index) => `line-${String(index + 1)}`);
     const view = mount(<ToolCard row={toolRow({ output: lines.join('\n') })} />);
     const output = (): string => view.container.querySelector('.tool-output')?.textContent ?? '';
-    expect(output()).toContain('lines hidden');
+    expect(output()).toContain('已隐藏');
     const button = view.container.querySelector('.link-button');
-    expect(button?.textContent).toBe('show all 100 lines');
+    expect(button?.textContent).toBe('显示全部 100 行');
     interact(() => button?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     expect(output()).toContain('line-50');
     expect(output()).not.toContain('lines hidden');

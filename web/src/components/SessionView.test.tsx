@@ -138,7 +138,7 @@ describe('SessionView turn controls', () => {
     const view = mountView(api);
     const textarea = () => textareaOf(view.container);
 
-    await waitFor(() => textarea().placeholder.includes('Message the agent'));
+    await waitFor(() => textarea().placeholder.includes('给代理发消息'));
     typeInto(textarea(), 'hello agent');
     keydown(textarea());
     await waitFor(() => textarea().value === '');
@@ -162,7 +162,7 @@ describe('SessionView turn controls', () => {
     const textarea = () => textareaOf(view.container);
 
     // turn/start flips the store to running, which turns Enter into steer.
-    await waitFor(() => textarea().placeholder.includes('Steer the running turn'));
+    await waitFor(() => textarea().placeholder.includes('引导正在运行的回合'));
     typeInto(textarea(), 'also check the retry path');
     keydown(textarea());
     await waitFor(() => textarea().value === '');
@@ -187,8 +187,8 @@ describe('SessionView turn controls', () => {
     const textarea = () => textareaOf(view.container);
     const stop = () => stopButton(view.container);
 
-    await waitFor(() => textarea().placeholder.includes('Steer the running turn'));
-    expect(stop().textContent).toBe('Stop');
+    await waitFor(() => textarea().placeholder.includes('引导正在运行的回合'));
+    expect(stop().textContent).toBe('停止');
 
     // Two clicks, one tick (no await between the dispatches). The first sets
     // `stopping` before awaiting, so React commits the disabled button and the
@@ -205,11 +205,11 @@ describe('SessionView turn controls', () => {
     });
     expect(api.cancel).toHaveBeenCalledTimes(1);
     expect(api.cancel).toHaveBeenCalledWith('sess-1');
-    expect(stop().textContent).toBe('stopping…');
+    expect(stop().textContent).toBe('正在停止…');
     expect(stop().disabled).toBe(true);
 
     release();
-    await waitFor(() => stop().textContent === 'Stop');
+    await waitFor(() => stop().textContent === '停止');
     expect(api.cancel).toHaveBeenCalledTimes(1);
     view.unmount();
   });
@@ -224,7 +224,7 @@ describe('SessionView turn controls', () => {
     const view = mountView(api);
     const textarea = () => textareaOf(view.container);
 
-    await waitFor(() => textarea().placeholder.includes('Steer the running turn'));
+    await waitFor(() => textarea().placeholder.includes('引导正在运行的回合'));
     typeInto(textarea(), 'retry with backoff');
     keydown(textarea());
 
@@ -284,10 +284,10 @@ describe('SessionView compressed blocks', () => {
     const api = fakeApi({ events: vi.fn(async () => compressedPage()) });
     const view = mountView(api);
 
-    await waitFor(() => (view.container.textContent ?? '').includes('hidden from the model'));
+    await waitFor(() => (view.container.textContent ?? '').includes('个块已从模型中隐藏'));
     const badge = view.container.querySelector('.session-compressed');
     expect(badge).not.toBeNull();
-    expect(badge?.textContent).toBe('1 block hidden from the model');
+    expect(badge?.textContent).toBe('1 个块已从模型中隐藏');
     // The ids are on the title, so the operator can correlate with the note rows.
     expect(badge?.getAttribute('title')).toContain(BLOCK);
     view.unmount();
@@ -298,7 +298,7 @@ describe('SessionView compressed blocks', () => {
     const api = fakeApi();
     const view = mountView(api);
 
-    await waitFor(() => textareaOf(view.container).placeholder.includes('Message the agent'));
+    await waitFor(() => textareaOf(view.container).placeholder.includes('给代理发消息'));
     expect(view.container.querySelector('.session-compressed')).toBeNull();
     view.unmount();
     await flush();

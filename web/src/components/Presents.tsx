@@ -38,7 +38,7 @@ export interface PresentsProps {
 }
 
 function describeError(cause: unknown): string {
-  return cause instanceof Error ? cause.message : 'the response could not be read';
+  return cause instanceof Error ? cause.message : '无法读取响应';
 }
 
 function plural(count: number, one: string, many: string): string {
@@ -52,7 +52,7 @@ function HandoffRow({ handoff }: { handoff: Present }) {
         <span className="mono present-name" title={handoff.path}>
           {baseName(handoff.path)}
         </span>
-        <span className="muted present-size" title="the size the file had when it was presented">
+        <span className="muted present-size" title="这个文件在交付时的大小">
           {formatBytes(handoff.size)}
         </span>
         <time className="muted mono present-when" dateTime={handoff.ts > 0 ? new Date(handoff.ts).toISOString() : undefined}>
@@ -110,9 +110,9 @@ export function Presents({ load }: PresentsProps) {
   const handoffs = report?.presents ?? [];
 
   return (
-    <section className="presents" aria-label="presented files">
+    <section className="presents" aria-label="已交付文件">
       <div className="presents-head">
-        <h2 className="presents-title">presented files</h2>
+        <h2 className="presents-title">已交付文件</h2>
         <button
           type="button"
           className="button presents-retry"
@@ -121,27 +121,27 @@ export function Presents({ load }: PresentsProps) {
           }}
           disabled={reading}
         >
-          {reading && report === null ? 'reading…' : 'read again'}
+          {reading && report === null ? '正在读取…' : '重新读取'}
         </button>
       </div>
       <p className="muted presents-note">
-        files the model handed over with <code>present</code>, newest first. a handoff is a
-        pointer: the file is on disk, not in this page.
+        模型用 <code>present</code> 交接的文件，最新的在前。交接只是一个指针：
+        文件在磁盘上，并不在这个页面里。
       </p>
 
-      {reading && <p className="muted presents-note presents-reading">reading the manifest…</p>}
+      {reading && <p className="muted presents-note presents-reading">正在读取清单…</p>}
 
       {error !== null && (
         <p className="banner banner-error" role="alert">
-          the manifest could not be read: <code>{error}</code>. nothing is shown, so this says
-          nothing about whether a file was presented; the file itself is unaffected.
+          无法读取清单：<code>{error}</code>。这里没有显示任何内容，因此不能说明是否有文件被
+          交付过；文件本身不受影响。
         </p>
       )}
 
       {!reading && error === null && handoffs.length === 0 && (
         <p className="empty presents-empty">
-          nothing has been presented in this data directory. that is not a failure: the route
-          does not create the manifest, and a turn that hands over a file adds the first line.
+          这个数据目录里还没有交付过任何文件。这不是故障：该路由不会创建清单，
+          而某个回合交接文件时会写下第一行。
         </p>
       )}
 
@@ -154,10 +154,10 @@ export function Presents({ load }: PresentsProps) {
           </ul>
           {(report.skipped > 0 || report.truncated || report.note !== null) && (
             <p className="muted presents-partial">
-              {report.skipped > 0 && <>{plural(report.skipped, 'line', 'lines')} could not be read. </>}
-              {report.truncated && <>the list is cut short; the manifest holds more. </>}
+              {report.skipped > 0 && <>{plural(report.skipped, '行', '行')}无法读取。</>}
+              {report.truncated && <>列表被截断了，清单里还有更多内容。</>}
               {report.note !== null && <>{report.note} </>}
-              the file names above are still what the model handed over.
+              上面这些文件名仍然是模型交接过来的内容。
             </p>
           )}
         </>
