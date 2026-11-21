@@ -13,6 +13,14 @@ import type { WorkbenchApi } from './workbench';
 
 const SESSION = 's1';
 
+/** 服务端读一份 diff 的答案；测试里只关心 text 与是否截断。 */
+interface DiffText {
+  path: string;
+  status: 'modified';
+  text: string;
+  truncated: boolean;
+}
+
 function listing(path: string, entries: DirListing['entries']): DirListing {
   return { path, entries };
 }
@@ -612,4 +620,130 @@ describe('WorkbenchStore', () => {
     store.clearReveal();
     expect(store.getSnapshot().reveal).toBeNull();
   });
+
+
+describe('WorkbenchStore — 改动标记', () => {
+  const DIFF = [
+    '@@ -1,2 +1,3 @@',
+    ' one',
+    '+two',
+    ' three',
+    '',
+  ].join('\n');
+
+  it('reads the open file’s diff and keeps the new lines', async () => {
+    const readDiff = vi.fn((_sessionId: string, path: string) =>
+      Promise.resolve({ path, status: 'modified' as const, text: DIFF, truncated: false }),
+    );
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ readDiff }) });
+    store.openFile('src/main.rs');
+    await settle();
+
+    expect(readDiff).toHaveBeenCalledWith(SESSION, 'src/main.rs');
+    const changes = store.getSnapshot().changes;
+    expect(changes?.path).toBe('src/main.rs');
+    expect(changes?.lines?.ranges).toEqual([{ from: 2, to: 2 }]);
+    expect(changes?.error).toBeNull();
+  });
+
+  it('switching files replaces the marks instead of stacking them', async () => {
+    const readDiff = vi.fn((_sessionId: string, path: string) =>
+      Promise.resolve({
+        path,
+        status: 'modified' as const,
+        text: path === 'a.ts' ? DIFF : '@@ -9,0 +10,1 @@\n+x\n',
+        truncated: false,
+      }),
+    );
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ readDiff }) });
+    store.openFile('a.ts');
+    await settle();
+    store.openFile('b.ts');
+    await settle();
+
+    const changes = store.getSnapshot().changes;
+    expect(changes?.path).toBe('b.ts');
+    expect(changes?.lines?.ranges).toEqual([{ from: 10, to: 10 }]);
+  });
+
+  it('drops an answer that arrives after the operator moved to another file', async () => {
+    // 把 resolve 存在对象里而不是一个 let 上：TS 的控制流分析看不见回调里赋的值，
+    // 于是把一个 let 判成永远是 null，后面就调不动它。
+    const gate: { release?: (body: DiffText) => void } = {};
+    const readDiff = vi.fn((_sessionId: string, path: string) => {
+      if (path === 'slow.ts') {
+        return new Promise<DiffText>((resolve) => {
+          gate.release = resolve;
+        });
+      }
+      return Promise.resolve<DiffText>({ path, status: 'modified', text: '', truncated: false });
+    });
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ readDiff }) });
+    store.openFile('slow.ts');
+    await settle();
+    store.openFile('fast.ts');
+    await settle();
+
+    gate.release?.({ path: 'slow.ts', status: 'modified', text: DIFF, truncated: false });
+    await settle();
+
+    const changes = store.getSnapshot().changes;
+    expect(changes?.path).toBe('fast.ts');
+    expect(changes?.lines?.ranges).toEqual([]);
+  });
+
+  it('a failed diff read is a message, not an empty change', async () => {
+    const readDiff = vi.fn(() =>
+      Promise.reject(new ApiError('not_a_repository', 'no git here', 500)),
+    );
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ readDiff }) });
+    store.openFile('a.ts');
+    await settle();
+
+    const changes = store.getSnapshot().changes;
+    expect(changes?.lines).toBeNull();
+    expect(changes?.error).toContain('not_a_repository');
+  });
+
+  it('re-reads the marks after a save, because the disk moved', async () => {
+    const readDiff = vi.fn((_sessionId: string, path: string) =>
+      Promise.resolve({ path, status: 'modified' as const, text: DIFF, truncated: false }),
+    );
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ readDiff }) });
+    store.openFile('a.ts');
+    await settle();
+    const before = readDiff.mock.calls.length;
+
+    store.editFile('a.ts', 'changed on disk');
+    await store.saveFile('a.ts');
+    await settle();
+
+    expect(readDiff.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('re-reads the marks after a restore, because the change is gone', async () => {
+    const readDiff = vi.fn((_sessionId: string, path: string) =>
+      Promise.resolve({ path, status: 'modified' as const, text: DIFF, truncated: false }),
+    );
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ readDiff }) });
+    store.openFile('a.ts');
+    await settle();
+    const before = readDiff.mock.calls.length;
+
+    const refusal = await store.revertToCommitted('a.ts');
+    expect(refusal).toBeNull();
+    await settle();
+
+    expect(readDiff.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('closing the last tab forgets the marks', async () => {
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi() });
+    store.openFile('a.ts');
+    await settle();
+    store.closeFile('a.ts');
+    await settle();
+    expect(store.getSnapshot().changes).toBeNull();
+  });
+});
 });

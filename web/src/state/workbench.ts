@@ -29,6 +29,8 @@ import type {
   SaveResult,
   SearchAnswer,
 } from '../api/workbench';
+import { parseChanged } from './changed';
+import type { ChangedLines } from './changed';
 
 /** The reads and the one write the workbench performs, faked whole in tests. */
 export interface WorkbenchApi {
@@ -80,6 +82,24 @@ export interface FileTab {
   saveError: string | null;
 }
 
+/**
+ * Where the open file and the commit disagree.
+ *
+ * It exists for the editor's line marks: a reader who opens a file the agent just
+ * wrote should see which lines are new without switching to the diff list. It is
+ * keyed by path because the answer belongs to the file, not to the pane, and a
+ * stale answer for another path must not be drawn over this one.
+ */
+export interface ChangesState {
+  path: string;
+  /** Null until the read answers, and after a failure; `error` says which. */
+  lines: ChangedLines | null;
+  /** True when the server cut the diff short, so the marks are incomplete. */
+  truncated: boolean;
+  loading: boolean;
+  error: string | null;
+}
+
 /** One expanded row of the diff list: its unified diff, once it has answered. */
 export interface FileDiffState {
   path: string;
@@ -109,6 +129,11 @@ export interface WorkbenchState {
    * the reader would have to remember which half of the pane they were in.
    */
   fileDiff: FileDiffState | null;
+  /**
+   * The line marks for the active tab, or null when the question has not been
+   * asked yet (no tab, or the read is still in flight with nothing to show).
+   */
+  changes: ChangesState | null;
   /**
    * A tab the operator asked to close while it had unsaved changes.
    *
@@ -177,6 +202,7 @@ export class WorkbenchStore {
       diffLoading: false,
       diffError: null,
       fileDiff: null,
+      changes: null,
       pendingClose: null,
       search: null,
       reveal: null,
@@ -393,6 +419,9 @@ export class WorkbenchStore {
       // just told to undo.
       await this.loadDiff();
       if (this.state.fileDiff?.path === path) await this.loadFileDiff(path);
+      // Restored bytes: the marks this file carried described the change that was
+      // just thrown away.
+      this.loadChanges(path, true);
       return null;
     } catch (error) {
       const refusal = errorMessage(error);
@@ -459,6 +488,34 @@ export class WorkbenchStore {
     this.publish({ reveal: { path, line } });
   }
 
+  /**
+   * Read the active file's marks, or the named one.
+   *
+   * One request per file switch, and the answer is kept only for the path it was
+   * asked about. `force` is for the moments the file itself moved (a save, a
+   * restore): the same path may now disagree with the commit differently.
+   */
+  loadChanges(path: string | null = this.state.activePath, force = false): void {
+    if (path === null) {
+      if (this.state.changes !== null) this.publish({ changes: null });
+      return;
+    }
+    const known = this.state.changes;
+    if (!force && known !== null && known.path === path && (known.loading || known.lines !== null)) {
+      return;
+    }
+    this.publish({
+      changes: {
+        path,
+        lines: known?.path === path ? known.lines : null,
+        truncated: known?.path === path ? known.truncated : false,
+        loading: true,
+        error: null,
+      },
+    });
+    void this.readChanges(path);
+  }
+
   /** Forget the pending reveal, once the editor has scrolled to it. */
   clearReveal(): void {
     if (this.state.reveal === null) return;
@@ -501,6 +558,10 @@ export class WorkbenchStore {
         saving: false,
         saveError: null,
       });
+      // The bytes on disk just moved, so the marks in this file are stale. The
+      // save is also the moment the operator most wants to see where the lines
+      // they just wrote sit relative to the commit.
+      this.loadChanges(path, true);
     } catch (error) {
       this.patchTab(path, { saving: false, saveError: errorMessage(error) });
     }
@@ -546,6 +607,35 @@ export class WorkbenchStore {
       activePath,
       pendingClose: this.state.pendingClose === path ? null : this.state.pendingClose,
     });
+  }
+
+  /**
+   * One file's unified diff, reduced to the lines that exist on disk and not in
+   * the commit.
+   *
+   * A failure is kept as a message rather than dropped: "no marks" and "could not
+   * ask" look identical on screen, and the second one is a statement about the
+   * server, not about the file.
+   */
+  private async readChanges(path: string): Promise<void> {
+    try {
+      const body = await this.api.readDiff(this.state.sessionId, path);
+      if (this.state.changes?.path !== path) return;
+      this.publish({
+        changes: {
+          path,
+          lines: parseChanged(body.text),
+          truncated: body.truncated,
+          loading: false,
+          error: null,
+        },
+      });
+    } catch (error) {
+      if (this.state.changes?.path !== path) return;
+      this.publish({
+        changes: { path, lines: null, truncated: false, loading: false, error: errorMessage(error) },
+      });
+    }
   }
 
   private async loadFileDiff(path: string): Promise<void> {
@@ -631,8 +721,14 @@ export class WorkbenchStore {
   }
 
   private publish(change: Partial<WorkbenchState>): void {
+    const previous = this.state.activePath;
     this.version += 1;
     this.state = { ...this.state, ...change, version: this.version };
     for (const listener of this.listeners) listener();
+    // Every path into the editor goes through here — a click in the tree, a diff
+    // row, a search hit, a closed tab handing the focus to its neighbour — so the
+    // marks follow the active file from one place instead of from five call
+    // sites, each of which could be forgotten the day a sixth is added.
+    if (this.state.activePath !== previous) this.loadChanges();
   }
 }

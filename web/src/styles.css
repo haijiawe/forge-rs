@@ -1654,6 +1654,43 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+/* 「这个文件与提交版本不同」那条：说数字、给还原，不占编辑器的高度。 */
+.wb-changed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 138, 61, 0.06);
+}
+
+.wb-changed-count {
+  font-family: var(--mono);
+}
+
+.wb-changed-revert {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.wb-changed-revert:hover:not(:disabled) {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.wb-changed-revert:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .wb-editor-body {
   display: flex;
   flex: 1;
@@ -1677,6 +1714,12 @@ body {
 
 .wb-gutter-line {
   white-space: pre;
+}
+
+/* 兜底编辑器画不了整行背景，只能把行号染上色：同一根竖条，位置在左缘。 */
+.wb-gutter-changed {
+  color: var(--warn);
+  box-shadow: inset 2px 0 0 var(--warn);
 }
 
 .wb-textarea {
@@ -2101,6 +2144,13 @@ body {
    it puts them on generated spans, so no descendant selectors. */
 .wb-line-revealed {
   background: rgba(255, 138, 61, 0.12);
+}
+
+/* 与提交版本相比新增或改写的行。比「跳到的那一行」淡一档：它描述的是整份文件里
+   有几十行的地方，而高亮描述的是你正要读的那一行。 */
+.wb-line-changed {
+  background: rgba(110, 168, 254, 0.10);
+  box-shadow: inset 2px 0 0 rgba(110, 168, 254, 0.55);
 }
 /* --- side by side diff --- */
 .wb-side {

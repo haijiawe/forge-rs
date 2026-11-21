@@ -13,11 +13,18 @@
 // rather than a stub.
 
 import { useEffect, useRef, useState } from 'react';
-import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, UIEvent } from 'react';
+import type {
+  ChangeEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  ReactElement,
+  UIEvent,
+} from 'react';
 import type { editor as MonacoEditorApi } from 'monaco-editor';
 import { canvasAvailableOnce } from './canvas';
 import { rangeLabel } from '../../state/ask';
 import type { SelectionAsk } from '../../state/ask';
+import { touches } from '../../state/changed';
+import type { ChangedLines } from '../../state/changed';
 
 export interface EditorPaneProps {
   path: string;
@@ -50,10 +57,71 @@ export interface EditorPaneProps {
    * 事：编辑器不该知道会话、输入框、消息这些东西的存在。
    */
   onAskSelection?: (ask: SelectionAsk) => void;
+  /**
+   * The lines of this file that exist on disk and not in the commit.
+   *
+   * Null means "nobody asked", which draws nothing: an empty set would be a claim
+   * about the file, and the pane has not read a diff when this is null.
+   */
+  changed?: ChangedLines | null;
+  /** True when the server cut the diff short, so the marks may be incomplete. */
+  changedTruncated?: boolean;
+  /** Put this file back to its committed bytes. */
+  onRevertFile?: () => void;
+  /** True while that restore is in flight. */
+  reverting?: boolean;
 }
 
 /** Numbers are capped: a 1 MiB file can be 30k lines, and 30k spans cost more than the text. */
 const MAX_GUTTER_LINES = 5000;
+
+/**
+ * The sentence above the text that says how this file differs from the commit.
+ *
+ * It names the comparison, not the author. The log stores digests of what was
+ * written, not the text, so the server cannot say which of these lines came from
+ * the agent and which from the person typing; a bar that said "the agent changed
+ * these" would be guessing about someone else's work. What it can state exactly is
+ * what git already knows: this file's bytes and the committed version differ here.
+ */
+function ChangedBar({
+  changed,
+  truncated,
+  onRevert,
+  reverting,
+}: {
+  changed?: ChangedLines | null;
+  truncated?: boolean;
+  onRevert?: () => void;
+  reverting?: boolean;
+}): ReactElement | null {
+  if (changed === null || changed === undefined) return null;
+  if (!changed.seen) return null;
+  if (changed.added === 0 && changed.removed === 0 && !truncated) return null;
+  const title =
+    '与 git 提交的版本比较：磁盘上新增或改写的行为橙色，' +
+    '提交里有而这个文件已经没有的行不在这里（看「改动」面板）。' +
+    '日志记的是摘要不是内容，所以这里分不出哪几行是 agent 写的、哪几行是你自己写的。';
+  return (
+    <div className="wb-changed" title={title}>
+      <span className="wb-changed-count">
+        与提交版本相比：+{changed.added} −{changed.removed}
+      </span>
+      {truncated === true && <span className="wb-muted">（服务端截断了这份改动，标记可能不全）</span>}
+      {onRevert !== undefined && (
+        <button
+          type="button"
+          className="wb-changed-revert"
+          disabled={reverting === true}
+          title="把磁盘上的这个文件退回 git 里已提交的字节；只动这一个文件"
+          onClick={onRevert}
+        >
+          {reverting === true ? '还原中…' : '撤销这个文件'}
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** 一个选区，外加「问 agent」浮层该落在编辑器的哪个位置。 */
 interface MonacoPick extends SelectionAsk {
@@ -86,6 +154,10 @@ function PlainEditor({
   revealLine,
   onRevealed,
   onAskSelection,
+  changed,
+  changedTruncated,
+  onRevertFile,
+  reverting,
 }: EditorPaneProps) {
   const gutter = useRef<HTMLDivElement | null>(null);
   const area = useRef<HTMLTextAreaElement | null>(null);
@@ -154,6 +226,12 @@ function PlainEditor({
       <div className="wb-editor-path" title={path}>
         {path}
       </div>
+      <ChangedBar
+        changed={changed ?? null}
+        truncated={changedTruncated}
+        onRevert={onRevertFile}
+        reverting={reverting}
+      />
       {notice !== null && notice !== undefined && <p className="wb-editor-notice">{notice}</p>}
       {pick !== null && (
         <button
@@ -173,7 +251,16 @@ function PlainEditor({
       <div className="wb-editor-body">
         <div className="wb-gutter" ref={gutter} aria-hidden="true">
           {numbers.map((number) => (
-            <div key={number} className="wb-gutter-line">
+            // 兜底编辑器画不了整行背景，能画的是行号：改过的行号带一个色条，
+            // 于是「哪些行是新的」在这条路上仍然看得见，只是更朴素。
+            <div
+              key={number}
+              className={
+                changed !== null && changed !== undefined && touches(changed.ranges, number)
+                  ? 'wb-gutter-line wb-gutter-changed'
+                  : 'wb-gutter-line'
+              }
+            >
               {number}
             </div>
           ))}
@@ -226,10 +313,17 @@ function MonacoEditor({
   revealLine,
   onRevealed,
   onAskSelection,
+  changed,
+  changedTruncated,
+  onRevertFile,
+  reverting,
 }: EditorPaneProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const editor = useRef<MonacoEditorApi.IStandaloneCodeEditor | null>(null);
   const marked = useRef<MonacoEditorApi.IEditorDecorationsCollection | null>(null);
+  // 与 `marked` 分开：一个是「刚才跳到的那一行」，一个是「这个文件里哪些行是新的」。
+  // 合成一个集合就意味着跳一次搜索会把改动标记擦掉。
+  const touched = useRef<MonacoEditorApi.IEditorDecorationsCollection | null>(null);
   // False until the lazily imported editor exists. It is state, not a ref,
   // because its whole job is to re-run the effects that had nothing to act on
   // during the first render: a ref changes no output and re-renders nothing.
@@ -433,11 +527,38 @@ function MonacoEditor({
     onRevealed?.();
   }, [ready, revealLine, onRevealed, text]);
 
+  // The lines this file has and the commit does not: drawn as one whole-line
+  // decoration per range, so a hunk of twenty new lines is one decoration rather
+  // than twenty.
+  useEffect(() => {
+    const instance = editor.current;
+    if (!ready || instance === null) return;
+    touched.current?.clear();
+    touched.current = null;
+    const ranges = changed?.ranges ?? [];
+    if (ranges.length === 0) return;
+    touched.current = instance.createDecorationsCollection(
+      ranges.map((range) => ({
+        range: {
+          startLineNumber: range.from,
+          startColumn: 1,
+          endLineNumber: range.to,
+          endColumn: 1,
+        },
+        options: { isWholeLine: true, className: 'wb-line-changed' },
+      })),
+    );
+    // `changed` 是 store 里的对象：只在重新读过 diff 之后才换身份，所以打字不会
+    // 让这里重跑一遍。
+  }, [ready, path, changed]);
+
   // Leaving the editor entirely, too.
   useEffect(
     () => () => {
       marked.current?.clear();
       marked.current = null;
+      touched.current?.clear();
+      touched.current = null;
     },
     [],
   );
@@ -447,6 +568,12 @@ function MonacoEditor({
       <div className="wb-editor-path" title={path}>
         {path}
       </div>
+      <ChangedBar
+        changed={changed ?? null}
+        truncated={changedTruncated}
+        onRevert={onRevertFile}
+        reverting={reverting}
+      />
       {notice !== null && notice !== undefined && <p className="wb-editor-notice">{notice}</p>}
       <div className="wb-editor-monaco-wrap">
         <div className="wb-editor-monaco" ref={host} aria-label={`contents of ${path}`} />

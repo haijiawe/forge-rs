@@ -392,6 +392,13 @@ export function Workbench({
                       void store.saveFile(tab.path);
                     }}
                     onAskSelection={askAboutSelection}
+                    // 标记只属于被问过的那个路径：换文件时旧答案不能贴到新文件上。
+                    changed={state.changes?.path === tab.path ? state.changes.lines : null}
+                    changedTruncated={state.changes?.path === tab.path && state.changes.truncated}
+                    onRevertFile={() => {
+                      void store.revertToCommitted(tab.path);
+                    }}
+                    reverting={tab.saving}
                     notice={editorNotice(tab)}
                   />
                 )}
