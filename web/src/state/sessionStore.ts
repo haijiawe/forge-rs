@@ -11,7 +11,7 @@ import { ApiError } from '../api/client';
 import type { HearthApi, OutgoingAttachment } from '../api/client';
 import type { Event } from '../api/events';
 import { latestToolNames } from './capabilities';
-import { turnChangesFrom, type TurnChangeTurn } from './turnChanges';
+import { latestWrite, turnChangesFrom, type TurnChangeTurn } from './turnChanges';
 import { StreamMachine, type StreamInput, type StreamState } from '../api/stream';
 import { SessionStream, type StreamEvent } from '../api/transport';
 import type { ApprovalDecision, PendingApproval, ServerFrame, SessionDetail } from '../api/types';
@@ -49,6 +49,14 @@ export interface SessionViewState {
    * would be missing everything the operator watched happen.
    */
   turnChanges: TurnChangeTurn[];
+  /**
+   * The newest write in the log, as a pair of a sequence number and a path.
+   *
+   * The editor watches this to notice a file being rewritten while it is open.
+   * It carries the seq so that two writes to the same file are two events: the
+   * page must reload on the second one too, even though the path has not moved.
+   */
+  agentWrite: { seq: number; path: string } | null;
   pendingApproval: PendingApproval | null;
   streamError: string | null;
   connecting: boolean;
@@ -115,6 +123,7 @@ export class SessionStore {
       blocks: [],
       toolNames: [],
       turnChanges: [],
+      agentWrite: null,
       pendingApproval: null,
       streamError: null,
       connecting: false,
@@ -309,6 +318,7 @@ export class SessionStore {
       // walking a few thousand events once per animation frame.
       toolNames: latestToolNames(events),
       turnChanges: turnChangesFrom(events),
+      agentWrite: latestWrite(events),
       pendingApproval: machineState.session?.pendingApproval ?? null,
       streamError: machineState.streamError,
       connecting: this.state.connecting,

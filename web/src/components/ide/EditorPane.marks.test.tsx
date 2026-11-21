@@ -100,6 +100,29 @@ describe('EditorPane · 改动标记', () => {
     view.unmount();
   });
 
+  it('says the file moved on disk while the draft was still here', () => {
+    const view = mount(
+      <EditorPane
+        path="a.ts"
+        text={TEXT}
+        onChange={() => {}}
+        changed={CHANGED}
+        outsideChange
+      />,
+    );
+    const text = view.container.querySelector('.wb-changed')?.textContent ?? '';
+    expect(text).toContain('磁盘上又写了一次，保存会冲突');
+    view.unmount();
+  });
+
+  it('says nothing about the disk when the buffer is the only version', () => {
+    const view = mount(
+      <EditorPane path="a.ts" text={TEXT} onChange={() => {}} changed={CHANGED} />,
+    );
+    expect(view.container.querySelector('.wb-changed')?.textContent).not.toContain('磁盘上');
+    view.unmount();
+  });
+
   it('says so when the server cut the diff short', () => {
     const view = mount(
       <EditorPane

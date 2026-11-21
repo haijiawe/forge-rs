@@ -1670,6 +1670,11 @@ body {
   font-family: var(--mono);
 }
 
+/* 草稿还在，磁盘却被别人写过：说到、不吓人、不掩盖冲突。 */
+.wb-changed-outside {
+  color: var(--warn);
+}
+
 .wb-changed-revert {
   margin-left: auto;
   padding: 2px 8px;

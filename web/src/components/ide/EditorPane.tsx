@@ -70,6 +70,13 @@ export interface EditorPaneProps {
   onRevertFile?: () => void;
   /** True while that restore is in flight. */
   reverting?: boolean;
+  /**
+   * The active file was rewritten on disk while this tab held unsaved changes.
+   *
+   * The buffer is deliberately not replaced — the draft is in this window only —
+   * so the bar says the file moved, which is also what a save will answer with.
+   */
+  outsideChange?: boolean;
 }
 
 /** Numbers are capped: a 1 MiB file can be 30k lines, and 30k spans cost more than the text. */
@@ -89,11 +96,13 @@ function ChangedBar({
   truncated,
   onRevert,
   reverting,
+  outsideChange,
 }: {
   changed?: ChangedLines | null;
   truncated?: boolean;
   onRevert?: () => void;
   reverting?: boolean;
+  outsideChange?: boolean;
 }): ReactElement | null {
   if (changed === null || changed === undefined) return null;
   if (!changed.seen) return null;
@@ -108,6 +117,11 @@ function ChangedBar({
         与提交版本相比：+{changed.added} −{changed.removed}
       </span>
       {truncated === true && <span className="wb-muted">（服务端截断了这份改动，标记可能不全）</span>}
+      {outsideChange === true && (
+        <span className="wb-changed-outside" title="这个标签页读取之后，文件在磁盘上又被写了一次；这里的文字是你自己的草稿，没有被替换。保存会以冲突拒绝。">
+          磁盘上又写了一次，保存会冲突
+        </span>
+      )}
       {onRevert !== undefined && (
         <button
           type="button"
@@ -158,6 +172,7 @@ function PlainEditor({
   changedTruncated,
   onRevertFile,
   reverting,
+  outsideChange,
 }: EditorPaneProps) {
   const gutter = useRef<HTMLDivElement | null>(null);
   const area = useRef<HTMLTextAreaElement | null>(null);
@@ -231,6 +246,7 @@ function PlainEditor({
         truncated={changedTruncated}
         onRevert={onRevertFile}
         reverting={reverting}
+        outsideChange={outsideChange}
       />
       {notice !== null && notice !== undefined && <p className="wb-editor-notice">{notice}</p>}
       {pick !== null && (
@@ -317,6 +333,7 @@ function MonacoEditor({
   changedTruncated,
   onRevertFile,
   reverting,
+  outsideChange,
 }: EditorPaneProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const editor = useRef<MonacoEditorApi.IStandaloneCodeEditor | null>(null);
@@ -573,6 +590,7 @@ function MonacoEditor({
         truncated={changedTruncated}
         onRevert={onRevertFile}
         reverting={reverting}
+        outsideChange={outsideChange}
       />
       {notice !== null && notice !== undefined && <p className="wb-editor-notice">{notice}</p>}
       <div className="wb-editor-monaco-wrap">

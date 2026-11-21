@@ -142,6 +142,15 @@ export interface WorkbenchState {
    */
   changes: ChangesState | null;
   /**
+   * The active file was written from outside while the tab was open and dirty.
+   *
+   * Only set when the pane decided *not* to replace the buffer: the operator's
+   * unsaved lines are the work in this window, and a refresh that threw them away
+   * would be the pane deleting keystrokes it was never asked to delete. The
+   * editor says so next to the marks, and the save is what will refuse.
+   */
+  outsideWrite: string | null;
+  /**
    * A tab the operator asked to close while it had unsaved changes.
    *
    * The close is held here instead of thrown away so the pane can ask. Nothing
@@ -211,6 +220,7 @@ export class WorkbenchStore {
       diffError: null,
       fileDiff: null,
       changes: null,
+      outsideWrite: null,
       pendingClose: null,
       search: null,
       reveal: null,
@@ -425,6 +435,7 @@ export class WorkbenchStore {
       // The diff list and the expanded row both describe bytes that just moved;
       // re-reading them is the only way the pane stops showing the change it was
       // just told to undo.
+      if (this.state.outsideWrite !== null) this.publish({ outsideWrite: null });
       await this.loadDiff();
       if (this.state.fileDiff?.path === path) await this.loadFileDiff(path);
       // Restored bytes: the marks this file carried described the change that was
@@ -497,6 +508,32 @@ export class WorkbenchStore {
   }
 
   /**
+   * Something else wrote a file: reload the buffer and its marks if it is safe.
+   *
+   * The session log is the signal — a `tool/result` that named the lines it
+   * changed — so this covers the agent's writes without polling the disk.
+   *
+   * A dirty tab is left alone. Its draft would be discarded by a reload, and the
+   * draft is the only copy of it; the pane says the file moved underneath
+   * instead, which is also what the save will answer with (`conflict`). A tab
+   * that has not finished its first read needs nothing either: that read will
+   * bring whatever is on disk now.
+   */
+  noticedWrite(path: string): void {
+    if (path === '' || path !== this.state.activePath) return;
+    const tab = this.state.open.find((entry) => entry.path === path);
+    if (tab === undefined || tab.file === null || tab.loading) return;
+    const dirty = tab.draft !== null && tab.draft !== tab.file.text;
+    if (dirty) {
+      if (this.state.outsideWrite !== path) this.publish({ outsideWrite: path });
+      return;
+    }
+    if (this.state.outsideWrite !== null) this.publish({ outsideWrite: null });
+    void this.loadFile(path);
+    this.loadChanges(path, true);
+  }
+
+  /**
    * Read the active file's marks, or the named one.
    *
    * One request per file switch, and the answer is kept only for the path it was
@@ -566,6 +603,8 @@ export class WorkbenchStore {
         saving: false,
         saveError: null,
       });
+      // The buffer and the disk agree again, whatever wrote it last.
+      if (this.state.outsideWrite !== null) this.publish({ outsideWrite: null });
       // The bytes on disk just moved, so the marks in this file are stale. The
       // save is also the moment the operator most wants to see where the lines
       // they just wrote sit relative to the commit.
@@ -749,6 +788,11 @@ export class WorkbenchStore {
     // row, a search hit, a closed tab handing the focus to its neighbour — so the
     // marks follow the active file from one place instead of from five call
     // sites, each of which could be forgotten the day a sixth is added.
-    if (this.state.activePath !== previous) this.loadChanges();
+    if (this.state.activePath !== previous) {
+      // The warning belongs to the tab the operator was looking at; the next one
+      // is about a different file and has not been judged yet.
+      if (this.state.outsideWrite !== null) this.state = { ...this.state, outsideWrite: null };
+      this.loadChanges();
+    }
   }
 }

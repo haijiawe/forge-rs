@@ -782,4 +782,75 @@ describe('WorkbenchStore — 本轮改动', () => {
     expect(state.activePath).toBe('src/main.rs');
     expect(state.reveal).toEqual({ path: 'src/main.rs', line: 2 });
   });
+
+describe('WorkbenchStore — 外部写盘', () => {
+  function apiWithFile(read: () => string): { api: WorkbenchApi; readFile: ReturnType<typeof vi.fn>; readDiff: ReturnType<typeof vi.fn> } {
+    const readFile = vi.fn((_sessionId: string, path: string) => Promise.resolve(textFile(path, read())));
+    const readDiff = vi.fn((_sessionId: string, path: string) =>
+      Promise.resolve({ path, status: 'modified' as const, text: '', truncated: false }),
+    );
+    return { api: fakeApi({ readFile, readDiff }), readFile, readDiff };
+  }
+
+  it('reads the file again when the log says something wrote it', async () => {
+    let body = 'one\n';
+    const { api, readFile, readDiff } = apiWithFile(() => body);
+    const store = new WorkbenchStore({ sessionId: SESSION, api });
+    store.openFile('src/a.rs');
+    await settle();
+    body = 'two\n';
+    readDiff.mockClear();
+
+    store.noticedWrite('src/a.rs');
+    await settle();
+
+    expect(readFile).toHaveBeenCalledTimes(2);
+    expect(store.getSnapshot().open[0]?.file?.text).toBe('two\n');
+    // 字节换了，与提交版本的差也就换了：标记必须重读，否则条子还说着上一版。
+    expect(readDiff).toHaveBeenCalledWith(SESSION, 'src/a.rs');
+  });
+
+  it('leaves a dirty buffer alone and says the disk moved instead', async () => {
+    const { api, readFile } = apiWithFile(() => 'one\n');
+    const store = new WorkbenchStore({ sessionId: SESSION, api });
+    store.openFile('src/a.rs');
+    await settle();
+    store.editFile('src/a.rs', 'mine\n');
+
+    store.noticedWrite('src/a.rs');
+    await settle();
+
+    const state = store.getSnapshot();
+    expect(readFile).toHaveBeenCalledTimes(1);
+    expect(state.open[0]?.draft).toBe('mine\n');
+    expect(state.outsideWrite).toBe('src/a.rs');
+  });
+
+  it('ignores a write to a file that is not the one on screen', async () => {
+    const { api, readFile } = apiWithFile(() => 'one\n');
+    const store = new WorkbenchStore({ sessionId: SESSION, api });
+    store.openFile('src/a.rs');
+    await settle();
+
+    store.noticedWrite('src/other.rs');
+    await settle();
+
+    expect(readFile).toHaveBeenCalledTimes(1);
+    expect(store.getSnapshot().outsideWrite).toBeNull();
+  });
+
+  it('forgets the warning when the operator moves to another file', async () => {
+    const { api } = apiWithFile(() => 'one\n');
+    const store = new WorkbenchStore({ sessionId: SESSION, api });
+    store.openFile('src/a.rs');
+    await settle();
+    store.editFile('src/a.rs', 'mine\n');
+    store.noticedWrite('src/a.rs');
+
+    store.openFile('src/b.rs');
+    await settle();
+
+    expect(store.getSnapshot().outsideWrite).toBeNull();
+  });
+});
 });

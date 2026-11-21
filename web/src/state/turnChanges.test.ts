@@ -6,7 +6,7 @@
 // rendered as a row nobody can trust.
 import { describe, expect, it } from 'vitest';
 import type { Event, JsonValue } from '../api/events';
-import { rangeLabel, turnChangesFrom } from './turnChanges';
+import { latestWrite, rangeLabel, turnChangesFrom } from './turnChanges';
 
 let seq = 0;
 
@@ -103,6 +103,25 @@ describe('turnChangesFrom', () => {
       result(1, { path: 'a', lines: lines(1, 0, [[1, 1]]) }),
     ]);
     expect(turns.map((turn) => turn.turn)).toEqual([1, 2]);
+  });
+});
+
+describe('latestWrite', () => {
+  it('names the newest write, with the sequence number that identifies it', () => {
+    const first = result(1, { path: 'src/a.rs', lines: lines(1, 0, [[1, 1]]) });
+    const second = result(2, { path: 'src/b.rs', lines: lines(1, 0, [[2, 2]]) });
+    expect(latestWrite([first, second])).toEqual({ seq: second.seq, path: 'src/b.rs' });
+  });
+
+  it('skips results that did not report lines, so a read is not a write', () => {
+    const read = result(1, { path: 'src/a.rs' });
+    const write = result(1, { path: 'src/a.rs', lines: lines(1, 0, [[1, 1]]) });
+    expect(latestWrite([read])).toBeNull();
+    expect(latestWrite([write, read])).toEqual({ seq: write.seq, path: 'src/a.rs' });
+  });
+
+  it('has nothing to say about an empty log', () => {
+    expect(latestWrite([])).toBeNull();
   });
 });
 

@@ -113,6 +113,14 @@ export interface WorkbenchProps {
    * had written nothing.
    */
   turnChanges?: readonly TurnChangeTurn[];
+  /**
+   * The newest file write in the session log, folded by the session store.
+   *
+   * Handed in for the same reason as `turnChanges`: the workbench has no session
+   * store, and this is how the pane learns that the file it is showing moved on
+   * disk. Optional for hosts without a session — nothing to notice then.
+   */
+  agentWrite?: { seq: number; path: string } | null;
 }
 
 export function Workbench({
@@ -124,6 +132,7 @@ export function Workbench({
   api,
   terminalConnect,
   turnChanges = [],
+  agentWrite = null,
 }: WorkbenchProps) {
   const store = useMemo(() => {
     const options = api === undefined ? { sessionId } : { sessionId, api };
@@ -133,6 +142,14 @@ export function Workbench({
   useEffect(() => {
     store.start();
   }, [store]);
+
+  // A write in the log is the only signal this pane gets that the disk moved.
+  // The seq is in the dependency list because two writes to one file are two
+  // events: keyed on the path alone, the second one would be invisible.
+  useEffect(() => {
+    if (agentWrite === null) return;
+    store.noticedWrite(agentWrite.path);
+  }, [store, agentWrite]);
 
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 
@@ -430,6 +447,7 @@ export function Workbench({
                       void store.revertToCommitted(tab.path);
                     }}
                     reverting={tab.saving}
+                    outsideChange={state.outsideWrite === tab.path}
                     notice={editorNotice(tab)}
                   />
                 )}

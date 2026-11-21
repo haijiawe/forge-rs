@@ -149,6 +149,26 @@ export function turnChangesFrom(events: readonly Event[]): TurnChangeTurn[] {
   return out;
 }
 
+/**
+ * The newest write in the log that named its file, or null when there is none.
+ *
+ * The editor uses this to notice that the file on screen was rewritten by
+ * something else (the agent's tools, usually) without being re-opened. It reads
+ * the same `tool/result` records as the turn view, so a write that could not
+ * name its lines does not count here either: the pane would rather miss one
+ * refresh than reload a buffer on a guess.
+ */
+export function latestWrite(events: readonly Event[]): { seq: number; path: string } | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event === undefined) continue;
+    const change = fileChangeOf(event);
+    if (change === null) continue;
+    return { seq: event.seq, path: change.path };
+  }
+  return null;
+}
+
 /** "第 3 行" / "第 3–7 行" / "第 3 行起 4 行" — one label per run. */
 export function rangeLabel(range: TurnChangeRange): string {
   if (range.to <= range.from) return `第 ${String(range.from)} 行`;
