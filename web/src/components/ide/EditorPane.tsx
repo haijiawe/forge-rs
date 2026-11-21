@@ -12,7 +12,7 @@
 // scroll position, no `getModel`. That is what lets the fallback be a textarea
 // rather than a stub.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, UIEvent } from 'react';
 import type { editor as MonacoEditorApi } from 'monaco-editor';
 import { canvasAvailableOnce } from './canvas';
@@ -79,6 +79,9 @@ function PlainEditor({
     if (revealLine === null || revealLine === undefined) return;
     const target = area.current;
     if (target === null) return;
+    // An empty buffer has no line to show. The pane is only drawn once a read
+    // has answered, so this is the empty-file case, not a loading one.
+    if (text === '') return;
     // The fallback cannot highlight a line (it would mean splitting the value into
     // spans, and a `<textarea>` has no spans). Scrolling to it is the part that
     // matters — the reader lands where the match is.
@@ -86,7 +89,7 @@ function PlainEditor({
     target.scrollTop = Math.max(0, (revealLine - 1) * lineHeight - lineHeight * 2);
     if (gutter.current !== null) gutter.current.scrollTop = target.scrollTop;
     onRevealed?.();
-  }, [revealLine, onRevealed]);
+  }, [revealLine, onRevealed, text]);
 
   function follow(event: UIEvent<HTMLTextAreaElement>): void {
     // The gutter has no scrollbar of its own, so it is dragged along by the
@@ -160,6 +163,11 @@ function MonacoEditor({
 }: EditorPaneProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const editor = useRef<MonacoEditorApi.IStandaloneCodeEditor | null>(null);
+  const marked = useRef<MonacoEditorApi.IEditorDecorationsCollection | null>(null);
+  // False until the lazily imported editor exists. It is state, not a ref,
+  // because its whole job is to re-run the effects that had nothing to act on
+  // during the first render: a ref changes no output and re-renders nothing.
+  const [ready, setReady] = useState(false);
   // The callbacks live in refs so the editor is built once: re-creating it when
   // a parent re-renders would lose the cursor on every keystroke.
   const change = useRef(onChange);
@@ -203,6 +211,7 @@ function MonacoEditor({
         wordWrap: 'off',
       });
       editor.current = instance;
+      setReady(true);
       instance.onDidChangeModelContent(() => {
         change.current(instance.getValue());
       });
@@ -253,26 +262,56 @@ function MonacoEditor({
     editor.current?.updateOptions({ readOnly: readOnly === true });
   }, [readOnly]);
 
+  // A new file means the old mark describes nothing. Declared before the reveal
+  // effect on purpose: effects run in the order they are written, so a mark made
+  // for the file just opened cannot be cleared by the bookkeeping of the file
+  // that was open before it.
+  useEffect(() => {
+    marked.current?.clear();
+    marked.current = null;
+  }, [path]);
+
   // A search hit: scroll the line into view and mark it, so the reader can see
   // which of the forty lines on screen is the one that matched.
+  //
+  // `ready` is in the dependency list because Monaco arrives asynchronously: the
+  // first run sees `editor.current === null` and returns, and without a signal
+  // that the instance now exists there is no second run — opening a hit then
+  // scrolled nowhere and marked nothing.
+  //
+  // The mark outlives the effect on purpose. `onRevealed` clears the pending
+  // reveal in the store, which re-runs this effect with `revealLine` null; when
+  // the mark was cleared in the cleanup, it appeared and vanished within one
+  // render, which is the same as not marking it at all. It is replaced when the
+  // next hit arrives, when another file is opened (the effect above), and when
+  // the editor goes away — the moments it stops describing the screen.
   useEffect(() => {
     const instance = editor.current;
-    if (instance === null) return;
+    if (!ready || instance === null) return;
     if (revealLine === null || revealLine === undefined) return;
+    // An empty buffer has no line to show; see the fallback editor's version.
+    if (text === '') return;
     const line = Math.max(1, revealLine);
     instance.revealLineInCenter(line);
     instance.setPosition({ lineNumber: line, column: 1 });
-    const decorations = instance.createDecorationsCollection([
+    marked.current?.clear();
+    marked.current = instance.createDecorationsCollection([
       {
         range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
         options: { isWholeLine: true, className: 'wb-line-revealed' },
       },
     ]);
     onRevealed?.();
-    return () => {
-      decorations.clear();
-    };
-  }, [revealLine, onRevealed]);
+  }, [ready, revealLine, onRevealed, text]);
+
+  // Leaving the editor entirely, too.
+  useEffect(
+    () => () => {
+      marked.current?.clear();
+      marked.current = null;
+    },
+    [],
+  );
 
   return (
     <div className="wb-editor">
