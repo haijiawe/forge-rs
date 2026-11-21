@@ -84,6 +84,10 @@ fn main() {
             std::thread::sleep(Duration::from_millis(millis));
             let _ = std::fs::write(path, b"survived");
         }
+        // Write, pause, write again. Streaming tests need a child whose output
+        // is spread over time: if the whole stream arrived at once the observer
+        // could not be told apart from a post-run dump of `Result`.
+        "drip" => drip(&rest),
         "write-marker" => {
             if let Some(path) = rest.first() {
                 let _ = std::fs::write(path, b"ran");
@@ -94,6 +98,19 @@ fn main() {
             std::process::exit(2);
         }
     }
+}
+
+/// Write `text`, sleep, then write `text` again on the other stream.
+///
+/// argv: `drip <millis> <text>`.
+fn drip(rest: &[String]) {
+    let millis: u64 = rest.first().and_then(|s| s.parse().ok()).unwrap_or(300);
+    let text = rest.get(1).cloned().unwrap_or_else(|| "drip".to_string());
+    print!("{text}");
+    let _ = std::io::stdout().flush();
+    std::thread::sleep(Duration::from_millis(millis));
+    eprint!("{text}");
+    let _ = std::io::stderr().flush();
 }
 
 fn sleep_forever() {

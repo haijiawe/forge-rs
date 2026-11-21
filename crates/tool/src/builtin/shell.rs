@@ -279,6 +279,7 @@ fn empty_exec_result() -> ExecResult {
         stderr: Vec::new(),
         duration: Duration::ZERO,
         truncated: false,
+        cancelled: false,
     }
 }
 
@@ -293,7 +294,11 @@ fn shell_timeout(ms: i64) -> (i64, i64, bool) {
 }
 
 /// Returns the executable, argv, and (on Windows only) the raw command line.
-fn shell_invocation(command: &str) -> (String, Vec<String>, Option<String>) {
+///
+/// Public because the terminal runs the same line the shell tool would: two
+/// parsers for one command line is how a panel and an agent end up disagreeing
+/// about what was typed.
+pub fn shell_invocation(command: &str) -> (String, Vec<String>, Option<String>) {
     if cfg!(windows) {
         let shell = std::env::var("COMSPEC").unwrap_or_default();
         let shell = if shell.is_empty() {
@@ -421,6 +426,7 @@ mod tests {
                 stderr: Vec::new(),
                 duration: Duration::from_millis(12),
                 truncated: false,
+                cancelled: false,
             }))),
             calls: AtomicBool::new(false),
         });

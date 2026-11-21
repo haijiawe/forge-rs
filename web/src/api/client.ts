@@ -356,8 +356,12 @@ export class HearthClient implements HearthApi {
  */
 export const WS_SUBPROTOCOL = 'hearth.v1';
 
-/** WebSocket URL for a session stream, same origin unless baseUrl overrides. */
-export function streamUrl(baseUrl: string, sessionId: string, after: number): string {
+/**
+ * WebSocket origin for a session socket, same origin unless baseUrl overrides.
+ * Both sockets (stream and terminal) hang off the same server, so they resolve
+ * the origin the same way.
+ */
+function wsOrigin(baseUrl: string): string {
   let origin = baseUrl;
   if (origin === '') {
     origin =
@@ -369,8 +373,23 @@ export function streamUrl(baseUrl: string, sessionId: string, after: number): st
   } else if (origin.startsWith('https://')) {
     origin = `wss://${origin.slice('https://'.length)}`;
   }
+  return origin;
+}
+
+/** WebSocket URL for a session stream, same origin unless baseUrl overrides. */
+export function streamUrl(baseUrl: string, sessionId: string, after: number): string {
   const query = new URLSearchParams({ after: String(after) });
-  return `${origin}/api/sessions/${encodeURIComponent(sessionId)}/stream?${query.toString()}`;
+  return `${wsOrigin(baseUrl)}/api/sessions/${encodeURIComponent(sessionId)}/stream?${query.toString()}`;
+}
+
+/**
+ * WebSocket URL for a session terminal (GET /api/sessions/{id}/terminal).
+ *
+ * A read-only session answers 403 before the upgrade, which the browser can
+ * only report as a failed connection: there is no status code on this side.
+ */
+export function terminalUrl(baseUrl: string, sessionId: string): string {
+  return `${wsOrigin(baseUrl)}/api/sessions/${encodeURIComponent(sessionId)}/terminal`;
 }
 
 export const TOKEN_STORAGE_KEY = 'hearth.token';

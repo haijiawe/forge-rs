@@ -89,7 +89,41 @@ pub struct Command {
     pub cmd_line: Option<String>,
     /// Per-process restrictions installed before spawn.
     pub sandbox: Option<Arc<dyn Sandbox>>,
+    /// Called with output as it is read, so a caller can stream it live.
+    ///
+    /// Capture still happens: an observer is an *addition* to `Result`, never a
+    /// replacement, so a caller that also wants the capped buffers keeps them.
+    pub observe: Option<Observer>,
 }
+
+/// Which pipe a streamed chunk came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stream {
+    Out,
+    Err,
+}
+
+impl Stream {
+    /// The wire word for this stream (`"stdout"` / `"stderr"`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Stream::Out => "stdout",
+            Stream::Err => "stderr",
+        }
+    }
+}
+
+/// Receives output bytes as the process writes them.
+///
+/// It runs on the reader thread, once per read, and it MUST NOT block for long:
+/// a slow observer stalls one pipe and a child that fills the other can then
+/// deadlock. It is called with a chunk, not a line — a caller that needs lines
+/// buffers them itself.
+///
+/// A panic inside an observer is caught, because a panic escaping the reader
+/// thread would lose the rest of that stream and turn a bug in a viewer into a
+/// truncated `Result`. Capture continues either way.
+pub type Observer = Arc<dyn Fn(Stream, &[u8]) + Send + Sync>;
 
 impl Default for Command {
     fn default() -> Self {
@@ -103,6 +137,7 @@ impl Default for Command {
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
             cmd_line: None,
             sandbox: None,
+            observe: None,
         }
     }
 }
@@ -173,6 +208,12 @@ impl Command {
         self.sandbox = Some(sandbox);
         self
     }
+
+    /// Stream output to `observer` as it is read.
+    pub fn observe(mut self, observer: Observer) -> Self {
+        self.observe = Some(observer);
+        self
+    }
 }
 
 /// What one process run produced.
@@ -189,6 +230,11 @@ pub struct Result {
     pub duration: Duration,
     /// At least one stream hit the cap and bytes were discarded.
     pub truncated: bool,
+    /// The run was stopped by the caller's cancellation flag rather than by the
+    /// child exiting. Only a runner asked to keep the capture can report this:
+    /// the plain path returns an error instead, because a tool call that was
+    /// cancelled must not look like it produced data.
+    pub cancelled: bool,
 }
 
 /// The standard runner: pipes for stdout/stderr, no shell, no terminal.
@@ -203,7 +249,7 @@ pub trait Runner {
 
 impl Runner for Pipe {
     fn run(&self, command: Command) -> CoreResult<Result> {
-        run_command(command, &AtomicBool::new(false))
+        run_command(command, &AtomicBool::new(false), false)
     }
 }
 
@@ -214,7 +260,7 @@ impl Pipe {
     /// caller can use the concrete runner without importing the trait; the
     /// trait object is still the seam tests and future PTY runners use.
     pub fn run(&self, command: Command) -> CoreResult<Result> {
-        run_command(command, &AtomicBool::new(false))
+        run_command(command, &AtomicBool::new(false), false)
     }
 
     /// Run with an explicit cancellation flag.
@@ -224,7 +270,22 @@ impl Pipe {
     /// dependency. The flag is checked before the exit code so a cancel that
     /// races the child's own exit is reported as a cancellation, not as data.
     pub fn run_with_cancel(&self, command: Command, cancelled: &AtomicBool) -> CoreResult<Result> {
-        run_command(command, cancelled)
+        run_command(command, cancelled, false)
+    }
+
+    /// Run with a cancellation flag, keeping what the child printed.
+    ///
+    /// A cancellation is still reported as a cancellation — `cancelled` is set
+    /// and `exit_code` is `-1` — but the capture is returned instead of being
+    /// dropped, because a person watching a long build in a terminal cares about
+    /// the lines it printed before they stopped it, and the log line that
+    /// survives the session should not claim the command printed nothing.
+    pub fn run_with_cancel_capture(
+        &self,
+        command: Command,
+        cancelled: &AtomicBool,
+    ) -> CoreResult<Result> {
+        run_command(command, cancelled, true)
     }
 }
 
@@ -258,7 +319,11 @@ pub trait Sandbox: Send + Sync {
     }
 }
 
-fn run_command(mut command: Command, cancelled: &AtomicBool) -> CoreResult<Result> {
+fn run_command(
+    mut command: Command,
+    cancelled: &AtomicBool,
+    keep_capture: bool,
+) -> CoreResult<Result> {
     let started = Instant::now();
     if command.path.is_empty() {
         return Err(Error::new(ErrorKind::Invalid, ERR_EMPTY_PATH));
@@ -325,8 +390,21 @@ fn run_command(mut command: Command, cancelled: &AtomicBool) -> CoreResult<Resul
 
     tree.attach(child.id());
 
-    let (stdout, stdout_rx) = spawn_reader(child.stdout.take(), limit);
-    let (stderr, stderr_rx) = spawn_reader(child.stderr.take(), limit);
+    // Both readers share one observer. Chunk order across the two pipes is
+    // whatever the OS delivered; within a pipe it is exact. A viewer that needs
+    // interleaving must not assume more than that.
+    let (stdout, stdout_rx) = spawn_reader(
+        child.stdout.take(),
+        limit,
+        command.observe.clone(),
+        Stream::Out,
+    );
+    let (stderr, stderr_rx) = spawn_reader(
+        child.stderr.take(),
+        limit,
+        command.observe.clone(),
+        Stream::Err,
+    );
 
     if let Some(mut sink) = child.stdin.take() {
         let input = command.stdin.take().unwrap_or_default();
@@ -423,12 +501,20 @@ fn run_command(mut command: Command, cancelled: &AtomicBool) -> CoreResult<Resul
         stderr,
         duration,
         truncated: stdout_truncated || stderr_truncated,
+        cancelled: false,
     };
 
     if let Some(error) = sandbox_error {
         return Err(error);
     }
     if was_cancelled {
+        if keep_capture {
+            // No note is appended to stderr: the tails are a record of what the
+            // command printed, and the cancellation is carried by the flag.
+            result.cancelled = true;
+            result.exit_code = -1;
+            return Ok(result);
+        }
         result
             .stderr
             .extend_from_slice(b"exec: cancelled before the child exited\n");
@@ -490,6 +576,8 @@ fn validate_cmd_line(cmd_line: &Option<String>, args: &[String]) -> CoreResult<(
 fn spawn_reader<R>(
     reader: Option<R>,
     limit: usize,
+    observer: Option<Observer>,
+    stream: Stream,
 ) -> (Arc<Mutex<CappedBuffer>>, mpsc::Receiver<()>)
 where
     R: Read + Send + 'static,
@@ -506,7 +594,18 @@ where
         loop {
             match reader.read(&mut chunk) {
                 Ok(0) => break,
-                Ok(read) => lock_buffer(&shared).push(&chunk[..read]),
+                Ok(read) => {
+                    lock_buffer(&shared).push(&chunk[..read]);
+                    if let Some(observer) = &observer {
+                        // A panicking viewer must not cost the caller the rest of
+                        // the capture; the payload is a reference to a local
+                        // chunk, so the closure is unwind safe by construction.
+                        let chunk = &chunk[..read];
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            observer(stream, chunk);
+                        }));
+                    }
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => break,
             }

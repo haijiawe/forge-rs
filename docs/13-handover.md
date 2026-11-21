@@ -91,21 +91,22 @@ node scripts/sync.cjs --dry "message"    # 只说会做什么，不写任何东�
 
 ### IDE 转向
 
-交接之后工作转向了工作台而不是聊天页，这改了三件事，而 harness 本身没动：
+交接之后工作转向了工作台而不是聊天页，这改了几件事，而 harness 本身没动：
 
 - **一个 turn 不再重读整条日志。** `Agent::snapshot` 以前每个 turn 都调 `read_all` 把每个事件重新投影一遍——在本机上实测 88,916 events/sec，所以 100,000 个事件在向模型问任何话*之前*就要花 1.8 s，500,000 个要花 9 s。`Store::read_after` 加上一个压在字节游标后面的 `Projection`，让一个 turn 的代价等于这个 turn 新增的部分；末尾被截断的半行会留给下一次调用，而不是被消费掉。
 - **转录是增量扫描的。** `compressedBlocks` 以前每个动画帧都走一遍所有事件；`collectBlocks`/`blocksFromScan` 保留一个扫描位置，而 `toBeyondHead` 的结论是重算而不是缓存，因为它随着 head 增长会翻转。
 - **窗口能读 workspace**，走 `GET /api/sessions/{id}/files`、`/file` 与 `/diff`——它们从 `session/start` 解析出 workspace，拒绝 `..` 与符号链接逃逸，文本上限 1 MiB，且从不写入。
 - **窗口也能把它写回去**，走 `PUT /api/sessions/{id}/file`，前面挡着一个乐观的 `expectedSha256` 校验和一个 Monaco 编辑器。一次保存追加一条 `file/write` 事件——刻意不是 `tool/call`，因为没有任何模型参与，而一份说反了的转录是没法读的；被拒的保存（会话只读、路径逃逸、摘要过期）则什么都不追加。Monaco 是打包进来的，不是从 CDN 拉的：桌面壳没有网络。
 - **改动也能被扔掉**，走 `POST /api/sessions/{id}/revert`，落一条 `file/revert` 事件（第三类动作，理由同 `file/write`）。请求只带路径：提交过的字节是服务端去读的，所以客户端的摘要过期不了，还原也能重复执行。git 从没提交过的文件返回 `409` 而不是被删掉——「已提交版本」不存在时，还原就是删除，而操作者没要求删除。界面里「保存全部（N）」是纯前端便利：逐个标签保存、一个失败不中断其余，wire 上没有任何新形状。
-- **工作区能被搜索**，走 `GET /api/sessions/{id}/search?q=`：按子串找行，答案带 `files`（真读过几个文件）与 `truncated`（触到命中或文件上限），所以「没有这一行」与「没找遍」是不同的句子。点一条命中打开文件并跳到那一行。差异列表另有一个只在前端存在的切换：同一段统一 diff 摆成左右两列（左磁盘、右提交，行号取自 `@@` 头），对齐是呈现，不是第二次判定。**交互式终端仍然没有**：它需要 ConPTY 与一条双向流，而一条能跑任意命令的 UI 通路必须先经过策略与审批，否则就是一个不写日志的后门——那是一条需要单独设计的面，不是补一个按钮。
+- **工作区能被搜索**，走 `GET /api/sessions/{id}/search?q=`：按子串找行，答案带 `files`（真读过几个文件）与 `truncated`（触到命中或文件上限），所以「没有这一行」与「没找遍」是不同的句子。点一条命中打开文件并跳到那一行。差异列表另有一个只在前端存在的切换：同一段统一 diff 摆成左右两列（左磁盘、右提交，行号取自 `@@` 头），对齐是呈现，不是第二次判定。
+- **终端是一条行式命令通路**，走 `GET /api/sessions/{id}/terminal`：WebSocket 升级、子协议 `hearth.v1`，与事件流共用 `ws_upgrade` 这一个握手函数。一个人敲一行，服务端先写 `terminal/run`（写不进日志就不跑），起进程，stdout 与 stderr 按 UTF-8 字符边界实时回传，结束时写 `terminal/end`——退出码、耗时、`cancelled`，以及两条流各自的末 4 KiB（`TAIL_BYTES = 4 << 10`；实时流另按每流 1 MiB 截断并留一条说明）。可取消：`cancel` 走 `crates/exec` 已有的杀进程树，取消不写第三条事件，`cancelled: true` 就是记录；socket 关掉时正在跑的那条同样被取消，不留看不见的进程。read-only 会话根本不提供它（`new_terminal` 为 `None`，升级前就 403）。它比 `shell` 工具多一层：沙箱 enforcer 逐条装在子进程上，而 `--sandbox` 过去只影响策略层提供哪些工具、不约束子进程。它**不是** PTY：不是持久 shell，跑不了全屏 TUI，没有交互 stdin（子进程 stdin 是 EOF），也没有超时——只有 `cancel` 或关掉 socket 能让一条 build 提前结束。理由与取舍见 [14-adr-terminal.md](14-adr-terminal.md)。
 
 ## 刻意没造的东西
 
 这些是决策，不是待办。关掉其中一条会改变这个产物声称什么，所以每条都需要自己的 ADR，而不是一个安静的提交。
 
 - **纯 Rust 的 Office 写出器。** `office` 技能驱动一个外部程序并且明说了；[office-run.md](office-run.md) 记录了产出了什么。
-- **[09-platform-tier.md](09-platform-tier.md) §6 里的非目标**：浏览器内终端复用器、ACP agent 协议、Office 的*渲染*、图像生成模型，以及任何 DSH/DS 服务器依赖。这棵树按设计是进程内 Rust。桌面壳曾在这张清单上，后来按需造了出来；它打开的编辑器现在也能保存，因为一次保存走的是 `PUT /api/sessions/{id}/file`——带 `expectedSha256`、落一条 `file/write` 事件并按只读会话、路径逃逸、过期摘要拒写——这是"一个人按键"的动作，不是模型的动作，所以它既不绕过策略也不绕过审批提示，而 `file/write` 事件正是让它可复核的东西。
+- **[09-platform-tier.md](09-platform-tier.md) §6 里的非目标**：浏览器内终端复用器、ACP agent 协议、Office 的*渲染*、图像生成模型，以及任何 DSH/DS 服务器依赖。这里的"终端复用器"指的是全屏 xterm 那种东西，它仍然没有；有的是一条行式命令通路（上一节最后一条），两者不是同一件东西。这棵树按设计是进程内 Rust。桌面壳曾在这张清单上，后来按需造了出来；它打开的编辑器现在也能保存，因为一次保存走的是 `PUT /api/sessions/{id}/file`——带 `expectedSha256`、落一条 `file/write` 事件并按只读会话、路径逃逸、过期摘要拒写——这是"一个人按键"的动作，不是模型的动作，所以它既不绕过策略也不绕过审批提示，而 `file/write` 事件正是让它可复核的东西。
 - **DSH 实现方式的 `archive-admission`** 被替换成一条真正的 `session/archived` 事件，加上在新工作进来的两道门口做的检查（[agent-gaps.md](agent-gaps.md) 解释了为什么这里没有否决面）。
 
 ## 真实限制 —— 这个构建不做的声称

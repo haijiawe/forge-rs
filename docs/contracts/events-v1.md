@@ -164,7 +164,7 @@ the condition, and the substring above is what the conformance suite asserts.
 
 ## 4. Event types
 
-The v1 type catalogue is **open**. These thirty three types have producers in `hearth` today:
+The v1 type catalogue is **open**. These thirty five types have producers in `hearth` today:
 
 | `type` | Emitted when | Payload members in current producers |
 |     |     |     |
@@ -201,6 +201,8 @@ The v1 type catalogue is **open**. These thirty three types have producers in `h
 | `agent/status` | a resident loop entered or left a phase (§4.0.8) | `phase` (`running` \| `maintenance` \| `idle`) |
 | `file/write` | a person saved a buffer through the editor (§4.0.10) | `path` (workspace relative), `bytes`, `sha256` |
 | `file/revert` | a person put a file back to its committed bytes (§4.0.11) | `path` (workspace relative), `bytes`, `sha256` |
+| `terminal/run` | a person ran a shell command from the IDE terminal (§4.0.12) | `command`, `cwd` (workspace relative) |
+| `terminal/end` | a command from `terminal/run` ended, was cancelled, or never reaped a status (§4.0.12) | `command`, `cwd`, `exitCode`, `durationMs`, `cancelled`, `stdoutTail`, `stderrTail`, optional `message` |
 
 The optional `revision` on the three `goal/*` payloads is the version a
 multi writer continuation uses to decide, *before it writes*, whether it is still
@@ -723,6 +725,41 @@ Three consequences:
   deletion wearing a reassuring name.
   It restores both the index and the working tree, so a staged edit is discarded
   too. Doing it by half would leave the diff list and the disk disagreeing.
+
+### 4.0.12 `terminal/run` and `terminal/end`
+
+A person typing into the IDE terminal is a person, not the model, so these are
+not `tool/call` and `tool/result` — the same reason §4.0.10 gives for
+`file/write`. One `terminal/run` per command that is accepted, one
+`terminal/end` per command that actually started. A command refused before it
+runs — an empty line, a working directory that leaves the workspace, a second
+command while one is live, a command that cannot be recorded — writes neither
+row: a record that says what ran must not describe something that did not.
+
+`terminal/run{command, cwd}` is written **before** the command runs, so a process
+that dies mid-command has already said what it was running. `command` is the line
+as the person typed it, trimmed. `cwd` is the workspace-relative directory it
+ran in, with `.` for the workspace root. A command whose row cannot be
+appended is refused instead of run: an unlogged process is the one thing this
+surface must not do.
+
+`terminal/end{command, cwd, exitCode, durationMs, cancelled, stdoutTail,
+stderrTail, message?}` closes it, and is written even when the socket has already
+gone — a command with no ending is a hole in the log. `command` and `cwd` are
+repeated so the row stands alone; a reader that joins on sequence number is the
+exception, not the rule. `exitCode` is `-1` when no status was reaped — a spawn
+failure, or a kill that never produced one — and `message` says why, so readers
+must not take `-1` for an ordinary exit. `cancelled` is true when a person
+pressed stop or closed the panel and the process tree was killed. `stdoutTail` and
+`stderrTail` are the last **4 KiB** of each stream, kept separately because
+interleaving them back into one string loses which stream said it. They exist so a
+reader can answer "and what did it say" after a restart, and they are deliberately
+bounded: a row per output chunk would turn a build into the log, and the full
+output belongs to the terminal panel, which is a view, not a source of truth.
+
+These two rows are the reason a terminal is allowed to exist here at all. A path
+that runs arbitrary commands without writing them down first would be the one
+hole in the only truth this project keeps — see `docs/14-adr-terminal.md`.
 
 ## 5. Append only, never rewrite
 

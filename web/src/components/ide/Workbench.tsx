@@ -21,6 +21,8 @@ import { EditorPane } from './EditorPane';
 import { FileTree } from './FileTree';
 import { SearchPanel } from './SearchPanel';
 import { Tabs } from './Tabs';
+import { TerminalPanel } from './TerminalPanel';
+import type { TerminalConnect } from './TerminalPanel';
 
 /** Below this the three columns stop being usable; SessionView falls back. */
 export const WIDE_QUERY = '(min-width: 900px)';
@@ -96,9 +98,19 @@ export interface WorkbenchProps {
   needsResync: boolean;
   /** Injectable for tests; production leaves it out. */
   api?: WorkbenchApi;
+  /** Injectable for tests; production leaves it out and the drawer dials itself. */
+  terminalConnect?: TerminalConnect;
 }
 
-export function Workbench({ sessionId, head, agent, connecting, needsResync, api }: WorkbenchProps) {
+export function Workbench({
+  sessionId,
+  head,
+  agent,
+  connecting,
+  needsResync,
+  api,
+  terminalConnect,
+}: WorkbenchProps) {
   const store = useMemo(() => {
     const options = api === undefined ? { sessionId } : { sessionId, api };
     return new WorkbenchStore(options);
@@ -117,6 +129,9 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
   // what the server said about the last attempt belong to this render.
   const [reverting, setReverting] = useState<string | null>(null);
   const [revertError, setRevertError] = useState<string | null>(null);
+  // Closed by default: a terminal is a tool you ask for, and an open socket per
+  // session view would be a connection nobody opened.
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const drag = useRef<{ x: number; width: number } | null>(null);
 
   // Dragging is tracked on the window, not on the grip, so the pointer may leave
@@ -194,6 +209,17 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
             }}
           >
             改动
+          </button>
+          <button
+            type="button"
+            className={terminalOpen ? 'button button-primary' : 'button button-ghost'}
+            aria-pressed={terminalOpen}
+            title="在底部打开终端：一次跑一条命令，输出实时回传"
+            onClick={() => {
+              setTerminalOpen((open) => !open);
+            }}
+          >
+            终端
           </button>
           {dirtyCount > 0 && (
             <button
@@ -384,6 +410,12 @@ export function Workbench({ sessionId, head, agent, connecting, needsResync, api
 
         <aside className="wb-pane wb-pane-agent">{agent}</aside>
       </div>
+
+      {terminalOpen && (
+        <section className="wb-drawer" aria-label="终端">
+          <TerminalPanel sessionId={sessionId} connect={terminalConnect} />
+        </section>
+      )}
     </div>
   );
 }

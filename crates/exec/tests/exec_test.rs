@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use hearth_core::ErrorKind;
-use hearth_exec::{Command, Pipe, Sandbox, ENV_INHERIT};
+use hearth_exec::{Command, Pipe, Sandbox, Stream, ENV_INHERIT};
 
 fn helper(mode: &str) -> Command {
     Command::new(env!("CARGO_BIN_EXE_hearth-exec-helper")).arg(mode)
@@ -47,6 +47,78 @@ fn captures_stdout_and_stderr_separately() {
     let result = Pipe.run(helper("stderr").arg("err")).unwrap();
     assert_eq!(result.stderr, b"err");
     assert!(result.stdout.is_empty());
+}
+
+#[test]
+fn observer_sees_output_while_the_process_is_still_running() {
+    // The child writes, sleeps, then writes again: if the observer only ran
+    // after the wait loop returned, both chunks would share one timestamp and
+    // the first would arrive too late.
+    let started = Instant::now();
+    let first = Arc::new(Mutex::new(None::<(Duration, Stream)>));
+    let sink = Arc::clone(&first);
+    let result =
+        Pipe.run(helper("drip").arg("400").arg("hello").observe(Arc::new(
+            move |stream, _chunk| {
+                let mut slot = sink.lock().unwrap();
+                if slot.is_none() {
+                    *slot = Some((started.elapsed(), stream));
+                }
+            },
+        )))
+        .unwrap();
+    let (when, stream) = first.lock().unwrap().expect("observer must run");
+    assert_eq!(stream, Stream::Out);
+    // The run lasts ~400ms; a live observer fires in the first half.
+    assert!(
+        when < result.duration / 2,
+        "first chunk at {when:?}, whole run {:?}",
+        result.duration
+    );
+}
+
+#[test]
+fn observer_sees_both_streams_tagged_and_capture_still_works() {
+    let chunks = Arc::new(Mutex::new(Vec::<(Stream, Vec<u8>)>::new()));
+    let sink = Arc::clone(&chunks);
+    let result = Pipe
+        .run(
+            helper("drip")
+                .arg("20")
+                .arg("xy")
+                .observe(Arc::new(move |stream, chunk| {
+                    sink.lock().unwrap().push((stream, chunk.to_vec()));
+                })),
+        )
+        .unwrap();
+    assert_eq!(result.stdout, b"xy");
+    assert_eq!(result.stderr, b"xy");
+    let chunks = chunks.lock().unwrap();
+    let joined = |want: Stream| -> Vec<u8> {
+        chunks
+            .iter()
+            .filter(|(stream, _)| *stream == want)
+            .flat_map(|(_, chunk)| chunk.clone())
+            .collect()
+    };
+    assert_eq!(joined(Stream::Out), b"xy");
+    assert_eq!(joined(Stream::Err), b"xy");
+}
+
+#[test]
+fn observer_panic_does_not_truncate_the_capture() {
+    // A viewer bug must not cost the caller the result it asked for.
+    let result = Pipe
+        .run(
+            helper("emit")
+                .arg("512")
+                .max_output_bytes(1024)
+                .observe(Arc::new(|_stream, _chunk| panic!("observer exploded"))),
+        )
+        .unwrap();
+    assert_eq!(result.exit_code, 0);
+    assert_eq!(result.stdout.len(), 512);
+    assert!(!result.truncated);
 }
 
 #[test]
@@ -481,5 +553,47 @@ fn cancellation_already_requested_still_returns_an_error() {
     let error = Pipe
         .run_with_cancel(helper("sleep"), &cancelled)
         .expect_err("pre-cancelled run must fail");
+    assert!(error.message().contains("cancelled"), "{}", error);
+}
+
+#[test]
+fn cancelling_keeps_what_the_command_printed() {
+    // A person watching a build stop it halfway and still expects to see the
+    // lines it managed to print; the event written after the session must not
+    // claim the command printed nothing.
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let stopper = Arc::clone(&cancelled);
+    let trigger = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        stopper.store(true, Ordering::SeqCst);
+    });
+    let result = Pipe
+        .run_with_cancel_capture(helper("drip").args(["5000", "before-cancel\n"]), &cancelled)
+        .expect("a cancelled run that kept its capture is not an error");
+    trigger.join().expect("trigger thread");
+    assert!(result.cancelled, "the result must say it was cancelled");
+    assert_eq!(result.exit_code, -1, "a killed child has no exit status");
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    assert!(stdout.contains("before-cancel"), "stdout was {:?}", stdout);
+    assert!(
+        !String::from_utf8_lossy(&result.stderr).contains("cancelled"),
+        "the capture is a record of the streams, not a place for notes"
+    );
+}
+
+#[test]
+fn a_plain_cancel_still_reports_an_error_with_no_capture() {
+    // The same run through the older path: a tool call that was cancelled must
+    // fail loudly rather than hand back half a result that looks complete.
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let stopper = Arc::clone(&cancelled);
+    let trigger = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        stopper.store(true, Ordering::SeqCst);
+    });
+    let error = Pipe
+        .run_with_cancel(helper("drip").args(["5000", "gone\n"]), &cancelled)
+        .expect_err("the plain path reports cancellation as an error");
+    trigger.join().expect("trigger thread");
     assert!(error.message().contains("cancelled"), "{}", error);
 }

@@ -169,6 +169,7 @@ All paths are under `{base}`. `{id}` is a session id; an unknown id is
 | 20 | `PUT` | `/api/sessions/{id}/file` | Save an edited buffer into that workspace | `200` |
 | 21 | `POST` | `/api/sessions/{id}/revert` | Put one file back to its committed bytes | `200` |
 | 22 | `GET` | `/api/sessions/{id}/search` | The lines in that workspace containing ?q= | `200` |
+| 23 | `GET` | `/api/sessions/{id}/terminal` | WebSocket: run one command line, stream its output back | `101` |
 
 ### 4.1 `GET /healthz`
 
@@ -1092,6 +1093,77 @@ GET /api/sessions/{id}/search?q=needle&limit=50
   it would be a slow way of saying "you asked for everything".
 - `limit` defaults to 200 and is clamped to 1..=200.
 - The workspace comes from `session/start`, exactly as in §4.17.
+
+### 4.23 `GET /api/sessions/{id}/terminal` (WebSocket)
+
+One person at a keyboard, one command line at a time, with stdout and stderr streamed
+back as they are produced. It is not a shell: no PTY, no persistent session, no
+interactive stdin (see `docs/14-adr-terminal.md` §6).
+
+```
+GET /api/sessions/{id}/terminal
+Sec-WebSocket-Protocol: hearth.v1
+```
+
+An upgrade on the same base URL as §4.8, through the *same* handshake function
+(`ws_upgrade`): the auth, `Origin`, `X-Hearth-Protocol` and `Sec-WebSocket-Accept`
+checks are written once, so a rule cannot hold on the event socket and be forgotten
+on this one. `hearth.v1` is echoed back when it was offered.
+
+**Client to server — two frames.** `kind` is the discriminator:
+
+```json
+{"kind":"run","command":"cargo test -q","cwd":"crates/core"}
+{"kind":"cancel"}
+```
+
+`cwd` is workspace-relative and optional; absent or empty means the workspace root,
+and it goes through the same resolver as §4.17/§4.18 (no `..`, no symlink out). One
+`run` at a time: a second one while the first is still running is `denied`, not
+queued. A refused frame writes no event at all.
+
+**Server to client — four frames.** Every one carries `"protocol": 1`:
+
+```json
+{"kind":"start","protocol":1,"command":"cargo test -q","cwd":"crates/core"}
+{"kind":"output","protocol":1,"stream":"stdout","text":"running 12 tests\n"}
+{"kind":"exit","protocol":1,"exitCode":0,"durationMs":841,"cancelled":false,"stdoutTail":"…","stderrTail":""}
+{"kind":"denied","protocol":1,"reason":"the command is empty"}
+```
+
+- `start` is sent **before** the process starts, so a client that never receives it
+  knows nothing ran. `exitCode` is `-1` when nothing ran; the reason, when there is
+  one, rides on the `terminal/end` event — this frame reports numbers only.
+- `output` carries exactly one stream per frame (`stdout` or `stderr`), split on whole
+  UTF-8 characters. Each stream is streamed up to **1 MiB**
+  (`TERMINAL_STREAM_BUDGET`); past that the bytes are dropped and one note per stream
+  is sent instead.
+- `exit` ends the run: exit code, duration, whether it was cancelled, and the last
+  **4 KiB** of each stream (`TAIL_BYTES`) for a reader who arrives after the live
+  output has scrolled away.
+- `denied` refuses one frame and leaves the socket usable, so the panel can show the
+  reason beside the command it refused. An empty command, a `cwd` that does not exist
+  or leaves the workspace, a second `run` while one is in flight, and a command that
+  cannot be recorded all arrive here.
+- `cancel` ends the run in flight by killing the process tree (`crates/exec`), and
+  writes no third event: `terminal/end` records `cancelled: true`. Closing the socket
+  cancels the same way — a closed panel must not leave a process nobody can see.
+- **403 before the upgrade** when the server was started `read-only`: a session whose
+  tools cannot run a command must not offer a surface that can. It is the same cut as
+  §4.20's, applied before the session id is looked at, so a read-only server answers
+  `403` even for an unknown id.
+- Two events, both appended by the server: `terminal/run` before the process starts (a
+  command that cannot be recorded is not run), and `terminal/end` when it ends —
+  including when the socket has already gone, because a command with no ending is a
+  hole in the log. Payloads: `command` and `cwd` on the first; `command`, `cwd`,
+  `exitCode`, `durationMs`, `cancelled`, `stdoutTail`, `stderrTail`, and `message`
+  when there is one, on the second. These are exactly the rows `events-v1.md`
+  §4.0.12 lists — a refused command writes neither.
+- **No approval per command, and no deadline.** A person at the keyboard is who an
+  approval prompt protects, so asking them to approve their own keystroke buys
+  nothing; the cancel frame, or a closed socket, is how a run ends early. The sandbox
+  enforcer is installed on every child, which makes this surface *stricter* than the
+  `shell` tool beside it, not looser. See `docs/14-adr-terminal.md` §5.
 
 ---
 ---

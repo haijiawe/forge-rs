@@ -142,6 +142,35 @@ impl EventType {
     /// The projection ignores it and model history never sees it.
     pub const FILE_REVERT: EventType = EventType("file/revert");
 
+    /// One row per command a person typed into the IDE terminal, written before
+    /// it runs.
+    ///
+    /// It is not a `tool/call` for the reason `file/write` is not one: no model
+    /// is in the loop. The tool channel records what the loop asked a tool to do
+    /// and answers the model; a person running `cargo test` asked for nothing and
+    /// the model never hears about it, so dressing it as a tool call would put a
+    /// command in the transcript that the agent never issued.
+    ///
+    /// The row exists because of law 1 with a sharper edge than `file/write`:
+    /// a shell command can touch anything the process can, and the log is the
+    /// only place that says it happened. A terminal whose commands are not rows
+    /// here is a hole in the only truth this project has. Payload:
+    /// `{command, cwd, decision, reason?}` — `decision` is `allow` or `deny`,
+    /// `reason` explains a deny. A denied command writes this row and no
+    /// `terminal/end`: it never started.
+    pub const TERMINAL_RUN: EventType = EventType("terminal/run");
+
+    /// One row per command from `terminal/run` that actually finished, including
+    /// ones that were cancelled or timed out.
+    ///
+    /// Payload: `{exitCode, durationMs, bytes, truncated, cancelled, tail?}`.
+    /// `exitCode` is absent when no exit happened (killed, or a spawn failure);
+    /// `tail` is the last few KiB of the combined output, so a reader can answer
+    /// "and what did it say" after a restart without trusting a cache. The full
+    /// output is the terminal panel's, not the log's — a row per byte would make
+    /// a build turn the log into the build.
+    pub const TERMINAL_END: EventType = EventType("terminal/end");
+
     /// Every type this build knows. A test asserts it matches the contract
     /// document, and the reader uses it to decide what it can fold.
     pub const ALL: &'static [EventType] = &[
@@ -178,6 +207,8 @@ impl EventType {
         EventType::AGENT_STATUS,
         EventType::FILE_WRITE,
         EventType::FILE_REVERT,
+        EventType::TERMINAL_RUN,
+        EventType::TERMINAL_END,
     ];
 
     pub fn as_str(self) -> &'static str {

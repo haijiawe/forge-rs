@@ -28,8 +28,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::api::{
-    CancelToken, DeltaSink, EventWriter, Options, StaticSource, SteeringSource, TurnContext,
-    TurnRunner,
+    CancelToken, DeltaSink, EventWriter, Options, StaticSource, SteeringSource, TerminalOutcome,
+    TerminalRequest, TerminalRunner, TerminalSink, TurnContext, TurnRunner,
 };
 use crate::ratelimit::RateLimiter;
 use crate::teams;
@@ -987,6 +987,13 @@ impl Server {
         if segments.len() == 3 && segments[2] == "stream" && request.method == "GET" {
             return match self.handle_stream(request, stream, segments[1]) {
                 Ok(None) => None, // upgraded: handle_stream owns the connection now
+                Ok(Some(response)) => Some(response),
+                Err(failure) => Some(failure.into_response()),
+            };
+        }
+        if segments.len() == 3 && segments[2] == "terminal" && request.method == "GET" {
+            return match self.handle_terminal(request, stream, segments[1]) {
+                Ok(None) => None, // upgraded: handle_terminal owns the connection now
                 Ok(Some(response)) => Some(response),
                 Err(failure) => Some(failure.into_response()),
             };
@@ -3101,7 +3108,29 @@ impl Server {
                 .map_err(|_| ApiFailure::bad("after must be a non-negative integer"))?,
         };
         let state = self.fold_session(id).map_err(fold_failure)?;
+        self.ws_upgrade(request, stream)?;
 
+        self.run_stream(stream, &state, after);
+        Ok(None)
+    }
+
+    /// Check what a WebSocket upgrade from a browser must satisfy, then write
+    /// the 101. Split out because the terminal is the second socket this server
+    /// offers and the handshake is the part that must not diverge: a browser
+    /// refuses a connection whose `Sec-WebSocket-Accept` is one byte wrong.
+    fn ws_upgrade(&self, request: &Request, stream: &mut TcpStream) -> ApiResult<()> {
+        // Auth and protocol were already checked in dispatch. Origin and method
+        // are re-checked here because a WS client is a browser crossing origins.
+        if let Some(reason) = upgrade_allowed(request) {
+            return Err(ApiFailure::bad("not a valid WebSocket upgrade")
+                .with_details(json!({ "reason": reason })));
+        }
+        if !self.origin_allowed(request) {
+            return Err(
+                ApiFailure::new(403, code::FORBIDDEN, "missing or foreign Origin header")
+                    .with_details(json!({ "origin": request.header("Origin").unwrap_or("") })),
+            );
+        }
         let key = request.header("Sec-WebSocket-Key").unwrap_or("").trim();
         let mut handshake_input = key.as_bytes().to_vec();
         handshake_input.extend_from_slice(WS_GUID.as_bytes());
@@ -3120,21 +3149,529 @@ impl Server {
              {selected}\
              X-Hearth-Protocol: 1\r\n\r\n"
         );
-        if let Err(error) = stream
+        stream
             .write_all(response.as_bytes())
             .and_then(|_| stream.flush())
-        {
-            return Err(ApiFailure::new(
-                500,
-                code::INTERNAL,
-                format!("could not complete the WebSocket handshake: {error}"),
-            ));
-        }
+            .map_err(|error| {
+                ApiFailure::new(
+                    500,
+                    code::INTERNAL,
+                    format!("could not complete the WebSocket handshake: {error}"),
+                )
+            })
+    }
 
-        self.run_stream(stream, &state, after);
+    /// One command line at a time, typed by a person, streamed back live.
+    ///
+    /// This is the only place the server causes a process to start, and it
+    /// cannot do so itself: the runner comes from `Options.new_terminal`, which
+    /// the CLI fills in because spawning belongs to a crate this one must not
+    /// depend on. `None` (read-only sessions) answers 403 before the upgrade, so
+    /// a client learns the terminal is unavailable instead of watching a socket
+    /// open and immediately close.
+    ///
+    /// Two log lines per command, both written here rather than by the runner so
+    /// the record cannot disagree with the socket: `terminal/run` before the
+    /// process starts (a line after the fact would be a claim, not a record) and
+    /// `terminal/end` after it is reaped, even when the socket died first. A
+    /// request this handler refuses writes nothing, because a refused click that
+    /// left a line would make it look like a command that ran.
+    fn handle_terminal(
+        &self,
+        request: &Request,
+        stream: &mut TcpStream,
+        id: &str,
+    ) -> ApiResult<Option<Response>> {
+        let Some(factory) = self.shared.options.new_terminal.clone() else {
+            return Err(ApiFailure::new(
+                403,
+                code::FORBIDDEN,
+                "this server offers no terminal: it was started in read-only mode",
+            ));
+        };
+        if !valid_session_id(id) {
+            return Err(ApiFailure::new(404, code::NOT_FOUND, "no such session"));
+        }
+        let workspace = self.session_workspace(id)?;
+        self.ws_upgrade(request, stream)?;
+        // A terminal socket is idle most of the time, so it has to block on the
+        // next frame. This listener is non-blocking — that is how shutdown stops
+        // it without closing a socket across threads — and Windows hands that
+        // mode to the accepted socket, where a read timeout alone would leave
+        // every read returning WouldBlock and end the session after one frame.
+        let _ = stream.set_nonblocking(false);
+        let _ = stream.set_read_timeout(None);
+        self.pump_terminal(stream, id, &workspace, factory(id));
         Ok(None)
     }
 
+    /// The frame loop of one terminal socket.
+    ///
+    /// The connection thread only reads frames; a command runs on its own thread
+    /// so `cancel` is honoured while the process is alive. Both threads write to
+    /// the socket through one mutex, because two writers interleaving halves of a
+    /// frame would corrupt a stream a browser is parsing as JSON.
+    fn pump_terminal(
+        &self,
+        stream: &mut TcpStream,
+        id: &str,
+        workspace: &str,
+        runner: Arc<dyn TerminalRunner>,
+    ) {
+        let Ok(writer_stream) = stream.try_clone() else {
+            return;
+        };
+        let writer = Arc::new(Mutex::new(writer_stream));
+        let mut live: Option<TerminalJob> = None;
+        // A read error is EOF, a reset or a broken frame: the panel is gone or
+        // the socket is, and either way there is nobody left to answer. A frame
+        // that simply has not arrived yet is neither of those, and ends the
+        // session only if the socket could not be made blocking above.
+        loop {
+            let frame = match read_client_frame(stream) {
+                Ok(frame) => frame,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(2));
+                    continue;
+                }
+                Err(_) => break,
+            };
+            match frame {
+                ClientFrame::Text(payload) => {
+                    let Ok(value) = serde_json::from_slice::<Value>(&payload) else {
+                        deny_terminal(&writer, "a terminal frame must be a JSON object");
+                        continue;
+                    };
+                    match value.get("kind").and_then(Value::as_str).unwrap_or("") {
+                        kind::RUN => {
+                            if let Some(job) = &live {
+                                if !job.finished() {
+                                    deny_terminal(&writer, "a command is already running");
+                                    continue;
+                                }
+                            }
+                            let Some(job) = self
+                                .start_terminal_command(id, workspace, &runner, &writer, &value)
+                            else {
+                                continue;
+                            };
+                            live = Some(job);
+                        }
+                        kind::CANCEL => {
+                            if let Some(job) = &live {
+                                job.cancel.cancel();
+                            }
+                        }
+                        _ => deny_terminal(&writer, "unknown terminal frame kind"),
+                    }
+                }
+                ClientFrame::Ping => {
+                    if let Ok(mut socket) = writer.lock() {
+                        let _ = write_ws_frame(&mut socket, OP_PONG, b"");
+                    }
+                }
+                ClientFrame::Pong => {}
+                ClientFrame::Close | ClientFrame::Unsupported => break,
+            }
+        }
+        // A panel that closed mid-command must not leave a process building out
+        // of sight: the socket is the only thing that asked for it.
+        if let Some(job) = live {
+            job.cancel.cancel();
+        }
+    }
+
+    /// Validate one `run` frame, record it, announce it and start the process.
+    ///
+    /// `None` means the frame was refused and a `denied` frame was sent; only the
+    /// path that got as far as a `terminal/run` line returns a job.
+    fn start_terminal_command(
+        &self,
+        id: &str,
+        workspace: &str,
+        runner: &Arc<dyn TerminalRunner>,
+        writer: &Arc<Mutex<TcpStream>>,
+        value: &Value,
+    ) -> Option<TerminalJob> {
+        let command = value
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if command.is_empty() {
+            deny_terminal(writer, "the command is empty");
+            return None;
+        }
+        let relative = value.get("cwd").and_then(Value::as_str).unwrap_or("");
+        let resolved = match crate::workspace_route::resolve(workspace, relative) {
+            Ok((relative, path)) => (relative, path),
+            Err(problem) => {
+                deny_terminal(writer, &workspace_failure(problem).message);
+                return None;
+            }
+        };
+        if !resolved.1.is_dir() {
+            deny_terminal(writer, "the working directory does not exist");
+            return None;
+        }
+        let turn = self
+            .fold_session(id)
+            .map(|state| state.running)
+            .unwrap_or(0);
+        let mut event = Event::new(
+            id,
+            EventType::TERMINAL_RUN,
+            Some(json!({ "command": command, "cwd": resolved.0 })),
+        );
+        event.turn = turn;
+        // The line comes first. A command whose record could not be written is
+        // not run: an unlogged process is the one thing this surface must not do.
+        if let Err(error) = self.append_event(id, &event) {
+            deny_terminal(
+                writer,
+                &format!("the command was not run because it could not be recorded: {error}"),
+            );
+            return None;
+        }
+        send_terminal(
+            writer,
+            &TerminalStartFrame {
+                kind: kind::START.to_string(),
+                protocol: VERSION,
+                command: command.clone(),
+                cwd: resolved.0.clone(),
+            },
+        );
+
+        let cancel = CancelToken::default();
+        let done = Arc::new(AtomicBool::new(false));
+        let worker = self.clone();
+        let writer = Arc::clone(writer);
+        let runner = Arc::clone(runner);
+        let session = id.to_string();
+        let directory = resolved.1;
+        let flag = Arc::clone(&done);
+        let token = cancel.clone();
+        thread::spawn(move || {
+            let sink = TermSink::new(Arc::clone(&writer), VERSION);
+            // A ticker pushes buffered text out while the command says nothing:
+            // a prompt, or the first line of a build, must not wait for the
+            // process to print more or to end.
+            let stopping = Arc::new(AtomicBool::new(false));
+            let ticker_flag = Arc::clone(&stopping);
+            let ticker_sink = sink.clone();
+            let ticker = thread::spawn(move || {
+                while !ticker_flag.load(Ordering::Acquire) {
+                    thread::sleep(Duration::from_millis(10));
+                    ticker_sink.flush_pending();
+                }
+            });
+            let outcome = runner
+                .run(
+                    &TerminalRequest {
+                        command: command.clone(),
+                        cwd: directory,
+                        cancel: token,
+                    },
+                    Arc::new(sink.clone()),
+                )
+                .unwrap_or_else(|error| TerminalOutcome {
+                    exit_code: -1,
+                    message: error.message().to_string(),
+                    ..TerminalOutcome::default()
+                });
+            stopping.store(true, Ordering::Release);
+            let _ = ticker.join();
+            sink.flush();
+            drop(sink);
+
+            let mut end = Event::new(
+                &session,
+                EventType::TERMINAL_END,
+                Some(terminal_end_payload(
+                    &command,
+                    resolved.0.as_str(),
+                    &outcome,
+                )),
+            );
+            end.turn = turn;
+            // A failed append is reported on the socket but cannot be repaired:
+            // the log is append-only and the process already ran.
+            let _ = worker.append_event(&session, &end);
+            send_terminal(
+                &writer,
+                &TerminalExitFrame {
+                    kind: kind::EXIT.to_string(),
+                    protocol: VERSION,
+                    exit_code: outcome.exit_code,
+                    duration_ms: outcome.duration_ms,
+                    cancelled: outcome.cancelled,
+                    stdout_tail: outcome.stdout_tail,
+                    stderr_tail: outcome.stderr_tail,
+                },
+            );
+            flag.store(true, Ordering::Release);
+        });
+        Some(TerminalJob { cancel, done })
+    }
+}
+
+/// One command in flight on a terminal socket.
+///
+/// The done flag exists so a second `run` frame arriving while the first is
+/// still building is refused instead of interleaved: two processes writing to
+/// one terminal is not a shell, it is two shells sharing a window.
+struct TerminalJob {
+    cancel: CancelToken,
+    done: Arc<AtomicBool>,
+}
+
+impl TerminalJob {
+    fn finished(&self) -> bool {
+        self.done.load(Ordering::Acquire)
+    }
+}
+
+/// Refuse one frame. A refusal is a frame, not a closed socket: the panel shows
+/// the reason beside the command it refused and stays usable.
+fn deny_terminal(writer: &Arc<Mutex<TcpStream>>, reason: &str) {
+    send_terminal(
+        writer,
+        &TerminalDeniedFrame {
+            kind: kind::DENIED.to_string(),
+            protocol: VERSION,
+            reason: reason.to_string(),
+        },
+    );
+}
+
+/// Write one frame from either thread. The mutex is what keeps a worker's
+/// output frame from landing in the middle of the reader's exit frame.
+fn send_terminal(writer: &Arc<Mutex<TcpStream>>, frame: &impl Serialize) {
+    if let Ok(mut socket) = writer.lock() {
+        let _ = send_ws_json(&mut socket, frame);
+    }
+}
+
+/// The `terminal/end` payload: what ran, how it ended, and the tails a reader
+/// needs when the live stream had already scrolled away.
+fn terminal_end_payload(command: &str, cwd: &str, outcome: &TerminalOutcome) -> Value {
+    let mut payload = json!({
+        "command": command,
+        "cwd": cwd,
+        "exitCode": outcome.exit_code,
+        "durationMs": outcome.duration_ms,
+        "cancelled": outcome.cancelled,
+        "stdoutTail": outcome.stdout_tail,
+        "stderrTail": outcome.stderr_tail,
+    });
+    if !outcome.message.is_empty() {
+        payload["message"] = json!(outcome.message);
+    }
+    payload
+}
+
+/// Bytes of stdout/stderr one command may stream back before it is cut off.
+///
+/// A build log is not a document: past a megabyte the interesting part is the
+/// end, and the end is what `terminal/end` carries. Without this a runaway
+/// `yes` would fill memory at the speed the pipe drains.
+const TERMINAL_STREAM_BUDGET: usize = 1 << 20;
+/// How much decoded text may accumulate before a frame is sent anyway. Big
+/// enough that a fast build does not cost one frame per line, small enough that
+/// a slow command still feels live.
+const TERMINAL_FRAME_BYTES: usize = 16 << 10;
+/// And how long a partial frame may wait, so a prompt that prints three
+/// characters appears when it prints them.
+const TERMINAL_FLUSH_EVERY: Duration = Duration::from_millis(30);
+
+/// Streams one command's output onto the socket.
+///
+/// Chunks do not respect UTF-8 boundaries (a pipe hands over whatever one write
+/// produced), so bytes are carried until a whole character is present. Text
+/// past the budget is dropped with one note per stream.
+#[derive(Clone)]
+struct TermSink {
+    writer: Arc<Mutex<TcpStream>>,
+    protocol: u8,
+    state: Arc<Mutex<SinkState>>,
+}
+
+struct SinkState {
+    /// Undecoded tail of each stream, waiting for the rest of a character.
+    pending: [Vec<u8>; 2],
+    /// Decoded text not yet on the wire.
+    buffer: [String; 2],
+    /// Bytes already sent, against TERMINAL_STREAM_BUDGET.
+    sent: [usize; 2],
+    /// Whether the truncation note for each stream has been sent.
+    noted: [bool; 2],
+    last_flush: Instant,
+}
+
+/// stdout is 0, stderr is 1. An unknown tag is treated as stdout: a client bug
+/// is not a reason to lose the line.
+fn stream_index(stream: &str) -> usize {
+    usize::from(stream == "stderr")
+}
+
+/// Appended once to a stream that hit its budget, so the reader knows the
+/// silence after it is a decision rather than a hang.
+const TERMINAL_CUT_NOTE: &str = "\n[output cut off at 1 MiB]\n";
+
+impl TermSink {
+    fn new(writer: Arc<Mutex<TcpStream>>, protocol: u8) -> Self {
+        Self {
+            writer,
+            protocol,
+            state: Arc::new(Mutex::new(SinkState {
+                pending: [Vec::new(), Vec::new()],
+                buffer: [String::new(), String::new()],
+                sent: [0, 0],
+                noted: [false, false],
+                last_flush: Instant::now(),
+            })),
+        }
+    }
+
+    /// Send whatever is still buffered. The worker calls this once before it
+    /// reports the exit, so the last bytes cannot be stranded by the 30 ms rule.
+    fn flush(&self) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        self.drain(&mut state, 0, "");
+        self.drain(&mut state, 1, "");
+        state.last_flush = Instant::now();
+    }
+
+    /// Send what is buffered once the wait has passed.
+    ///
+    /// The size and time rules live in `output`, so they only fire when more
+    /// bytes arrive. A command that prints one short line and then works quietly
+    /// for a minute would leave that line in the buffer, which makes a terminal
+    /// look broken exactly when it is busiest. Someone has to look at the clock.
+    fn flush_pending(&self) {
+        let due = match self.state.lock() {
+            Ok(state) => {
+                !(state.buffer[0].is_empty() && state.buffer[1].is_empty())
+                    && state.last_flush.elapsed() >= TERMINAL_FLUSH_EVERY
+            }
+            Err(_) => return,
+        };
+        if due {
+            self.flush();
+        }
+    }
+
+    /// Move one stream's buffer onto the socket, optionally ending it.
+    fn drain(&self, state: &mut SinkState, index: usize, note: &str) {
+        let mut payload = std::mem::take(&mut state.buffer[index]);
+        if !note.is_empty() && !state.noted[index] {
+            payload.push_str(note);
+            state.noted[index] = true;
+        }
+        if payload.is_empty() {
+            return;
+        }
+        state.sent[index] = state.sent[index].saturating_add(payload.len());
+        let frame = TerminalOutputFrame {
+            kind: kind::OUTPUT.to_string(),
+            protocol: self.protocol,
+            stream: if index == 0 { "stdout" } else { "stderr" }.to_string(),
+            text: payload,
+        };
+        if let Ok(mut socket) = self.writer.lock() {
+            let _ = send_ws_json(&mut socket, &frame);
+        }
+    }
+}
+
+impl TerminalSink for TermSink {
+    fn output(&self, stream: &str, bytes: &[u8]) {
+        let index = stream_index(stream);
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.noted[index] {
+            return;
+        }
+        state.pending[index].extend_from_slice(bytes);
+        let text = decode_utf8(&mut state.pending[index]);
+        if !text.is_empty() {
+            let used = state.sent[index].saturating_add(state.buffer[index].len());
+            let room = TERMINAL_STREAM_BUDGET.saturating_sub(used);
+            if text.len() >= room {
+                let cut = floor_char_boundary(&text, room);
+                state.buffer[index].push_str(&text[..cut]);
+                self.drain(&mut state, index, TERMINAL_CUT_NOTE);
+                state.last_flush = Instant::now();
+                return;
+            }
+            state.buffer[index].push_str(&text);
+        }
+        let due = state.buffer[index].len() >= TERMINAL_FRAME_BYTES
+            || state.last_flush.elapsed() >= TERMINAL_FLUSH_EVERY;
+        if due {
+            self.drain(&mut state, index, "");
+            state.last_flush = Instant::now();
+        }
+    }
+}
+
+/// The largest index at or below `limit` that does not split a character.
+fn floor_char_boundary(text: &str, limit: usize) -> usize {
+    if limit >= text.len() {
+        return text.len();
+    }
+    let mut cut = limit;
+    while cut > 0 && !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    cut
+}
+
+/// Decode as much of `pending` as is whole UTF-8, leaving a split tail behind.
+///
+/// `from_utf8` distinguishes the two cases that matter: a truncated tail
+/// reports `error_len() == None` and must be carried to the next chunk (a
+/// process can split one character across two writes), while bytes that will
+/// never be valid become U+FFFD so the stream keeps flowing.
+fn decode_utf8(pending: &mut Vec<u8>) -> String {
+    let mut text = String::new();
+    loop {
+        match std::str::from_utf8(pending) {
+            Ok(valid) => {
+                text.push_str(valid);
+                pending.clear();
+                return text;
+            }
+            Err(error) => {
+                let valid = error.valid_up_to();
+                if valid > 0 {
+                    if let Ok(whole) = std::str::from_utf8(&pending[..valid]) {
+                        text.push_str(whole);
+                    }
+                    pending.drain(..valid);
+                }
+                match error.error_len() {
+                    // An incomplete character at the end: wait for more bytes.
+                    None => return text,
+                    // Bytes that will never be valid: one replacement character,
+                    // then carry on with what follows.
+                    Some(length) => {
+                        text.push('\u{FFFD}');
+                        let length = length.min(pending.len());
+                        pending.drain(..length);
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl Server {
     /// Snapshot first, then the backlog in (after, cur], then events that arrive
     /// while the socket is open. The file is the only publisher: polling it on
     /// the configured interval keeps live delivery in step with every writer,

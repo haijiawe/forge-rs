@@ -96,6 +96,28 @@ export const KindError = "error" as const;
 export const KindPing = "ping" as const;
 export const KindPong = "pong" as const;
 
+/**
+ * Terminal frame kinds. They share the `kind` vocabulary with the event stream
+ * but never the socket: these six belong to GET /api/sessions/{id}/terminal, and
+ * a stream frame arriving there (or the reverse) is a server that answered the
+ * wrong route. Kept apart from FrameKind for that reason.
+ */
+export const KindRun = "run" as const;
+export const KindCancel = "cancel" as const;
+export const KindStart = "start" as const;
+export const KindOutput = "output" as const;
+export const KindExit = "exit" as const;
+export const KindDenied = "denied" as const;
+
+/** The closed set of TerminalFrameKind values this protocol defines. */
+export type TerminalFrameKind =
+  | typeof KindRun
+  | typeof KindCancel
+  | typeof KindStart
+  | typeof KindOutput
+  | typeof KindExit
+  | typeof KindDenied;
+
 /** The closed set of FrameKind values this protocol defines. */
 export type FrameKind =
   | typeof KindSnapshot
@@ -394,6 +416,83 @@ export type ServerFrame = SnapshotFrame | EventFrame | DeltaFrame | ErrorFrame |
 export type ClientFrame = PingFrame;
 
 /**
+ * TerminalRunFrame asks the terminal to run one command line. Cwd is a path
+ * relative to the session workspace and may be omitted or empty for the root.
+ */
+export interface TerminalRunFrame {
+  kind: "run";
+  command: string;
+  cwd?: string;
+}
+
+/**
+ * TerminalCancelFrame asks the terminal to interrupt the running command. It is
+ * advisory: the command may already have exited, in which case it is ignored.
+ */
+export interface TerminalCancelFrame {
+  kind: "cancel";
+}
+
+/**
+ * TerminalStartFrame means the command was recorded and its process is about to
+ * start. It arrives before any output, at most once per run.
+ */
+export interface TerminalStartFrame {
+  kind: "start";
+  protocol: number;
+  command: string;
+  cwd: string;
+}
+
+/**
+ * TerminalOutputFrame is one chunk of a running command, in arrival order. A
+ * chunk boundary is a pipe buffer boundary, not a line boundary: a client must
+ * buffer and split on newlines itself.
+ */
+export interface TerminalOutputFrame {
+  kind: "output";
+  protocol: number;
+  stream: "stdout" | "stderr";
+  text: string;
+}
+
+/**
+ * TerminalExitFrame is the last frame of one command. ExitCode -1 means the
+ * process never started (so stdoutTail and stderrTail are usually empty).
+ */
+export interface TerminalExitFrame {
+  kind: "exit";
+  protocol: number;
+  /** -1 when the command never started. */
+  exitCode: number;
+  /** Values above 2^53 lose precision in JavaScript (Number.MAX_SAFE_INTEGER). */
+  durationMs: number;
+  cancelled: boolean;
+  stdoutTail: string;
+  stderrTail: string;
+}
+
+/**
+ * TerminalDeniedFrame refuses one frame. The command did not run, but the
+ * socket is still usable: send a different run, or cancel.
+ */
+export interface TerminalDeniedFrame {
+  kind: "denied";
+  protocol: number;
+  reason: string;
+}
+
+/** Every frame the terminal server can push. Narrow it with `kind`. */
+export type TerminalServerFrame =
+  | TerminalStartFrame
+  | TerminalOutputFrame
+  | TerminalExitFrame
+  | TerminalDeniedFrame;
+
+/** Every frame a client can send to a terminal. */
+export type TerminalClientFrame = TerminalRunFrame | TerminalCancelFrame;
+
+/**
  * decodeFrame parses one server frame and returns it narrowed by `kind`.
  *
  * It throws rather than returning null: an unknown kind means this client and
@@ -427,5 +526,41 @@ export function decodeFrame(raw: string): ServerFrame {
       return parsed as PongFrame;
     default:
       throw new Error(`未知的帧类型：${kind}`);
+  }
+}
+
+/**
+ * decodeTerminalFrame parses one terminal frame and returns it narrowed by
+ * `kind`.
+ *
+ * The terminal gets its own decoder rather than sharing decodeFrame: the two
+ * sockets never carry each other's frames, so a snapshot arriving here is a
+ * server that answered the wrong route, and accepting it would hide that.
+ */
+export function decodeTerminalFrame(raw: string): TerminalServerFrame {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("frame is not valid JSON");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("frame is not a JSON object");
+  }
+  const kind = (parsed as { kind?: unknown }).kind;
+  if (typeof kind !== "string") {
+    throw new Error("frame has no kind discriminator");
+  }
+  switch (kind) {
+    case "start":
+      return parsed as TerminalStartFrame;
+    case "output":
+      return parsed as TerminalOutputFrame;
+    case "exit":
+      return parsed as TerminalExitFrame;
+    case "denied":
+      return parsed as TerminalDeniedFrame;
+    default:
+      throw new Error("未知的终端帧类型：" + kind);
   }
 }

@@ -149,6 +149,7 @@ the Rust signatures live in the crates' README.md files.
 | 20 | `PUT` | `/api/sessions/{id}/file` | 把编辑过的缓冲区保存进那个工作区 | `200` |
 | 21 | `POST` | `/api/sessions/{id}/revert` | 把一个文件恢复到提交时的字节 | `200` |
 | 22 | `GET` | `/api/sessions/{id}/search` | 那个工作区里包含 ?q= 的行 | `200` |
+| 23 | `GET` | `/api/sessions/{id}/terminal` | WebSocket：跑一行命令，把它的输出实时回传 | `101` |
 
 ### 4.1 `GET /healthz`
 
@@ -939,6 +940,66 @@ GET /api/sessions/{id}/search?q=needle&limit=50
   不是有人在搜索框里想打的东西；回答它就等于用很慢的方式说「你问的是全部」。
 - `limit` 默认 200，会被夹到 1..=200。
 - 工作区取自 `session/start`，与 §4.17 完全一致。
+
+### 4.23 `GET /api/sessions/{id}/terminal`（WebSocket）
+
+一个人在键盘前，一次一行命令；stdout 与 stderr 边产生边回传。它不是 shell：没有 PTY，
+没有持久会话，也没有交互 stdin（见 `docs/14-adr-terminal.md` §6）。
+
+```
+GET /api/sessions/{id}/terminal
+Sec-WebSocket-Protocol: hearth.v1
+```
+
+与 §4.8 同一个 base URL 上升级，且走**同一个**握手函数（`ws_upgrade`）：认证、`Origin`、
+`X-Hearth-Protocol` 与 `Sec-WebSocket-Accept` 的检查只写一遍，所以一条规则不可能在事件
+socket 上成立、在这个 socket 上被忘掉。`hearth.v1` 被提供了才会回声。
+
+**客户端 → 服务端，两种帧。** 判别字段是 `kind`：
+
+```json
+{"kind":"run","command":"cargo test -q","cwd":"crates/core"}
+{"kind":"cancel"}
+```
+
+`cwd` 是工作区相对路径，可省略；省略或空串是工作区根，并且过的是 §4.17/§4.18 那个
+解析器（拒 `..`，拒符号链接逃逸）。同一时刻只跑一条：前一条还在跑时再来一条 `run`
+得到 `denied`，不排队。被拒的帧一个事件都不写。
+
+**服务端 → 客户端，四种帧。** 每一帧都带 `"protocol": 1`：
+
+```json
+{"kind":"start","protocol":1,"command":"cargo test -q","cwd":"crates/core"}
+{"kind":"output","protocol":1,"stream":"stdout","text":"running 12 tests\n"}
+{"kind":"exit","protocol":1,"exitCode":0,"durationMs":841,"cancelled":false,"stdoutTail":"…","stderrTail":""}
+{"kind":"denied","protocol":1,"reason":"the command is empty"}
+```
+
+- `start` 在进程启动**之前**发出：从没收到它的客户端就知道什么都没跑。什么都没跑时
+  `exitCode` 为 `-1`；原因（如果有）搭在 `terminal/end` 事件上——这一帧只报数字。
+- `output` 一帧只装一条流（`stdout` 或 `stderr`），按完整的 UTF-8 字符切。每条流最多
+  回传 **1 MiB**（`TERMINAL_STREAM_BUDGET`）；超过之后字节被丢掉，改为每条流发一条
+  说明。
+- `exit` 结束这次运行：退出码、耗时、是否被取消，以及两条流各自的末 **4 KiB**
+  （`TAIL_BYTES`）——给实时输出已经滚掉之后才来的读者。
+- `denied` 拒绝一帧并让 socket 继续可用，所以面板能把原因显示在被拒的那条命令旁边。
+  空命令、不存在或跑出工作区的 `cwd`、前一条还在跑时的第二条 `run`、以及记不进日志的
+  命令，都从这里回来。
+- `cancel` 杀掉正在跑的进程树（`crates/exec`）来结束它，并且**不写第三条事件**：
+  `terminal/end` 的 `cancelled: true` 就是记录。关掉 socket 以同样方式取消——一个关掉的
+  面板不能留下没人看得见的进程。
+- **升级前 403**：服务端以 `read-only` 启动时如此。一个工具跑不了命令的会话，不能提供
+  一个能跑的面。与 §4.20 同一道切法，且在查会话 id 之前就判，所以 read-only 服务端对
+  不存在的 id 也答 `403`。
+- 两条事件都由**服务端**追加：进程启动之前写 `terminal/run`（记不下来的命令不跑），
+  结束时写 `terminal/end`——socket 已经断了也照写，因为一条没有结尾的命令就是日志上的
+  一个洞。载荷：第一条是 `command` 与 `cwd`；第二条是 `command`、`cwd`、`exitCode`、
+  `durationMs`、`cancelled`、`stdoutTail`、`stderrTail`，有原因时再加 `message`。
+  这就是 `events-v1.md` §4.0.12 列出的那两行；被拒的命令两行都不写。
+- **不逐命令审批，也没有超时。** 键盘前的那个人正是审批提示要保护的对象，所以让他批准
+  自己的按键什么都买不到；`cancel` 帧或关掉 socket 是一条运行提前结束的方式。沙箱
+  enforcer 装在每一条子进程上，这让这个面比它旁边的 `shell` 工具**更严**，不是更松。
+  见 `docs/14-adr-terminal.md` §5。
 
 ---
 ---

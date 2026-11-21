@@ -29,8 +29,8 @@ pub use goal::{GoalEndTool, GOAL_META_KEY};
 pub use image::{ReadImageTool, ALLOWED_MEDIA_TYPES, MAX_IMAGE_BYTES};
 pub use present::PresentTool;
 pub use shell::{
-    ShellTool, SHELL_CODE_BLOCKED, SHELL_CODE_EMPTY_COMMAND, SHELL_CODE_EXEC_FAILED,
-    SHELL_CODE_SANDBOX,
+    shell_invocation, ShellTool, SHELL_CODE_BLOCKED, SHELL_CODE_EMPTY_COMMAND,
+    SHELL_CODE_EXEC_FAILED, SHELL_CODE_SANDBOX,
 };
 pub use todo::TodoWriteTool;
 pub use web::{SearchConfig, WebFetchTool, WebSearchTool, WEB_CODE_BAD_CONTENT};

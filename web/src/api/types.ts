@@ -42,4 +42,13 @@ export type {
   PingFrame,
   ServerFrame,
   ClientFrame,
+  TerminalFrameKind,
+  TerminalRunFrame,
+  TerminalCancelFrame,
+  TerminalStartFrame,
+  TerminalOutputFrame,
+  TerminalExitFrame,
+  TerminalDeniedFrame,
+  TerminalServerFrame,
+  TerminalClientFrame,
 } from './protocol';

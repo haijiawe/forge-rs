@@ -62,6 +62,12 @@ pub mod decision {
 }
 
 /// WebSocket frame kinds. The discriminator is always `kind`.
+///
+/// The event stream and the terminal share this vocabulary but never a socket:
+/// `snapshot`/`event`/`delta` belong to `GET /api/sessions/{id}/stream`,
+/// `run`/`cancel`/`start`/`output`/`exit`/`denied` to
+/// `GET /api/sessions/{id}/terminal`. A client that meets an unknown kind on
+/// either socket ignores that frame instead of guessing.
 pub mod kind {
     pub const SNAPSHOT: &str = "snapshot";
     pub const EVENT: &str = "event";
@@ -69,6 +75,20 @@ pub mod kind {
     pub const ERROR: &str = "error";
     pub const PING: &str = "ping";
     pub const PONG: &str = "pong";
+    /// Client to server: run the command line in `cwd`.
+    pub const RUN: &str = "run";
+    /// Client to server: stop the command that is running, if any.
+    pub const CANCEL: &str = "cancel";
+    /// Server to client: the command was accepted and a process is starting.
+    pub const START: &str = "start";
+    /// Server to client: bytes the process wrote, already split on a character
+    /// boundary so `text` is never half a UTF-8 sequence.
+    pub const OUTPUT: &str = "output";
+    /// Server to client: the process ended (or was cancelled); `exit` is the
+    /// last frame a client needs before it may enable its input again.
+    pub const EXIT: &str = "exit";
+    /// Server to client: the request was refused and nothing ran.
+    pub const DENIED: &str = "denied";
 }
 
 /// Attachment kinds accepted by `POST /messages`.
@@ -352,6 +372,85 @@ pub struct PongFrame {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PingFrame {
     pub kind: String,
+}
+
+/// `GET /api/sessions/{id}/terminal`, client to server: run one command line.
+///
+/// `command` is one line as a person typed it, handed to the platform shell by
+/// the runner. `cwd` is relative to the session workspace and defaults to its
+/// root; the server resolves it and refuses anything that escapes, so this field
+/// can never name a directory the session does not own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalRunFrame {
+    pub kind: String,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+}
+
+/// `GET /api/sessions/{id}/terminal`, client to server: stop the live command.
+///
+/// Cancelling costs no event of its own: the `terminal/end` line records
+/// `cancelled: true`, so the log still says what happened without a second
+/// write racing the one that does.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalCancelFrame {
+    pub kind: String,
+}
+
+/// `GET /api/sessions/{id}/terminal`, server to client: the command was accepted.
+///
+/// Sent before the process starts, so a client that never sees `start` knows
+/// nothing ran.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalStartFrame {
+    pub kind: String,
+    pub protocol: u8,
+    pub command: String,
+    pub cwd: String,
+}
+
+/// `GET /api/sessions/{id}/terminal`, server to client: streamed output.
+///
+/// `stream` is `"stdout"` or `"stderr"`; `text` is always whole UTF-8
+/// characters, because a reader that split a multi-byte character would show a
+/// replacement glyph where the process wrote a letter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalOutputFrame {
+    pub kind: String,
+    pub protocol: u8,
+    pub stream: String,
+    pub text: String,
+}
+
+/// `GET /api/sessions/{id}/terminal`, server to client: the command is over.
+///
+/// The tails are the same bytes that reached `terminal/end`, bounded and
+/// possibly marked truncated. `exitCode` is `-1` when nothing ran.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalExitFrame {
+    pub kind: String,
+    pub protocol: u8,
+    #[serde(rename = "exitCode")]
+    pub exit_code: i32,
+    #[serde(rename = "durationMs")]
+    pub duration_ms: i64,
+    pub cancelled: bool,
+    #[serde(rename = "stdoutTail")]
+    pub stdout_tail: String,
+    #[serde(rename = "stderrTail")]
+    pub stderr_tail: String,
+}
+
+/// `GET /api/sessions/{id}/terminal`, server to client: the request was refused.
+///
+/// Nothing ran and no `terminal/run` was written; a refusal that left a log line
+/// would make a denied click look like a command that ran.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalDeniedFrame {
+    pub kind: String,
+    pub protocol: u8,
+    pub reason: String,
 }
 
 #[cfg(test)]

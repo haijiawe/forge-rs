@@ -78,6 +78,61 @@ pub trait TurnRunner: Send + Sync {
     fn cancel(&self) -> Result<()>;
 }
 
+/// One command a person typed into the browser terminal.
+///
+/// This is the second half of the frozen seam: the server owns the socket, the
+/// frames and the two log lines, the runner owns the process. Splitting it that
+/// way keeps `hearth-server` free of `hearth-exec` and `hearth-sandbox`, so the
+/// HTTP layer still cannot start a process on its own.
+pub struct TerminalRequest {
+    /// The line exactly as typed. Shell parsing is the runner's job, because
+    /// only the runner knows which shell this host has.
+    pub command: String,
+    /// Absolute directory the command starts in, already checked to sit inside
+    /// the session's workspace.
+    pub cwd: PathBuf,
+    /// Flipped by a `cancel` frame or by a socket that went away. The runner
+    /// must stop the process when it sees this, and must not outlive it.
+    pub cancel: CancelToken,
+}
+
+/// Where a running command's output goes.
+///
+/// Called on the reader thread once per chunk, so an implementation must not
+/// block: a slow sink stalls one pipe and can deadlock the child. The bytes are
+/// not text yet; the server splits them on character boundaries.
+pub trait TerminalSink: Send + Sync {
+    fn output(&self, stream: &str, bytes: &[u8]);
+}
+
+/// What one command produced, in the terms `terminal/end` records.
+#[derive(Debug, Clone, Default)]
+pub struct TerminalOutcome {
+    /// The child's exit status, or `-1` when no process ran.
+    pub exit_code: i32,
+    pub duration_ms: i64,
+    /// True when the run ended because the cancel token flipped.
+    pub cancelled: bool,
+    /// Bounded tails, already marked `(truncated)` by the caller that cut them.
+    pub stdout_tail: String,
+    pub stderr_tail: String,
+    /// Why nothing ran, or an empty string. Set iff `exit_code == -1`.
+    pub message: String,
+}
+
+/// Runs one terminal command line for one session.
+///
+/// Implementations must be usable from the connection thread and must return
+/// only after the process is reaped: the caller writes `terminal/end` next, and
+/// a line that outlived its process would make the log disagree with the world.
+pub trait TerminalRunner: Send + Sync {
+    fn run(
+        &self,
+        request: &TerminalRequest,
+        sink: Arc<dyn TerminalSink>,
+    ) -> Result<TerminalOutcome>;
+}
+
 /// How the browser UI is found. `None` means the build embedded it; a checkout
 /// that never ran `make web` embeds a placeholder page with status 200.
 /// Tests inject a temporary directory so no build step is needed.
@@ -97,6 +152,10 @@ pub struct Options {
     /// `None` means no runner: `POST /messages` answers 503, which is how the
     /// HTTP conformance corpus exercises the surface without a model.
     pub new_runner: Option<Arc<dyn Fn(&str) -> Arc<dyn TurnRunner> + Send + Sync>>,
+    /// `None` means no terminal: the WS upgrade answers 403, which is how a
+    /// read-only session refuses it. The CLI supplies the process-starting half
+    /// because this crate must not know how to spawn anything.
+    pub new_terminal: Option<Arc<dyn Fn(&str) -> Arc<dyn TerminalRunner> + Send + Sync>>,
     pub static_source: StaticSource,
     pub poll_interval: Duration,
     pub ping_interval: Duration,
@@ -127,6 +186,7 @@ impl Default for Options {
             version: "0.0.0-dev".into(),
             token: String::new(),
             new_runner: None,
+            new_terminal: None,
             static_source: StaticSource::Embedded,
             poll_interval: Duration::from_millis(25),
             ping_interval: Duration::from_secs(30),

@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 hearth-core = { path = "../core" }
+hearth-exec = { path = "../exec" }
 hearth-config = { path = "../config" }
 hearth-sandbox = { path = "../sandbox" }
 hearth-llm = { path = "../llm" }

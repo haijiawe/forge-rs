@@ -41,6 +41,7 @@ pub mod sessioncmd;
 pub mod skillcmd;
 pub mod subagentcmd;
 pub mod teamcmd;
+pub mod terminal;
 pub mod web;
 pub mod wiring;
 

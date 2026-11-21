@@ -173,6 +173,7 @@ dependencies = [
  "hearth-config",
  "hearth-context",
  "hearth-core",
+ "hearth-exec",
  "hearth-experts",
  "hearth-goal",
  "hearth-import",

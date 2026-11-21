@@ -75,6 +75,11 @@ pub const ROUTES: &[Route] = &[
         purpose: "WebSocket 升级：订阅新事件（需要子协议或协议头）",
     },
     Route {
+        method: "GET",
+        path: "/api/sessions/{id}/terminal",
+        purpose: "WebSocket 升级：一个人敲一行命令，输出实时回传（read-only 会话没有）",
+    },
+    Route {
         method: "POST",
         path: "/api/sessions/{id}/messages",
         purpose: "把一条用户消息排进会话（需要 Idempotency-Key）",

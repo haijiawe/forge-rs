@@ -1,0 +1,185 @@
+{
+  "name": "ok_terminal_run",
+  "description": "terminal/run and terminal/end: a person ran a shell command from the IDE terminal. They are not tool/call and tool/result - a human command has no model in the loop, the same reason file/write is its own type. The run row is written before the command starts, so a process that dies mid-command has already said what it was running; the end row closes it with the exit code (-1 when no status was reaped, with message saying why), the duration, whether a person cancelled it, and the last 4 KiB of each stream. A command refused before it runs writes neither row: a record that says what ran must not describe something that did not.",
+  "lines": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "c9d0e1f2132435465768798a0101",
+      "ts": 1794787200700,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "terminal/run",
+      "payload": {
+        "command": "cargo test --workspace --offline",
+        "cwd": "."
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "c9d0e1f2132435465768798a0102",
+      "ts": 1794787200701,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "terminal/end",
+      "payload": {
+        "command": "cargo test --workspace --offline",
+        "cwd": ".",
+        "exitCode": 0,
+        "durationMs": 38201,
+        "cancelled": false,
+        "stdoutTail": "test result: ok. 1497 passed; 0 failed\n",
+        "stderrTail": ""
+      }
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "id": "c9d0e1f2132435465768798a0103",
+      "ts": 1794787200702,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "terminal/run",
+      "payload": {
+        "command": "cargo build --release -p hearth-cli",
+        "cwd": "."
+      }
+    },
+    {
+      "v": 1,
+      "seq": 4,
+      "id": "c9d0e1f2132435465768798a0104",
+      "ts": 1794787200703,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "terminal/end",
+      "payload": {
+        "command": "cargo build --release -p hearth-cli",
+        "cwd": ".",
+        "exitCode": 130,
+        "durationMs": 1502,
+        "cancelled": true,
+        "stdoutTail": "   Compiling hearth-core v0.1.0\n",
+        "stderrTail": ""
+      }
+    },
+    {
+      "v": 1,
+      "seq": 5,
+      "id": "c9d0e1f2132435465768798a0105",
+      "ts": 1794787200704,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "terminal/run",
+      "payload": {
+        "command": "nope.exe --version",
+        "cwd": "crates/cli"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 6,
+      "id": "c9d0e1f2132435465768798a0106",
+      "ts": 1794787200705,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "terminal/end",
+      "payload": {
+        "command": "nope.exe --version",
+        "cwd": "crates/cli",
+        "exitCode": -1,
+        "durationMs": 0,
+        "cancelled": false,
+        "stdoutTail": "",
+        "stderrTail": "",
+        "message": "the shell could not be started"
+      }
+    }
+  ],
+  "expect": "ok",
+  "canonical": [
+    {
+      "v": 1,
+      "seq": 1,
+      "id": "c9d0e1f2132435465768798a0101",
+      "ts": 1794787200700,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "terminal/run",
+      "payload": {
+        "command": "cargo test --workspace --offline",
+        "cwd": "."
+      }
+    },
+    {
+      "v": 1,
+      "seq": 2,
+      "id": "c9d0e1f2132435465768798a0102",
+      "ts": 1794787200701,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "terminal/end",
+      "payload": {
+        "command": "cargo test --workspace --offline",
+        "cwd": ".",
+        "exitCode": 0,
+        "durationMs": 38201,
+        "cancelled": false,
+        "stdoutTail": "test result: ok. 1497 passed; 0 failed\n",
+        "stderrTail": ""
+      }
+    },
+    {
+      "v": 1,
+      "seq": 3,
+      "id": "c9d0e1f2132435465768798a0103",
+      "ts": 1794787200702,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "terminal/run",
+      "payload": {
+        "command": "cargo build --release -p hearth-cli",
+        "cwd": "."
+      }
+    },
+    {
+      "v": 1,
+      "seq": 4,
+      "id": "c9d0e1f2132435465768798a0104",
+      "ts": 1794787200703,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "terminal/end",
+      "payload": {
+        "command": "cargo build --release -p hearth-cli",
+        "cwd": ".",
+        "exitCode": 130,
+        "durationMs": 1502,
+        "cancelled": true,
+        "stdoutTail": "   Compiling hearth-core v0.1.0\n",
+        "stderrTail": ""
+      }
+    },
+    {
+      "v": 1,
+      "seq": 5,
+      "id": "c9d0e1f2132435465768798a0105",
+      "ts": 1794787200704,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "terminal/run",
+      "payload": {
+        "command": "nope.exe --version",
+        "cwd": "crates/cli"
+      }
+    },
+    {
+      "v": 1,
+      "seq": 6,
+      "id": "c9d0e1f2132435465768798a0106",
+      "ts": 1794787200705,
+      "session": "s_01jya7c9q3r5t7v9w1x3y5z7",
+      "type": "terminal/end",
+      "payload": {
+        "command": "nope.exe --version",
+        "cwd": "crates/cli",
+        "exitCode": -1,
+        "durationMs": 0,
+        "cancelled": false,
+        "stdoutTail": "",
+        "stderrTail": "",
+        "message": "the shell could not be started"
+      }
+    }
+  ]
+}

@@ -3,7 +3,7 @@ dir: crates/cli
 layer: L3
 role: the hearth binary: argument parsing, chat/web/doctor/index/import/session/goal/schedule/plugin/expert/team/market, usage, version
 public: [run, reorder_flags, command_after_flags, VERSION, COMMIT, USAGE, EXIT_OK, EXIT_FAILURE, EXIT_USAGE]
-may_import: [hearth-core, hearth-config, hearth-context, hearth-sandbox, hearth-llm, hearth-session, hearth-agent, hearth-tool, hearth-server, hearth-protocol, hearth-store, hearth-import, hearth-mcp, hearth-skill, hearth-subagent, hearth-net, hearth-goal, hearth-schedule, hearth-market, hearth-plugin, hearth-experts, hearth-team]
+may_import: [hearth-core, hearth-exec, hearth-config, hearth-context, hearth-sandbox, hearth-llm, hearth-session, hearth-agent, hearth-tool, hearth-server, hearth-protocol, hearth-store, hearth-import, hearth-mcp, hearth-skill, hearth-subagent, hearth-net, hearth-goal, hearth-schedule, hearth-market, hearth-plugin, hearth-experts, hearth-team]
 must_not: []
 gate: make arch
 ---

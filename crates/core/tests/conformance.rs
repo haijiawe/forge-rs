@@ -94,12 +94,16 @@ fn every_case_file_is_present() {
     // tenth: the IDE's write route added `file/write`, the first event type that
     // records an act by the person rather than by the loop. The file-revert case
     // is the eleventh, and exists for the same reason: putting a file back is a
-    // different act from writing one, so it may not borrow that type's name.
+    // different act from writing one, so it may not borrow that type's name. The
+    // terminal case is the twelfth: the IDE terminal added `terminal/run` and
+    // `terminal/end` for the same human-versus-loop reason, and it pins the one
+    // shape that makes the feature defensible at all — a denied command has a
+    // `run` row and no `end` row, because nothing started.
     let found = cases();
     assert_eq!(
         found.len(),
-        34,
-        "expected 34 conformance cases, found {}: {:?}",
+        35,
+        "expected 35 conformance cases, found {}: {:?}",
         found.len(),
         found.iter().map(|c| c.name.as_str()).collect::<Vec<_>>()
     );

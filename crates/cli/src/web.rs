@@ -753,8 +753,14 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
     enforcer_spec.extra_read = grants.read;
     enforcer_spec.extra_write = grants.write;
     enforcer_spec.allow_net = grants.allow_net;
-    let _enforcer = match hearth_sandbox::new(enforcer_spec, None) {
-        Ok(enforcer) => enforcer,
+    // Held, not dropped: the terminal installs it on every command it runs. It
+    // used to be bound to `_enforcer` and never used, which meant `--sandbox`
+    // constrained nothing about a child process — only which tools the policy
+    // layer would offer. Keeping the value here is what makes the terminal
+    // stricter than the `shell` tool rather than merely equivalent.
+    let enforcer: Arc<dyn hearth_sandbox::Enforcer> = match hearth_sandbox::new(enforcer_spec, None)
+    {
+        Ok(enforcer) => Arc::from(enforcer),
         Err(e) => return runtime_error(stderr, &format!("sandbox: {}", e.message())),
     };
 
@@ -772,6 +778,18 @@ fn run_inner(args: &[String], stderr: &mut dyn Write) -> i32 {
         // must not offer an editor that can: the two surfaces would then disagree
         // about what the session is, and the quieter one would win.
         workspace_write: sandbox != SandboxMode::ReadOnly,
+        // The terminal is offered on the same judgement as saving a file, and
+        // for the same reason: a read-only session that cannot write through its
+        // tools must not offer a shell that can, or the quieter surface wins.
+        new_terminal: if sandbox == SandboxMode::ReadOnly {
+            None
+        } else {
+            let enforcer = Arc::clone(&enforcer);
+            Some(Arc::new(move |_session: &str| {
+                Arc::new(crate::terminal::Terminal::new(Arc::clone(&enforcer)))
+                    as Arc<dyn hearth_server::api::TerminalRunner>
+            }))
+        },
         // A snapshot, not a query: plugins are loaded once, so what the model
         // can reach does not change while this process runs. Discovering it here
         // keeps `hearth-server` free of the four crates that would be needed.
