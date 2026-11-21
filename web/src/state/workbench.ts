@@ -118,6 +118,13 @@ export interface WorkbenchState {
   /** Open tabs, in the order they were opened. */
   open: readonly FileTab[];
   activePath: string | null;
+  /**
+   * True while the centre pane shows the per-turn changes instead of a file.
+   *
+   * Separate from `showDiff` rather than one enum so the two can never both be
+   * true by accident; every switch sets the other one false explicitly.
+   */
+  showTurns: boolean;
   showDiff: boolean;
   diff: readonly DiffEntry[] | null;
   diffLoading: boolean;
@@ -197,6 +204,7 @@ export class WorkbenchStore {
       dirs: {},
       open: [],
       activePath: null,
+      showTurns: false,
       showDiff: false,
       diff: null,
       diffLoading: false,
@@ -269,7 +277,7 @@ export class WorkbenchStore {
    * that stays on screen looks like a click that did nothing.
    */
   openFromDiff(path: string): void {
-    this.publish({ showDiff: false });
+    this.publish({ showDiff: false, showTurns: false });
     this.openFile(path);
   }
 
@@ -480,7 +488,7 @@ export class WorkbenchStore {
    */
   openHit(path: string, line: number): void {
     if (path === '') return;
-    this.publish({ showDiff: false });
+    this.publish({ showDiff: false, showTurns: false });
     this.openFile(path);
     // `openFile` publishes the tab before the read answers; the reveal is
     // recorded now and the editor applies it whenever the text arrives, which is
@@ -570,8 +578,20 @@ export class WorkbenchStore {
   /** Flip the centre pane between the editor and the diff list, reading once. */
   toggleDiff(): void {
     const showDiff = !this.state.showDiff;
-    this.publish({ showDiff });
+    this.publish({ showDiff, showTurns: false });
     if (showDiff && this.state.diff === null && !this.state.diffLoading) void this.loadDiff();
+  }
+
+  /**
+   * Flip the centre pane between the editor and the per-turn change list.
+   *
+   * Nothing is read here: the turns are folded from the session log, which the
+   * session store already holds. That is why this switch is instant while the
+   * diff list has to fetch.
+   */
+  toggleTurns(): void {
+    const showTurns = !this.state.showTurns;
+    this.publish({ showTurns, showDiff: showTurns ? false : this.state.showDiff });
   }
 
   /** Re-read the diff list after a failure (the pane's retry button). */

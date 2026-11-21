@@ -253,6 +253,7 @@ export function SessionView({ api, sessionId, token, baseUrl, onBack }: SessionV
         agent={agent}
         connecting={state.connecting}
         needsResync={state.needsResync}
+        turnChanges={state.turnChanges}
       />
     );
   }

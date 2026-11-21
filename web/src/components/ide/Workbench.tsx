@@ -24,6 +24,8 @@ import { SearchPanel } from './SearchPanel';
 import { Tabs } from './Tabs';
 import { TerminalPanel } from './TerminalPanel';
 import type { TerminalConnect } from './TerminalPanel';
+import { TurnChanges } from './TurnChanges';
+import type { TurnChangeTurn } from '../../state/turnChanges';
 
 /** Below this the three columns stop being usable; SessionView falls back. */
 export const WIDE_QUERY = '(min-width: 900px)';
@@ -101,6 +103,16 @@ export interface WorkbenchProps {
   api?: WorkbenchApi;
   /** Injectable for tests; production leaves it out and the drawer dials itself. */
   terminalConnect?: TerminalConnect;
+  /**
+   * What each turn wrote, folded by the session store.
+   *
+   * The workbench does not read the log itself — it has no session store — so
+   * the data is handed in. It is optional because a host that has no session
+   * (a test, an embedded view) still gets a working editor; the pane then says
+   * there is nothing to jump to rather than showing an empty list as if a turn
+   * had written nothing.
+   */
+  turnChanges?: readonly TurnChangeTurn[];
 }
 
 export function Workbench({
@@ -111,6 +123,7 @@ export function Workbench({
   needsResync,
   api,
   terminalConnect,
+  turnChanges = [],
 }: WorkbenchProps) {
   const store = useMemo(() => {
     const options = api === undefined ? { sessionId } : { sessionId, api };
@@ -202,6 +215,17 @@ export function Workbench({
           </button>
           <button
             type="button"
+            className={state.showTurns ? 'button button-primary' : 'button button-ghost'}
+            aria-pressed={state.showTurns}
+            title="按轮列出 agent 写过的文件与行，点一条跳到那一行"
+            onClick={() => {
+              store.toggleTurns();
+            }}
+          >
+            本轮改动
+          </button>
+          <button
+            type="button"
             className={state.showDiff ? 'button button-primary' : 'button button-ghost'}
             aria-pressed={state.showDiff}
             title="显示工作区改动，而不是编辑器"
@@ -273,7 +297,14 @@ export function Workbench({
         )}
 
         <section className="wb-pane wb-centre" aria-label="编辑器">
-          {state.showDiff ? (
+          {state.showTurns ? (
+            <TurnChanges
+              turns={turnChanges}
+              onOpen={(path, line) => {
+                store.openHit(path, line);
+              }}
+            />
+          ) : state.showDiff ? (
             <DiffList
               files={state.diff}
               loading={state.diffLoading}

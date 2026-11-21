@@ -1691,6 +1691,129 @@ body {
   cursor: default;
 }
 
+/* 按轮的改动列表：与 diff 列表同一栏，因此同样铺满、自己滚。 */
+.wb-turn-pane {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+}
+
+.wb-turn-note {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.wb-turn {
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.wb-turn-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border);
+}
+
+.wb-turn-number {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wb-turn-count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.wb-turn-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wb-turn-files > li {
+  padding: 4px 10px 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.wb-turn-files > li:first-child {
+  border-top: none;
+}
+
+.wb-turn-file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.wb-turn-file:hover .wb-turn-path {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.wb-turn-path {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-turn-change {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--warn);
+}
+
+.wb-turn-writes {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.wb-turn-ranges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.wb-turn-range {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: var(--mono);
+  cursor: pointer;
+}
+
+.wb-turn-range:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.wb-turn-more {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 1px 2px;
+}
+
 .wb-editor-body {
   display: flex;
   flex: 1;

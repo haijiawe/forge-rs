@@ -8,6 +8,7 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::builtin::lines;
 use crate::contract::{
     decode_args, Call, Result, CODE_DENIED, CODE_IO_ERROR, CODE_NOT_FOUND, CODE_OUTSIDE_WORKSPACE,
     ERR_BAD_ARGS,
@@ -231,12 +232,35 @@ impl Tool for FsWrite {
                 return path_error("fs_write", &rel, err);
             }
         }
+        // Read what is there before replacing it: this call is the only place
+        // that ever holds both texts, so it is the only place that can say
+        // which lines the write touched. A file that exists but cannot be read
+        // as text gets no answer rather than a wrong one — "all lines are new"
+        // about a file that was already there would be a claim nobody made.
+        let existed = fs::metadata(&absolute).is_ok();
+        let before = fs::read(&absolute)
+            .ok()
+            .and_then(|raw| String::from_utf8(raw).ok());
+        if existed && before.is_none() {
+            // Keep going: the write itself is still the caller's intent. Only
+            // the line report is withheld.
+        }
+        let previous = before.as_deref().unwrap_or_default();
+        let readable = !existed || before.is_some();
+
         let bytes = args.content.as_bytes();
         if let Err(err) = fs::write(&absolute, bytes) {
             return path_error("fs_write", &rel, err);
         }
-        Result::ok(format!("wrote {} bytes to {rel}", bytes.len()))
+        let mut result = Result::ok(format!("wrote {} bytes to {rel}", bytes.len()))
             .with_meta("bytes", json!(bytes.len()))
+            .with_meta("path", json!(rel));
+        if readable {
+            if let Some(change) = lines::changed(previous, &args.content) {
+                result = result.with_meta("lines", change.to_json());
+            }
+        }
+        result
     }
 }
 
@@ -321,8 +345,15 @@ impl Tool for FsEdit {
                 fs::Permissions::from_mode(metadata.permissions().mode()),
             );
         }
-        Result::ok(format!("replaced {replacements} occurrence(s) in {rel}"))
+        let mut result = Result::ok(format!("replaced {replacements} occurrence(s) in {rel}"))
             .with_meta("replacements", json!(replacements))
+            .with_meta("path", json!(rel));
+        // Both texts are in hand right here; the caller downstream will only
+        // ever see the second one.
+        if let Some(change) = lines::changed(&content, &updated) {
+            result = result.with_meta("lines", change.to_json());
+        }
+        result
     }
 }
 
@@ -919,6 +950,92 @@ mod tests {
             text.contains("look-around") || text.contains("lookahead"),
             "{text}"
         );
+    }
+
+    /// A scratch workspace, removed by the caller when it is done.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("hearth-fs-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    fn write_call(dir: &Path, args: serde_json::Value) -> Call {
+        Call {
+            id: "call-1".into(),
+            name: "fs_write".into(),
+            args,
+            workspace: dir.to_string_lossy().into_owned(),
+        }
+    }
+
+    #[test]
+    fn fs_write_says_which_lines_it_touched() {
+        let dir = scratch("write-lines");
+        fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").expect("seed");
+        let result = FsWrite.call(write_call(
+            &dir,
+            json!({"path": "a.txt", "content": "one\nTWO\nthree\n"}),
+        ));
+        assert!(!result.is_error, "{}", result.output);
+        let meta = &result.meta;
+        assert_eq!(meta["path"], "a.txt");
+        assert_eq!(meta["lines"]["added"], 1);
+        assert_eq!(meta["lines"]["removed"], 1);
+        assert_eq!(meta["lines"]["ranges"][0]["from"], 2);
+        assert_eq!(meta["lines"]["ranges"][0]["to"], 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fs_write_of_a_new_file_says_every_line_is_new() {
+        let dir = scratch("write-new");
+        let result = FsWrite.call(write_call(
+            &dir,
+            json!({"path": "fresh.txt", "content": "a\nb\n"}),
+        ));
+        assert!(!result.is_error, "{}", result.output);
+        let meta = &result.meta;
+        assert_eq!(meta["lines"]["added"], 2);
+        assert_eq!(meta["lines"]["removed"], 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fs_write_of_identical_bytes_reports_no_line_claim() {
+        // Same content: there is nothing to point at, and "+0 −0" with no range
+        // would be a row a reader cannot use.
+        let dir = scratch("write-same");
+        fs::write(dir.join("a.txt"), "same\n").expect("seed");
+        let result = FsWrite.call(write_call(
+            &dir,
+            json!({"path": "a.txt", "content": "same\n"}),
+        ));
+        assert!(!result.is_error, "{}", result.output);
+        let meta = &result.meta;
+        assert!(meta.get("lines").is_none(), "{meta:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fs_edit_says_which_lines_it_touched() {
+        let dir = scratch("edit-lines");
+        fs::write(dir.join("a.txt"), "1\n2\n3\n4\n").expect("seed");
+        let call = Call {
+            id: "call-2".into(),
+            name: "fs_edit".into(),
+            args: json!({"path": "a.txt", "old": "4", "new": "four\nfive"}),
+            workspace: dir.to_string_lossy().into_owned(),
+        };
+        let result = FsEdit.call(call);
+        assert!(!result.is_error, "{}", result.output);
+        let meta = &result.meta;
+        assert_eq!(meta["path"], "a.txt");
+        assert_eq!(meta["lines"]["added"], 2);
+        assert_eq!(meta["lines"]["removed"], 1);
+        assert_eq!(meta["lines"]["ranges"][0]["from"], 4);
+        assert_eq!(meta["lines"]["ranges"][0]["to"], 5);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

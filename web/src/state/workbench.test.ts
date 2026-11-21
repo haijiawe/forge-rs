@@ -747,3 +747,39 @@ describe('WorkbenchStore — 改动标记', () => {
   });
 });
 });
+describe('WorkbenchStore — 本轮改动', () => {
+  it('opens the per-turn list and puts the diff list away', async () => {
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi() });
+    store.start();
+    await settle();
+    store.toggleDiff();
+    expect(store.getSnapshot().showDiff).toBe(true);
+
+    store.toggleTurns();
+    expect(store.getSnapshot().showTurns).toBe(true);
+    // Two lists in the centre pane would be two answers to the same question.
+    expect(store.getSnapshot().showDiff).toBe(false);
+  });
+
+  it('goes back to the editor on a second press', async () => {
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi() });
+    store.toggleTurns();
+    store.toggleTurns();
+    expect(store.getSnapshot().showTurns).toBe(false);
+  });
+
+  it('opening a change leaves the list for the file it names', async () => {
+    const readFile = vi.fn((_sessionId: string, path: string) =>
+      Promise.resolve(textFile(path, 'one\ntwo\n')),
+    );
+    const store = new WorkbenchStore({ sessionId: SESSION, api: fakeApi({ readFile }) });
+    store.toggleTurns();
+    store.openHit('src/main.rs', 2);
+    await settle();
+
+    const state = store.getSnapshot();
+    expect(state.showTurns).toBe(false);
+    expect(state.activePath).toBe('src/main.rs');
+    expect(state.reveal).toEqual({ path: 'src/main.rs', line: 2 });
+  });
+});

@@ -11,6 +11,7 @@ import { ApiError } from '../api/client';
 import type { HearthApi, OutgoingAttachment } from '../api/client';
 import type { Event } from '../api/events';
 import { latestToolNames } from './capabilities';
+import { turnChangesFrom, type TurnChangeTurn } from './turnChanges';
 import { StreamMachine, type StreamInput, type StreamState } from '../api/stream';
 import { SessionStream, type StreamEvent } from '../api/transport';
 import type { ApprovalDecision, PendingApproval, ServerFrame, SessionDetail } from '../api/types';
@@ -40,6 +41,14 @@ export interface SessionViewState {
   blocks: CompressedBlock[];
   /** Tool names from the newest `llm/call`; empty before the first request. */
   toolNames: string[];
+  /**
+   * What each turn wrote, folded from the log, oldest turn first.
+   *
+   * It is a read of the events rather than stored state: a turn that is still
+   * running grows its rows as the writes land, and a snapshot taken at turn end
+   * would be missing everything the operator watched happen.
+   */
+  turnChanges: TurnChangeTurn[];
   pendingApproval: PendingApproval | null;
   streamError: string | null;
   connecting: boolean;
@@ -105,6 +114,7 @@ export class SessionStore {
       rowKeys: [],
       blocks: [],
       toolNames: [],
+      turnChanges: [],
       pendingApproval: null,
       streamError: null,
       connecting: false,
@@ -298,6 +308,7 @@ export class SessionStore {
       // and a stale copy of a list that can change between turns is worse than
       // walking a few thousand events once per animation frame.
       toolNames: latestToolNames(events),
+      turnChanges: turnChangesFrom(events),
       pendingApproval: machineState.session?.pendingApproval ?? null,
       streamError: machineState.streamError,
       connecting: this.state.connecting,

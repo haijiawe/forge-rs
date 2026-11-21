@@ -9,6 +9,7 @@ pub mod danger;
 pub mod fs;
 pub mod goal;
 pub mod image;
+pub mod lines;
 pub mod present;
 pub mod shell;
 pub mod todo;

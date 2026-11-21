@@ -761,6 +761,42 @@ These two rows are the reason a terminal is allowed to exist here at all. A path
 that runs arbitrary commands without writing them down first would be the one
 hole in the only truth this project keeps — see `docs/14-adr-terminal.md`.
 
+### 4.0.13 `tool/result` line changes
+
+The tools that write files — `fs_write`, `fs_edit` — say which lines they
+touched, in `meta`. This is a fact about one tool call, not a diff of the
+workspace against git, and not a substitute for `file/write`: a reader that
+wants to know what a file looks like asks the file.
+
+| member of `meta` | type | when |
+|     |     |     |
+| `path` | string | the workspace relative file the tool wrote |
+| `lines` | object | only when the new text **and** the text it replaced could both be read and compared |
+| `lines.added`, `lines.removed` | number | how many lines went in and out |
+| `lines.ranges` | array of `{from,to}` | changed runs in the **new** text, 1 based and inclusive, coalesced, at most 200; absent when nothing survived as a line range (a pure deletion) |
+| `lines.coarse` | boolean | the file is larger than one line by line alignment, so a single block covers the change; `ranges` then names the whole remaining body |
+| `lines.cut` | boolean | the comparison stopped at its cap, so the ranges are a prefix of the truth rather than the whole of it |
+
+Three rules, and the first one is why a reader must always tolerate absence:
+
+1. **Absent over wrong.** The old text could not be read — a new file, a
+   binary, an encoding that is not UTF 8 — or either side is over 20,000 lines.
+   In those cases `path` may be there and `lines` is not, and a reader shows
+   nothing rather than a guess.
+2. **A write that changes no byte claims no lines.** Saving a file back with no
+   edit is not a change, and a trailing newline that appears or disappears is
+   not a line that moved. Both report no `lines`.
+3. **The ranges are about the new text.** They answer "where would I look in
+   this file now", which is what an editor marking lines or a list that jumps to
+   a line needs. Where the text used to be is the log's business
+   (`file/write` carries the whole content).
+
+A tool result carries the `turn` it happened in — `0` when it happened outside
+a turn — so a reader may group these claims per turn to answer "what did the
+agent touch in this turn". That grouping is a **view**; nothing about it is
+written down, and a turn that is still running has an ending that is not yet
+true.
+
 ## 5. Append only, never rewrite
 
 1. Records are **only appended**, at the end, one line each. An existing record
